@@ -1,22 +1,28 @@
 {
   "expo": {
     "name": "DART",
-    "slug": "DART",
-    "version": "1.0.0",
+    "slug": "dart-app",
+    "owner": "project-vdb",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "dart",
+    "scheme": "dartapp",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+"newArchEnabled": false,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.projectvdb.dart",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#F1F5F9"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.projectvdb.dart"
     },
     "web": {
       "bundler": "metro",
@@ -25,18 +31,32 @@
     },
     "plugins": [
       "expo-router",
+      "expo-font",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "image": "./assets/images/logo.png",
+          "imageWidth": 150,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+          "backgroundColor": "#F1F5F9"
+        }
+      ],
+      "expo-web-browser",
+      [
+        "expo-dev-client",
+        {
+          "launchMode": "most-recent"
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "b87b2b51-77da-47f5-930f-5539a1304dc0"
+      }
     }
   }
 }

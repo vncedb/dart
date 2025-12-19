@@ -1,0 +1,12 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+  .label {
+    @apply ml-1 text-xs font-bold tracking-wider uppercase text-slate-400;
+  }
+  .input {
+    @apply p-4 font-medium bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-700 dark:text-white;
+  }
+}

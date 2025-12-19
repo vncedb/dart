@@ -1,26 +1,35 @@
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
+ * This file is located in app/constants/Colors.ts
+ * Expo Router treats files in app/ as routes, so we must export a default component
+ * to suppress the "missing required default export" warning.
  */
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+// Dummy component to satisfy Expo Router
+export default function ColorsRoute() {
+  return null;
+}
 
+// Actual Constants
 export const Colors = {
+  primary: '#4f46e5',
+  secondary: '#64748b',
+  background: '#F1F5F9',
+  white: '#FFFFFF',
+  text: '#0f172a',
   light: {
-    text: '#11181C',
+    text: '#0f172a',
     background: '#fff',
-    tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
-    tabIconSelected: tintColorLight,
+    tint: '#4f46e5',
+    icon: '#64748b',
+    tabIconDefault: '#64748b',
+    tabIconSelected: '#4f46e5',
   },
   dark: {
-    text: '#ECEDEE',
-    background: '#151718',
-    tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
-    tabIconSelected: tintColorDark,
+    text: '#fff',
+    background: '#000',
+    tint: '#fff',
+    icon: '#9ba1a6',
+    tabIconDefault: '#9ba1a6',
+    tabIconSelected: '#fff',
   },
 };
