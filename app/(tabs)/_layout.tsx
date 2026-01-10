@@ -9,14 +9,11 @@ export default function TabsLayout() {
       screenOptions={{
         headerShown: false,
         tabBarHideOnKeyboard: true,
-        tabBarStyle: {
-          position: 'absolute',
-          bottom: 0,
-        },
+        lazy: false, // Ensures tabs are mounted immediately, fixing some context issues
       }}
     >
       <Tabs.Screen 
-        name="home" // Changed from 'index'
+        name="home" 
         options={{ title: 'Home' }} 
       />
       <Tabs.Screen 

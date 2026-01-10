@@ -8,13 +8,17 @@
     "icon": "./assets/images/icon.png",
     "scheme": "dartapp",
     "userInterfaceStyle": "automatic",
-"newArchEnabled": false,
+    "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.projectvdb.dart",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
+    },
+    "notification": {
+      "icon": "./assets/images/icon/notification-icon.png",
+      "color": "#4F46E5"
     },
     "android": {
       "adaptiveIcon": {
@@ -35,10 +39,14 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/logo.png",
-          "imageWidth": 150,
+          "image": "./assets/images/dart-logo-transparent-dark.png",
           "resizeMode": "contain",
-          "backgroundColor": "#F1F5F9"
+          "backgroundColor": "#f9f9f9",
+          "imageWidth": 200,
+          "dark": {
+            "image": "./assets/images/dart-logo-transparent-light.png",
+            "backgroundColor": "#0f172a"
+          }
         }
       ],
       "expo-web-browser",
@@ -47,7 +55,9 @@
         {
           "launchMode": "most-recent"
         }
-      ]
+      ],
+      "expo-audio",
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true

@@ -28,7 +28,6 @@ import {
     TextInput,
     TouchableOpacity,
     TouchableWithoutFeedback,
-    UIManager,
     View
 } from 'react-native';
 import Animated, {
@@ -43,16 +42,7 @@ import { ModernAlert, ModernToast } from '../components/ModernUI';
 import OtpVerificationModal from '../components/OtpVerificationModal';
 import { supabase } from '../lib/supabase';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
 WebBrowser.maybeCompleteAuthSession();
-
-// ... [Existing Tooltip & Modal Components remain identical to your file] ...
-// I am omitting them here for brevity, assume they are included as per your original file.
-// If you need the FULL file strictly without omission, I can paste the full block again, 
-// but the logic below is the core Auth Screen export.
 
 // --- ANIMATED TOOLTIP COMPONENT ---
 const AnimatedTooltip = ({ message, isDark }: { message: string, isDark: boolean }) => {
@@ -141,11 +131,13 @@ export default function AuthScreen() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
-  const [visibleTooltip, setVisibleTooltip] = useState<'email' | 'password' | null>(null);
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [errors, setErrors] = useState<{ email?: string; password?: string; confirmPassword?: string }>({});
+  const [visibleTooltip, setVisibleTooltip] = useState<'email' | 'password' | 'confirmPassword' | null>(null);
 
   const [showOtp, setShowOtp] = useState(false);
   const [showResetPass, setShowResetPass] = useState(false);
@@ -165,6 +157,7 @@ export default function AuthScreen() {
     Keyboard.dismiss();
     setErrors({});
     setVisibleTooltip(null);
+    setConfirmPassword('');
     spin.value = withTiming(isLogin ? 1 : 0, { duration: 600, easing: Easing.inOut(Easing.cubic) });
     setIsLogin(!isLogin);
   };
@@ -200,12 +193,48 @@ export default function AuthScreen() {
         if (!password) { newErrors.password = "Password is required."; valid = false; }
     } else {
         if (!validatePassword(password)) { newErrors.password = "Password must contain at least 8 characters, including uppercase, lowercase, number, and symbol."; valid = false; }
+        if (password !== confirmPassword) { newErrors.confirmPassword = "Passwords do not match."; valid = false; }
     }
+    
     setErrors(newErrors);
+    
     if (newErrors.email) setVisibleTooltip('email');
     else if (newErrors.password) setVisibleTooltip('password');
+    else if (newErrors.confirmPassword) setVisibleTooltip('confirmPassword');
     else setVisibleTooltip(null);
+    
     return valid;
+  };
+
+  // Helper to check if user exists in the public profiles table
+  const checkUserExists = async (emailToCheck: string) => {
+      try {
+          // IMPORTANT: The 'profiles' table must have RLS policies that allow public (anon) access 
+          // to query the 'email' column for this to work for unauthenticated users.
+          const { data, error } = await supabase
+              .from('profiles')
+              .select('id')
+              .ilike('email', emailToCheck)
+              .maybeSingle();
+          
+          if (error) {
+              console.log("Error checking user existence:", error);
+              return false;
+          }
+          return !!data;
+      } catch (e) {
+          console.log("Check user exception:", e);
+          return false;
+      }
+  };
+
+  const checkAppRegistration = async (userId: string) => {
+      const { data: profile, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
+      if (error || !profile) {
+          const { error: insertError } = await supabase.from('profiles').insert([{ id: userId, email: email }]);
+          if (insertError) console.log("Profile creation note:", insertError.message);
+      }
+      return true;
   };
 
   const handleAuthAction = async () => {
@@ -217,44 +246,94 @@ export default function AuthScreen() {
 
     setLoading(true);
 
-    if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        setLoading(false);
-        if (error) {
-            const msg = error.message.toLowerCase();
-            if (msg.includes('invalid login') || msg.includes('credential')) { 
-                setErrors({ password: 'Incorrect email or password.' });
-                setVisibleTooltip('password'); 
-            } else if (msg.includes('email not confirmed')) { 
-                setErrors({ email: 'Email not confirmed.' }); 
+    try {
+        if (isLogin) {
+            // --- LOGIN FLOW ---
+            
+            // 1. Check if user exists first
+            const exists = await checkUserExists(email);
+            if (!exists) {
+                setLoading(false);
+                setErrors({ email: "Account not found. Please sign up." });
                 setVisibleTooltip('email');
-            } else { 
-                setAlertConfig({ visible: true, type: 'error', title: 'Login Failed', message: error.message, onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) }); 
+                return;
             }
-        } else {
-            setToastVisible(true);
-            setTimeout(() => { setToastVisible(false); router.replace('/(tabs)/home'); }, 1000);
-        }
-    } else {
-        const { data: { session }, error } = await supabase.auth.signUp({ email, password });
-        setLoading(false);
-        if (error) {
-            if (error.message.includes('already registered')) {
-                setErrors({ email: 'This email is already registered.' });
-                setVisibleTooltip('email');
+
+            // 2. Proceed to Login
+            const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+            setLoading(false);
+            
+            if (error) {
+                const msg = error.message.toLowerCase();
+                if (msg.includes('invalid login') || msg.includes('credential')) { 
+                    setErrors({ password: 'Incorrect email or password.' });
+                    setVisibleTooltip('password'); 
+                } else if (msg.includes('email not confirmed')) { 
+                    setErrors({ email: 'Email not confirmed. Code resent.' }); 
+                    setVisibleTooltip('email');
+                    await supabase.auth.resend({ type: 'signup', email });
+                    setShowOtp(true);
+                } else { 
+                    setAlertConfig({ visible: true, type: 'error', title: 'Login Failed', message: error.message, onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) }); 
+                }
             } else {
-                setAlertConfig({ visible: true, type: 'error', title: 'Sign Up Failed', message: error.message, onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) });
+                if (data.user) {
+                    await checkAppRegistration(data.user.id);
+                    setToastVisible(true);
+                    setTimeout(() => { setToastVisible(false); router.replace('/(tabs)/home'); }, 1000);
+                }
             }
         } else {
-            if (session) router.replace('/introduction');
-            else setShowOtp(true);
+            // --- SIGNUP FLOW ---
+
+            // 1. Check if user exists first
+            const exists = await checkUserExists(email);
+            if (exists) {
+                setLoading(false);
+                setErrors({ email: "This email is already registered. Please log in." });
+                setVisibleTooltip('email');
+                return;
+            }
+
+            // 2. Proceed to Signup
+            const { data: { session }, error } = await supabase.auth.signUp({ email, password });
+            setLoading(false);
+            
+            if (error) {
+                if (error.message.includes('already registered')) {
+                    setErrors({ email: 'This email is already registered.' });
+                    setVisibleTooltip('email');
+                } else {
+                    setAlertConfig({ visible: true, type: 'error', title: 'Sign Up Failed', message: error.message, onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) });
+                }
+            } else {
+                if (session) {
+                     await checkAppRegistration(session.user.id);
+                     router.replace('/introduction');
+                } else {
+                    setShowOtp(true);
+                }
+            }
         }
+    } catch (err: any) {
+        setLoading(false);
+        setAlertConfig({ visible: true, type: 'error', title: 'Error', message: err.message || 'An unexpected error occurred.', onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) });
     }
   };
 
   const handleForgotPassword = async () => {
     if (!email.includes('@')) { setErrors({ email: "Please enter your email address first." }); setVisibleTooltip('email'); return; }
+    
+    // Check existence for forgot password too, to avoid sending emails to non-users
     setLoading(true);
+    const exists = await checkUserExists(email);
+    if (!exists) {
+        setLoading(false);
+        setErrors({ email: "This email is not registered." });
+        setVisibleTooltip('email');
+        return;
+    }
+
     const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
     setLoading(false);
     if (error) {
@@ -267,13 +346,25 @@ export default function AuthScreen() {
         }
     } else {
         setShowOtp(true);
+        setAlertConfig({
+            visible: true,
+            type: 'success',
+            title: 'Code Sent',
+            message: `We've sent a verification code to ${email}.`,
+            onDismiss: () => setAlertConfig((prev: any) => ({ ...prev, visible: false }))
+        });
     }
   };
 
   const handleUpdatePassword = async (newPass: string) => {
     const { error } = await supabase.auth.updateUser({ password: newPass });
     if (error) { setAlertConfig({ visible: true, type: 'error', title: 'Failed', message: error.message, onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) }); } 
-    else { setShowResetPass(false); setToastVisible(true); setTimeout(() => { setToastVisible(false); router.replace('/(tabs)/home'); }, 1000); }
+    else { 
+        supabase.functions.invoke('send-email', { body: { email: email, type: 'PASSWORD_CHANGED' } });
+        setShowResetPass(false); 
+        setToastVisible(true); 
+        setTimeout(() => { setToastVisible(false); router.replace('/(tabs)/home'); }, 1000); 
+    }
   };
 
   const handleGoogleLogin = async () => {
@@ -288,7 +379,8 @@ export default function AuthScreen() {
         const { url } = res;
         const { params } = QueryParams.getQueryParams(url.replace('#', '?'));
         if (params.access_token && params.refresh_token) {
-            await supabase.auth.setSession({ access_token: params.access_token, refresh_token: params.refresh_token });
+            const { data: { user } } = await supabase.auth.setSession({ access_token: params.access_token, refresh_token: params.refresh_token });
+            if (user) await checkAppRegistration(user.id);
             router.replace('/(tabs)/home');
         }
       }
@@ -299,8 +391,10 @@ export default function AuthScreen() {
     } finally { setGoogleLoading(false); }
   };
 
+  // --- UI RENDER HELPERS ---
   const renderCardContent = (mode: 'login' | 'signup') => (
     <View className={`p-8 shadow-2xl rounded-[32px] ${isDark ? 'bg-slate-800' : 'bg-white'}`}>
+        {/* Header */}
         <View className="flex-row items-center justify-between mb-8">
             <TouchableOpacity onPress={() => router.replace('/')} className={`items-center justify-center w-10 h-10 rounded-full ${isDark ? 'bg-slate-700' : 'bg-slate-100'}`}>
                 <HugeiconsIcon icon={ArrowLeft02Icon} size={20} color="#64748b" />
@@ -314,7 +408,8 @@ export default function AuthScreen() {
             {mode === 'login' ? 'Welcome Back' : 'Create Account'}
         </Text>
 
-        <View className="relative z-20 mb-6">
+        {/* Email Input */}
+        <View className="relative z-50 mb-6">
             <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'} ${errors.email ? 'border-red-500' : ''}`}>
             <HugeiconsIcon icon={Mail01Icon} color={errors.email ? "#ef4444" : "#94a3b8"} size={22} />
             <TextInput 
@@ -333,7 +428,8 @@ export default function AuthScreen() {
             {errors.email && visibleTooltip === 'email' && <AnimatedTooltip message={errors.email} isDark={isDark} />}
         </View>
 
-        <View className="relative z-10 mb-16">
+        {/* Password Input */}
+        <View className={`relative z-40 ${mode === 'login' ? 'mb-16' : 'mb-6'}`}>
             <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'} ${errors.password ? 'border-red-500' : ''}`}>
             <HugeiconsIcon icon={LockKeyIcon} color={errors.password ? "#ef4444" : "#94a3b8"} size={22} />
             <TextInput 
@@ -360,6 +456,30 @@ export default function AuthScreen() {
             )}
         </View>
 
+        {/* Confirm Password Input (Signup Only) */}
+        {mode === 'signup' && (
+            <View className="relative z-30 mb-8">
+                <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'} ${errors.confirmPassword ? 'border-red-500' : ''}`}>
+                    <HugeiconsIcon icon={LockKeyIcon} color={errors.confirmPassword ? "#ef4444" : "#94a3b8"} size={22} />
+                    <TextInput 
+                        placeholder="Confirm Password" placeholderTextColor="#94a3b8" 
+                        className={`flex-1 h-full ml-3 font-sans font-medium ${errors.confirmPassword ? 'text-red-500' : (isDark ? 'text-white' : 'text-slate-700')}`} 
+                        secureTextEntry={!showConfirmPassword} value={confirmPassword} 
+                        onFocus={() => setVisibleTooltip(null)}
+                        onChangeText={(t) => { setConfirmPassword(t); setErrors((prev) => ({...prev, confirmPassword: undefined})); setVisibleTooltip(null); }} 
+                    />
+                    <TouchableOpacity onPress={() => {
+                        if (errors.confirmPassword) setVisibleTooltip(visibleTooltip === 'confirmPassword' ? null : 'confirmPassword');
+                        else setShowConfirmPassword(!showConfirmPassword);
+                    }}>
+                        <HugeiconsIcon icon={errors.confirmPassword ? InformationCircleIcon : (showConfirmPassword ? ViewIcon : ViewOffSlashIcon)} size={22} color={errors.confirmPassword ? "#ef4444" : "#94a3b8"} />
+                    </TouchableOpacity>
+                </View>
+                {errors.confirmPassword && visibleTooltip === 'confirmPassword' && <AnimatedTooltip message={errors.confirmPassword} isDark={isDark} />}
+            </View>
+        )}
+
+        {/* Action Button */}
         <TouchableOpacity onPress={handleAuthAction} disabled={loading} className="flex-row items-center justify-center gap-2 bg-indigo-600 shadow-lg h-14 rounded-2xl shadow-indigo-500/30">
             {loading ? (
             <Text className="font-sans text-lg font-bold text-white">Please wait...</Text>
@@ -371,12 +491,14 @@ export default function AuthScreen() {
             )}
         </TouchableOpacity>
 
+        {/* Divider */}
         <View className="flex-row items-center my-6">
             <View className={`flex-1 h-[1px] ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
             <Text className="mx-4 font-sans text-xs font-bold tracking-wider uppercase text-slate-400">OR</Text>
             <View className={`flex-1 h-[1px] ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
         </View>
 
+        {/* Google Login */}
         <TouchableOpacity onPress={handleGoogleLogin} disabled={googleLoading} className={`flex-row items-center justify-center gap-3 border h-14 rounded-2xl ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
             {googleLoading ? (
                 <Text className="font-sans font-bold text-slate-500">Connecting...</Text>
@@ -410,21 +532,46 @@ export default function AuthScreen() {
             visible={showOtp} 
             email={email} 
             onClose={() => setShowOtp(false)} 
-            onVerify={async (code: string) => { 
+            onVerify={async (code: string) => {
                 const type = isLogin ? 'email' : 'signup'; 
-                const { error } = await supabase.auth.verifyOtp({ email, token: code, type });
+                const { data: { session }, error } = await supabase.auth.verifyOtp({ email, token: code, type });
+                
                 if(error) return false;
+                
                 setShowOtp(false);
-                if(isLogin) setShowResetPass(true);
-                else router.replace('/introduction');
+                
+                if(isLogin) {
+                    setShowResetPass(true);
+                } else {
+                    if (session?.user?.email) {
+                        supabase.functions.invoke('send-email', {
+                            body: { email: session.user.email, type: 'WELCOME' }
+                        });
+                        await checkAppRegistration(session.user.id);
+                    }
+                    router.replace('/introduction');
+                }
                 return true;
-            }} 
-            onResend={async () => { await supabase.auth.signInWithOtp({ email }); }}
+            }}
+            onResend={async () => {
+                if (isLogin) {
+                    await supabase.auth.signInWithOtp({ email });
+                } else {
+                    await supabase.auth.resend({ type: 'signup', email });
+                }
+                setAlertConfig({
+                    visible: true,
+                    type: 'success',
+                    title: 'Code Sent',
+                    message: 'Please check your email inbox (and spam folder).',
+                    onDismiss: () => setAlertConfig((prev: any) => ({ ...prev, visible: false }))
+                });
+            }}
         />
 
         <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom }}>
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="justify-center flex-1 p-6">
-                <View style={{ height: 620, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
+                <View style={{ height: 680, width: '100%', alignItems: 'center', justifyContent: 'center' }}>
                     <Animated.View style={[styles.cardFace, frontAnimatedStyle]}>{renderCardContent('login')}</Animated.View>
                     <Animated.View style={[styles.cardFace, backAnimatedStyle]}>{renderCardContent('signup')}</Animated.View>
                 </View>

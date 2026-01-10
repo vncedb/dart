@@ -1,147 +1,265 @@
 import {
-  ArrowLeft02Icon,
-  CheckmarkCircle02Icon,
-  Delete02Icon
+    Clock01Icon,
+    Delete02Icon,
+    PencilEdit02Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    Image,
+    ScrollView,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import LoadingOverlay from '../../components/LoadingOverlay'; // IMPORTED
-import ModernAlert from '../../components/ModernAlert'; // IMPORTED
+
+// Components
+import AnalogTimePicker from '../../components/AnalogTimePicker';
+import Footer from '../../components/Footer';
+import Header from '../../components/Header';
+import LoadingOverlay from '../../components/LoadingOverlay';
+import ModernAlert from '../../components/ModernAlert';
+import { useAppTheme } from '../../constants/theme';
 import { supabase } from '../../lib/supabase';
 
 export default function EditReportScreen() {
-  const router = useRouter();
-  const { date } = useLocalSearchParams(); 
-  
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true); // Initial load
-  const [saving, setSaving] = useState(false);  // Saving state
-  
-  const [alertConfig, setAlertConfig] = useState<any>({ 
-      visible: false, 
-      type: 'confirm', 
-      title: '', 
-      message: '', 
-      confirmText: 'OK',
-      onConfirm: () => {},
-      onCancel: () => {}
-  });
+    const router = useRouter();
+    const navigation = useNavigation();
+    const theme = useAppTheme();
+    const { date } = useLocalSearchParams();
+    
+    const [attendanceId, setAttendanceId] = useState<string | null>(null);
+    const [clockIn, setClockIn] = useState<Date | null>(null);
+    const [clockOut, setClockOut] = useState<Date | null>(null);
+    const [tasks, setTasks] = useState<any[]>([]);
 
-  useEffect(() => {
-    fetchTasks();
-  }, [date]);
+    const [loading, setLoading] = useState(false);
+    const [initialLoading, setInitialLoading] = useState(true);
+    const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
-  const fetchTasks = async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user && date) {
-      const { data } = await supabase.from('accomplishments')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('date', date);
-      if (data) setTasks(data);
-    }
-    setLoading(false);
-  };
+    // Time Picker
+    const [pickerVisible, setPickerVisible] = useState(false);
+    const [pickerMode, setPickerMode] = useState<'in' | 'out'>('in');
 
-  const handleUpdate = (id: string, text: string) => {
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, description: text } : t));
-  };
-
-  const handleDelete = (id: string) => {
-    setAlertConfig({
-        visible: true,
-        type: 'confirm',
-        title: 'Delete Item',
-        message: 'Remove this accomplishment?',
-        confirmText: 'Delete',
-        cancelText: 'Cancel',
-        onConfirm: () => {
-            // Logic to remove locally. (Note: This doesn't delete from DB until you implement tracking deleted items or direct DB delete)
-            // Assuming we stick to simple local filtering for now as per previous logic.
-            setTasks(prev => prev.filter(t => t.id !== id));
-            setAlertConfig((prev: any) => ({ ...prev, visible: false }));
-        },
-        onCancel: () => setAlertConfig((prev: any) => ({ ...prev, visible: false }))
-    });
-  };
-
-  const handleSave = () => {
-    setAlertConfig({
-        visible: true,
-        type: 'confirm',
-        title: 'Save Changes',
-        message: 'Confirm updates to this report?',
-        confirmText: 'Save',
-        cancelText: 'Cancel',
-        onConfirm: async () => {
-            setAlertConfig((prev: any) => ({ ...prev, visible: false }));
-            setSaving(true);
-            try {
-                // Batch update logic
-                for (const t of tasks) {
-                    await supabase.from('accomplishments').update({ description: t.description }).eq('id', t.id);
-                }
-                router.back();
-            } catch (e) {
-                console.log(e);
-            } finally {
-                setSaving(false);
+    // Navigation Protection
+    useEffect(() => {
+        const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+            if (loading) {
+                e.preventDefault();
+                setAlertConfig({
+                    visible: true,
+                    type: 'warning',
+                    title: 'Saving in Progress',
+                    message: 'Your changes are being saved. Please wait until the process is complete.',
+                    confirmText: 'Okay',
+                    onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
+                });
             }
-        },
-        onCancel: () => setAlertConfig((prev: any) => ({ ...prev, visible: false }))
-    });
-  };
+        });
+        return unsubscribe;
+    }, [navigation, loading]);
 
-  return (
-    <SafeAreaView className="flex-1 bg-[#F1F5F9] dark:bg-[#0B1120]">
-      <ModernAlert {...alertConfig} />
-      <LoadingOverlay visible={saving} message="Saving Changes..." />
-      <LoadingOverlay visible={loading} message="Loading..." />
+    useFocusEffect(
+        useCallback(() => {
+            fetchData();
+        }, [date])
+    );
 
-      {/* Header */}
-      <View className="flex-row items-center justify-between px-6 py-4 bg-white border-b dark:bg-slate-900 border-slate-100 dark:border-slate-800">
-        <TouchableOpacity onPress={() => router.back()} className="p-2 rounded-full bg-slate-50 dark:bg-slate-800">
-          <HugeiconsIcon icon={ArrowLeft02Icon} size={24} color="#64748b" />
-        </TouchableOpacity>
-        <Text className="font-sans text-xl font-bold text-slate-900 dark:text-white">
-            Edit Report
-        </Text>
-        <TouchableOpacity onPress={handleSave} className="p-2 rounded-full bg-indigo-50 dark:bg-indigo-900/30">
-          <HugeiconsIcon icon={CheckmarkCircle02Icon} size={24} color="#6366f1" />
-        </TouchableOpacity>
-      </View>
+    const fetchData = async () => {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user || !date) return;
 
-      <ScrollView contentContainerStyle={{ padding: 24 }}>
-        <Text className="mb-4 text-xs font-bold uppercase text-slate-400">
-            {date ? new Date(date as string).toDateString() : ''}
-        </Text>
+        try {
+            const { data: att } = await supabase.from('attendance')
+                .select('*')
+                .eq('user_id', user.id)
+                .eq('date', date)
+                .single();
 
-        {tasks.map((task, index) => (
-            <View key={task.id || index} className="mb-4">
-                <Text className="mb-2 text-xs font-bold text-slate-400">Item {index + 1}</Text>
-                <View className="flex-row gap-2">
-                    <TextInput 
-                        value={task.description}
-                        multiline
-                        onChangeText={(t) => handleUpdate(task.id, t)}
-                        className="flex-1 p-4 bg-white border shadow-sm dark:bg-slate-800 rounded-xl text-slate-900 dark:text-white border-slate-200 dark:border-slate-700"
-                    />
-                    <TouchableOpacity onPress={() => handleDelete(task.id)} className="items-center justify-center w-12 p-3 bg-red-50 dark:bg-red-900/20 rounded-xl">
-                        <HugeiconsIcon icon={Delete02Icon} size={20} color="#ef4444" />
+            if (att) {
+                setAttendanceId(att.id);
+                setClockIn(new Date(att.clock_in));
+                setClockOut(att.clock_out ? new Date(att.clock_out) : null);
+            }
+
+            const { data: t } = await supabase.from('accomplishments')
+                .select('*')
+                .eq('user_id', user.id)
+                .eq('date', date);
+            
+            setTasks(t || []);
+        } catch (e) {
+            console.log(e);
+        } finally {
+            setInitialLoading(false);
+        }
+    };
+
+    const handleSave = async () => {
+        setLoading(true);
+        try {
+            if (attendanceId && clockIn) {
+                const updates: any = {
+                    clock_in: clockIn.toISOString(),
+                    clock_out: clockOut ? clockOut.toISOString() : null,
+                    status: clockOut ? 'completed' : 'pending'
+                };
+
+                const { error } = await supabase.from('attendance').update(updates).eq('id', attendanceId);
+                if (error) throw error;
+            }
+            router.back();
+        } catch (e: any) {
+            setAlertConfig({
+                visible: true,
+                type: 'error',
+                title: 'Save Failed',
+                message: e.message,
+                confirmText: 'Okay',
+                onConfirm: () => setAlertConfig((prev:any) => ({...prev, visible: false}))
+            });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const openPicker = (mode: 'in' | 'out') => {
+        setPickerMode(mode);
+        setPickerVisible(true);
+    };
+
+    const onTimeSelect = (timeStr: string) => {
+        const [h, m] = timeStr.split(':').map(Number);
+        if (pickerMode === 'in') {
+            const newDate = new Date(clockIn || new Date());
+            newDate.setHours(h); newDate.setMinutes(m);
+            setClockIn(newDate);
+        } else {
+            const newDate = new Date(clockOut || new Date());
+            newDate.setHours(h); newDate.setMinutes(m);
+            setClockOut(newDate);
+        }
+    };
+
+    const deleteTask = (taskId: string) => {
+        setAlertConfig({
+            visible: true,
+            type: 'warning',
+            title: 'Delete Task',
+            message: 'Are you sure you want to remove this task?',
+            confirmText: 'Delete',
+            cancelText: 'Cancel',
+            onConfirm: async () => {
+                setAlertConfig((prev: any) => ({...prev, visible: false}));
+                setLoading(true);
+                await supabase.from('accomplishments').delete().eq('id', taskId);
+                fetchData();
+                setLoading(false);
+            },
+            onCancel: () => setAlertConfig((prev: any) => ({...prev, visible: false}))
+        });
+    };
+
+    const editTask = (taskId: string) => {
+        router.push({ pathname: '/reports/add-entry', params: { id: taskId } });
+    };
+
+    return (
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
+            <LoadingOverlay visible={loading} message="Saving changes..." />
+            <ModernAlert {...alertConfig} />
+            <AnalogTimePicker 
+                visible={pickerVisible} 
+                onClose={() => setPickerVisible(false)} 
+                onSelect={onTimeSelect}
+                value={pickerMode === 'in' ? clockIn : clockOut}
+                title={pickerMode === 'in' ? "Set Time In" : "Set Time Out"}
+            />
+
+            <Header title="Edit Report" />
+
+            {initialLoading ? (
+               <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                   <ActivityIndicator size="large" color={theme.colors.primary} />
+                   <Text style={{ marginTop: 12, color: theme.colors.textSecondary }}>Loading Details...</Text>
+               </View>
+            ) : (
+               <>
+                <ScrollView contentContainerStyle={{ padding: 24 }}>
+                    <Text style={{ fontSize: 13, fontWeight: 'bold', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 12 }}>Time Settings</Text>
+                    
+                    <View style={{ gap: 12, marginBottom: 32 }}>
+                        {/* Clock In */}
+                        <TouchableOpacity onPress={() => openPicker('in')} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.card, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border }}>
+                            <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.colors.success + '15', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
+                                <HugeiconsIcon icon={Clock01Icon} size={20} color={theme.colors.success} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={{ fontSize: 12, color: theme.colors.textSecondary, fontWeight: '600' }}>Clock In</Text>
+                                <Text style={{ fontSize: 18, color: theme.colors.text, fontWeight: 'bold' }}>
+                                    {clockIn ? clockIn.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Set Time'}
+                                </Text>
+                            </View>
+                            <HugeiconsIcon icon={PencilEdit02Icon} size={20} color={theme.colors.icon} />
+                        </TouchableOpacity>
+
+                        {/* Clock Out */}
+                        <TouchableOpacity onPress={() => openPicker('out')} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.card, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border }}>
+                            <View style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: theme.colors.warning + '15', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
+                                <HugeiconsIcon icon={Clock01Icon} size={20} color={theme.colors.warning} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={{ fontSize: 12, color: theme.colors.textSecondary, fontWeight: '600' }}>Clock Out</Text>
+                                <Text style={{ fontSize: 18, color: theme.colors.text, fontWeight: 'bold' }}>
+                                    {clockOut ? clockOut.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Set Time'}
+                                </Text>
+                            </View>
+                            <HugeiconsIcon icon={PencilEdit02Icon} size={20} color={theme.colors.icon} />
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Tasks */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                        <Text style={{ fontSize: 13, fontWeight: 'bold', color: theme.colors.textSecondary, textTransform: 'uppercase' }}>Tasks</Text>
+                    </View>
+
+                    <View style={{ gap: 12 }}>
+                        {tasks.map((task) => (
+                            <View key={task.id} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.card, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border }}>
+                                {task.image_url ? (
+                                    <Image source={{ uri: task.image_url }} style={{ width: 48, height: 48, borderRadius: 10, marginRight: 12 }} />
+                                ) : (
+                                    <View style={{ width: 48, height: 48, borderRadius: 10, backgroundColor: theme.colors.iconBg, marginRight: 12 }} />
+                                )}
+                                
+                                <View style={{ flex: 1 }}>
+                                    <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: 'bold', color: theme.colors.text }}>{task.description}</Text>
+                                    <Text numberOfLines={1} style={{ fontSize: 12, color: theme.colors.textSecondary }}>{task.remarks || 'No remarks'}</Text>
+                                </View>
+
+                                <View style={{ flexDirection: 'row', gap: 8 }}>
+                                    <TouchableOpacity onPress={() => editTask(task.id)} style={{ padding: 8, backgroundColor: theme.colors.background, borderRadius: 8 }}>
+                                        <HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.icon} />
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={() => deleteTask(task.id)} style={{ padding: 8, backgroundColor: theme.colors.dangerLight, borderRadius: 8 }}>
+                                        <HugeiconsIcon icon={Delete02Icon} size={16} color={theme.colors.danger} />
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        ))}
+                    </View>
+                </ScrollView>
+
+                <Footer>
+                    <TouchableOpacity onPress={handleSave} className="flex-row items-center justify-center bg-indigo-600 shadow-sm h-14 rounded-2xl">
+                        <Text className="text-lg font-bold text-white">Save Changes</Text>
                     </TouchableOpacity>
-                </View>
-            </View>
-        ))}
-      </ScrollView>
-    </SafeAreaView>
-  );
+                </Footer>
+               </>
+            )}
+        </SafeAreaView>
+    );
 }

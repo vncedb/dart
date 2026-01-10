@@ -30,11 +30,19 @@ export default function AppSplash() {
             <View className="w-12 h-12 border rounded-full" />
         </View>
 
-        {/* VISIBLE CONTENT: Logo (Exact match to index.tsx) */}
+        {/* VISIBLE CONTENT: Logo (Dynamic based on Theme) */}
         <View className="items-center">
-            <View className="items-center justify-center w-40 h-40 mb-8 bg-white shadow-2xl shadow-black/50 rounded-[40px]">
+            {/* Updated Container Background: 
+               Uses bg-slate-800 for Dark Mode so the white logo is visible, 
+               matching the behavior of index.tsx.
+            */}
+            <View className={`items-center justify-center w-40 h-40 mb-8 shadow-2xl shadow-black/50 rounded-[40px] ${isDark ? 'bg-slate-800' : 'bg-white'}`}>
                 <Image 
-                    source={require('../assets/images/dart-logo-transparent.png')} 
+                    source={
+                        isDark 
+                        ? require('../assets/images/dart-logo-transparent-light.png') // White logo for Dark Mode
+                        : require('../assets/images/dart-logo-transparent-dark.png')  // Dark logo for Light Mode
+                    } 
                     style={{ width: 110, height: 110 }} 
                     resizeMode="contain" 
                 />

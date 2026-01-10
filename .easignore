@@ -1,0 +1,13 @@
+# Ignore local builds and dependencies
+node_modules/
+.expo/
+dist/
+web-build/
+
+# Ignore native directories (EAS will regenerate these via Prebuild)
+# Only keep these if you have manually modified native code (Java/Kotlin/Swift)
+android/
+ios/
+
+# Ignore git history
+.git/

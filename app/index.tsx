@@ -4,16 +4,41 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useColorScheme } from 'nativewind';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Image, ImageBackground, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuth } from '../context/AuthContext';
 
 export default function LandingScreen() {
   const router = useRouter();
   const { colorScheme, toggleColorScheme } = useColorScheme();
+  const { session, isLoading } = useAuth();
   const isDark = colorScheme === 'dark';
-  
   const insets = useSafeAreaInsets();
+  
+  // Local state to wait for onboarding check
+  const [isCheckingOnboarding, setIsCheckingOnboarding] = useState(true);
+
+  useEffect(() => {
+    const checkRedirect = async () => {
+        if (isLoading) return;
+
+        if (session) {
+            // Check if user has actually finished setup
+            const hasOnboarded = await AsyncStorage.getItem('hasOnboarded');
+            
+            if (hasOnboarded === 'true') {
+                router.replace('/(tabs)/home');
+            } else {
+                // Logged in but profile not set -> Go to Info Setup
+                router.replace('/onboarding/info');
+            }
+        }
+        setIsCheckingOnboarding(false);
+    };
+
+    checkRedirect();
+  }, [session, isLoading]);
 
   const handleToggleTheme = async () => {
     toggleColorScheme();
@@ -21,9 +46,12 @@ export default function LandingScreen() {
     await AsyncStorage.setItem('user-theme', newTheme);
   };
 
+  // Don't show landing screen if we are about to redirect
+  if (isLoading || (session && isCheckingOnboarding)) return null;
+
   return (
     <ImageBackground 
-      source={{ uri: 'https://images.unsplash.com/photo-1497215728101-856f4ea42174?q=80' }} 
+      source={require('../assets/images/intro/bgimage.jpeg')} 
       className="flex-1"
       blurRadius={3}
     >
@@ -55,9 +83,13 @@ export default function LandingScreen() {
 
         {/* Center Content */}
         <View className="items-center">
-            <View className="items-center justify-center w-40 h-40 mb-8 bg-white shadow-2xl shadow-black/50 rounded-[40px]">
+            <View className={`items-center justify-center w-40 h-40 mb-8 shadow-2xl shadow-black/50 rounded-[40px] ${isDark ? 'bg-slate-800' : 'bg-white'}`}>
                 <Image 
-                    source={require('../assets/images/logo.png')} 
+                    source={
+                        isDark 
+                        ? require('../assets/images/dart-logo-transparent-light.png') 
+                        : require('../assets/images/dart-logo-transparent-dark.png')
+                    }
                     style={{ width: 110, height: 110 }} 
                     resizeMode="contain" 
                 />

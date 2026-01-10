@@ -1,5 +1,6 @@
 import { ArrowRight01Icon, CheckmarkCircle01Icon, Shield02Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as MediaLibrary from 'expo-media-library';
 import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
@@ -140,7 +141,6 @@ export default function IntroductionScreen() {
       // 2. Request Notification Permission
       const { status: notificationStatus } = await Notifications.requestPermissionsAsync();
 
-      // Debugging logs (optional)
       console.log('Media Permission:', mediaStatus);
       console.log('Notification Permission:', notificationStatus);
 
@@ -149,7 +149,6 @@ export default function IntroductionScreen() {
 
     } catch (error) {
       console.log('Permission Error:', error);
-      // Fallback: still show privacy if permissions crash or are denied
       setShowPrivacy(true); 
     }
   };
@@ -159,7 +158,6 @@ export default function IntroductionScreen() {
       flatListRef.current?.scrollToIndex({ index: currentIndex + 1 });
       setCurrentIndex(currentIndex + 1);
     } else {
-      // Start the permission sequence
       requestPermissions();
     }
   };
@@ -167,7 +165,6 @@ export default function IntroductionScreen() {
   const handlePrivacyAgree = () => {
     setShowPrivacy(false);
     setTimeout(() => {
-      // Navigate to Info Onboarding
       router.push('/onboarding/info');
     }, 300);
   };
@@ -208,11 +205,11 @@ export default function IntroductionScreen() {
                 height: width * 0.8, 
                 marginBottom: 40, 
                 borderRadius: 40, 
-                // Changed background to a soft colored container
-                backgroundColor: isDark ? 'rgba(30, 41, 59, 0.5)' : '#e0e7ff', 
+                // Updated Background Color Logic
+                backgroundColor: isDark ? '#27235E' : '#e0e7ff', 
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: 30, // Added padding so the image isn't edge-to-edge
+                padding: 30,
                 borderWidth: 1,
                 borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.5)',
                 shadowColor: "#6366f1", 
@@ -225,13 +222,13 @@ export default function IntroductionScreen() {
              <Image 
                 source={item.image} 
                 style={{ width: '100%', height: '100%' }} 
-                resizeMode="contain" // Changed to contain for transparent images
+                resizeMode="contain"
              />
         </Animated.View>
         <Text className="mb-4 text-3xl font-extrabold text-center text-slate-900 dark:text-white">
             {item.title}
         </Text>
-        <Text className="px-5 text-base leading-6 text-center text-slate-500 dark:text-slate-400">
+        <Text className="px-5 text-base leading-6 text-center text-slate-500 dark:text-slate-300">
             {item.description}
         </Text>
       </View>
@@ -239,7 +236,7 @@ export default function IntroductionScreen() {
   };
 
   return (
-    <View className="flex-1 bg-slate-50 dark:bg-[#0f172a]">
+    <View className="flex-1">
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
       
       <PrivacyModal 
@@ -248,16 +245,24 @@ export default function IntroductionScreen() {
         isDark={isDark} 
       />
 
-      {/* Background Image Overlay - kept subtle */}
-      <View className="absolute inset-0 w-full h-full">
+      {/* Modern Gradient Background */}
+      <LinearGradient
+        colors={
+            isDark 
+            ? ['#0F172A', '#1E1B4B'] // Slate 900 -> Indigo 950 (Dark Mode)
+            : ['#F8FAFC', '#E0E7FF'] // Slate 50 -> Indigo 100 (Light Mode)
+        }
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={{ position: 'absolute', width: '100%', height: '100%' }}
+      />
+      
+      <View className="absolute inset-0 w-full h-full opacity-10">
          <Image 
             source={{ uri: "https://images.unsplash.com/photo-1614850523459-c2f4c699c52e?q=80&w=2670&auto=format&fit=crop" }} 
             style={{ width: '100%', height: '100%', position: 'absolute' }}
             resizeMode="cover"
-            blurRadius={60} 
-            opacity={0.3}
          />
-         <View className={`absolute inset-0 ${isDark ? 'bg-[#0f172a]/90' : 'bg-slate-50/90'}`} />
       </View>
 
       <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom }}>

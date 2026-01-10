@@ -1,137 +1,140 @@
 import { Nunito_400Regular, Nunito_500Medium, Nunito_600SemiBold, Nunito_700Bold, useFonts } from '@expo-google-fonts/nunito';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Session } from '@supabase/supabase-js';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useColorScheme } from 'nativewind';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, LogBox, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AppSplash from '../components/AppSplash';
+import BiometricLockScreen from '../components/BiometricLockScreen';
+import { AuthProvider, useAuth } from '../context/AuthContext';
+import { SyncProvider } from '../context/SyncContext'; // <--- IMPORTED SYNC PROVIDER
 import '../global.css';
-import { supabase } from '../lib/supabase';
 
-LogBox.ignoreLogs(['SafeAreaView has been deprecated', '[expo-av]', 'expo-notifications']);
+LogBox.ignoreLogs(['SafeAreaView has been deprecated', '[expo-av]']);
 SplashScreen.preventAutoHideAsync();
 
-export default function RootLayout() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [isReady, setIsReady] = useState(false);
-  const [animationFinished, setAnimationFinished] = useState(false);
-  const { setColorScheme } = useColorScheme();
-  
+function RootLayoutNav() {
+  const { session, isLoading: isAuthLoading } = useAuth();
+  const [isAuthorized, setIsAuthorized] = useState(true); // Default to UNLOCKED (true)
+  const [isAppReady, setIsAppReady] = useState(false);
   const fadeAnim = useRef(new Animated.Value(1)).current;
-  const router = useRouter();
-  const segments = useSegments();
+  const { colorScheme, setColorScheme } = useColorScheme();
+  
+  // Ref to track if we've already checked biometrics during this session/launch
+  const hasCheckedBio = useRef(false);
 
   const [fontsLoaded] = useFonts({
     Nunito_400Regular, Nunito_500Medium, Nunito_600SemiBold, Nunito_700Bold,
   });
 
-  // --- THEME INITIALIZATION ---
+  // Theme Init
   useEffect(() => {
-    const loadTheme = async () => {
-      try {
-        const savedTheme = await AsyncStorage.getItem('user-theme');
-        if (savedTheme === 'dark') {
-          setColorScheme('dark');
-        } else {
-          // Default to light if null or 'light'
-          setColorScheme('light');
-        }
-      } catch (e) {
-        setColorScheme('light');
-      }
-    };
-    loadTheme();
-  }, []);
-
-  useEffect(() => {
-    const checkSession = async () => {
-      try {
-        const { data, error } = await supabase.auth.getSession();
-        if (error) {
-           await supabase.auth.signOut();
-           setSession(null);
-        } else {
-          setSession(data.session);
-        }
-      } catch (e) {
-        setSession(null);
-      }
-    };
-    checkSession();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      setSession(session);
-      if (event === 'SIGNED_OUT') {
-        router.replace('/'); 
-      }
+    AsyncStorage.getItem('user-theme').then(theme => {
+      setColorScheme(theme === 'dark' ? 'dark' : 'light');
     });
-
-    return () => subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    if (!fontsLoaded) return;
-    SplashScreen.hideAsync();
-    const timer = setTimeout(() => setIsReady(true), 2000);
-    return () => clearTimeout(timer);
-  }, [fontsLoaded]);
-
-  useEffect(() => {
-    if (!isReady) return;
-
-    const currentRoute = segments[0]; 
-
-    // Removed 'plan' from protected routes
-    const protectedRoutes = ['(tabs)', 'settings', 'edit-profile', 'introduction', 'onboarding'];
+  // Biometrics Logic
+  const checkBioSettings = async () => {
+    if (isAuthLoading) return; // Wait for auth to load
     
-    if (!session && protectedRoutes.includes(currentRoute)) {
-       router.replace('/');
-    } 
-    else if (session && (currentRoute === 'login' || currentRoute === 'signup' || currentRoute === 'index')) {
-       router.replace('/(tabs)/home');
+    // Only proceed if user is logged in
+    if (session?.user) {
+        try {
+            const settingsJson = await AsyncStorage.getItem('appSettings');
+            if (settingsJson) {
+                const settings = JSON.parse(settingsJson);
+                // STRICT CHECK: Only lock if explicitly true
+                if (settings.biometricEnabled === true) {
+                    setIsAuthorized(false); // Lock the app
+                } else {
+                    setIsAuthorized(true); // Ensure it's unlocked
+                }
+            } else {
+                setIsAuthorized(true); // No settings found, default to unlocked
+            }
+        } catch (e) {
+            console.log("Error reading biometric settings:", e);
+            setIsAuthorized(true); // Fallback to unlocked on error
+        }
     }
-    
-    Animated.timing(fadeAnim, {
-      toValue: 0,
-      duration: 500,
-      useNativeDriver: true,
-    }).start(() => setAnimationFinished(true));
+    hasCheckedBio.current = true;
+  };
 
-  }, [isReady, session, segments]);
+  // 1. Check on initial load (once fonts and auth are ready)
+  useEffect(() => {
+    if (!isAuthLoading && fontsLoaded && !hasCheckedBio.current) {
+        checkBioSettings();
+    }
+  }, [isAuthLoading, fontsLoaded, session]);
 
-  if (!fontsLoaded) return null;
+  // Splash Screen Hide Logic
+  useEffect(() => {
+    if (fontsLoaded && !isAuthLoading) {
+      setTimeout(() => {
+        SplashScreen.hideAsync();
+        Animated.timing(fadeAnim, { 
+          toValue: 0, 
+          duration: 500, 
+          useNativeDriver: true 
+        }).start(() => setIsAppReady(true));
+      }, 500);
+    }
+  }, [fontsLoaded, isAuthLoading]);
+
+  if (!fontsLoaded || isAuthLoading) return null;
+
+  // Render Lock Screen if NOT authorized
+  if (!isAuthorized) {
+    return <BiometricLockScreen onUnlock={() => setIsAuthorized(true)} />;
+  }
 
   return (
-    <View style={{ flex: 1 }}>
-      <SafeAreaProvider>
+    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      <View style={{ flex: 1 }}>
         <Stack screenOptions={{ headerShown: false, animation: 'fade' }}>
           <Stack.Screen name="index" />
-          <Stack.Screen name="login" />
-          <Stack.Screen name="signup" />
-          <Stack.Screen name="recover-account" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="update-password" options={{ animation: 'slide_from_bottom' }} />
-          
+          <Stack.Screen name="auth" />
           <Stack.Screen name="introduction" options={{ animation: 'slide_from_right' }} />
-          
           <Stack.Screen name="onboarding/welcome" options={{ animation: 'slide_from_right', gestureEnabled: false }} />
           <Stack.Screen name="onboarding/info" options={{ animation: 'slide_from_right' }} />
-          
-          {/* REMOVED: Stack.Screen name="plan" */}
-
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="settings" options={{ presentation: 'card', animation: 'slide_from_right' }} />
-          <Stack.Screen name="edit-profile" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
+          {/* Settings Group */}
+          <Stack.Screen name="settings" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="settings/account-security" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="settings/notifications" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="settings/privacy-policy" options={{ animation: 'slide_from_right' }} />
+          {/* Job Group */}
+          <Stack.Screen name="job/job" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="job/form" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
+          {/* Reports Group */}
+          <Stack.Screen name="reports/details" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
+          <Stack.Screen name="reports/history" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="reports/print" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
         </Stack>
-      </SafeAreaProvider>
 
-      {!animationFinished && (
-        <Animated.View style={[StyleSheet.absoluteFill, { opacity: fadeAnim, zIndex: 9999 }]} pointerEvents="none">
-          <AppSplash />
-        </Animated.View>
-      )}
-    </View>
+        {!isAppReady && (
+          <Animated.View style={[StyleSheet.absoluteFill, { opacity: fadeAnim, zIndex: 9999 }]} pointerEvents="none">
+            <AppSplash />
+          </Animated.View>
+        )}
+      </View>
+    </ThemeProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <SafeAreaProvider>
+      <AuthProvider>
+        <SyncProvider> 
+          {/* SyncProvider must be INSIDE AuthProvider so it can access the 'user' object */}
+          <RootLayoutNav />
+        </SyncProvider>
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }

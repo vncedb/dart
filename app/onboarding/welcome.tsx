@@ -40,8 +40,9 @@ export default function WelcomeScreen() {
     return (
         <View style={styles.container}>
             <StatusBar barStyle="light-content" />
+            {/* UPDATED: Using local asset image */}
             <Image 
-                source={{ uri: "https://images.unsplash.com/photo-1614850523459-c2f4c699c52e?q=80&w=2670&auto=format&fit=crop" }} 
+                source={require('../../assets/images/intro/welcome.avif')}
                 style={StyleSheet.absoluteFillObject}
                 resizeMode="cover"
                 blurRadius={80} 

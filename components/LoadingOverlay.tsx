@@ -1,6 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, Modal, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import { useAppTheme } from '../constants/theme';
 
 interface LoadingOverlayProps {
   visible: boolean;
@@ -8,6 +9,8 @@ interface LoadingOverlayProps {
 }
 
 export default function LoadingOverlay({ visible, message = 'Loading...' }: LoadingOverlayProps) {
+  const theme = useAppTheme();
+
   if (!visible) return null;
 
   return (
@@ -16,10 +19,10 @@ export default function LoadingOverlay({ visible, message = 'Loading...' }: Load
         <Animated.View 
           entering={FadeIn.duration(200)} 
           exiting={FadeOut.duration(200)} 
-          style={styles.card}
+          style={[styles.card, { backgroundColor: theme.colors.card }]}
         >
-          <ActivityIndicator size="large" color="#4F46E5" />
-          <Text style={styles.text}>{message}</Text>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <Text style={[styles.text, { color: theme.colors.text }]}>{message}</Text>
         </Animated.View>
       </View>
     </Modal>
@@ -29,18 +32,17 @@ export default function LoadingOverlay({ visible, message = 'Loading...' }: Load
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)', // Dimmed background
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   card: {
-    backgroundColor: 'white',
     padding: 24,
     borderRadius: 20,
     alignItems: 'center',
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.15,
     shadowRadius: 20,
     elevation: 10,
     minWidth: 160,
@@ -49,7 +51,6 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 14,
     fontWeight: 'bold',
-    color: '#0f172a',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   }

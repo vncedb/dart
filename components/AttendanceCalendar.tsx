@@ -18,6 +18,7 @@ import {
 } from 'date-fns';
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useAppTheme } from '../constants/theme';
 
 type AttendanceRecord = { 
     id: string; 
@@ -32,7 +33,7 @@ interface AttendanceCalendarProps {
     onSelectDate: (date: Date) => void;
     onMonthChange: (date: Date) => void;
     showIndicators?: boolean;
-    showDetails?: boolean; // New prop
+    showDetails?: boolean; 
 }
 
 export default function AttendanceCalendar({ 
@@ -41,8 +42,9 @@ export default function AttendanceCalendar({
     onSelectDate, 
     onMonthChange,
     showIndicators = true,
-    showDetails = true // Default to true
+    showDetails = true 
 }: AttendanceCalendarProps) {
+    const theme = useAppTheme(); // Hook for theme colors
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [sessionIndex, setSessionIndex] = useState(0);
 
@@ -84,18 +86,18 @@ export default function AttendanceCalendar({
     const currentRecord = selectedRecords[sessionIndex] || null;
 
     return (
-        <View style={styles.container}>
+        <View style={[styles.container, { backgroundColor: theme.colors.card }]}>
             
             {/* Header */}
-            <View style={styles.header}>
+            <View style={[styles.header, { borderBottomColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
                 <TouchableOpacity onPress={handlePrevMonth} style={styles.arrowBtn}>
-                    <HugeiconsIcon icon={ArrowLeft02Icon} size={20} color="#64748b" />
+                    <HugeiconsIcon icon={ArrowLeft02Icon} size={20} color={theme.colors.icon} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>
+                <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
                     {format(currentMonth, 'MMMM yyyy')}
                 </Text>
                 <TouchableOpacity onPress={handleNextMonth} style={styles.arrowBtn}>
-                    <HugeiconsIcon icon={ArrowRight02Icon} size={20} color="#64748b" />
+                    <HugeiconsIcon icon={ArrowRight02Icon} size={20} color={theme.colors.icon} />
                 </TouchableOpacity>
             </View>
 
@@ -104,7 +106,7 @@ export default function AttendanceCalendar({
                 <View style={styles.row}>
                     {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, i) => (
                         <View key={i} style={styles.dayCell}>
-                            <Text style={styles.weekdayText}>{day}</Text>
+                            <Text style={[styles.weekdayText, { color: theme.colors.textSecondary }]}>{day}</Text>
                         </View>
                     ))}
                 </View>
@@ -125,15 +127,16 @@ export default function AttendanceCalendar({
                                     onPress={() => onSelectDate(dayItem)}
                                     style={[
                                         styles.dayBtn,
-                                        isSelected && styles.selectedBtn,
-                                        !isSelected && isTodayDate && styles.todayBtn
+                                        isSelected && { backgroundColor: theme.colors.primary },
+                                        !isSelected && isTodayDate && { backgroundColor: theme.colors.primaryLight, borderWidth: 1, borderColor: theme.colors.primary }
                                     ]}
                                 >
                                     <Text style={[
                                         styles.dayText,
                                         isSelected && styles.selectedText,
-                                        !isSelected && isTodayDate && styles.todayText,
-                                        !isCurrentMonth && styles.dimmedText
+                                        !isSelected && { color: theme.colors.text },
+                                        !isSelected && isTodayDate && { color: theme.colors.primary },
+                                        !isCurrentMonth && { color: theme.colors.border }
                                     ]}>
                                         {format(dayItem, 'd')}
                                     </Text>
@@ -141,7 +144,7 @@ export default function AttendanceCalendar({
                                     {showIndicators && hasRecord && !isSelected && isCurrentMonth && (
                                         <View style={[
                                             styles.dot, 
-                                            { backgroundColor: !isPending ? '#22c55e' : '#f97316' }
+                                            { backgroundColor: !isPending ? theme.colors.success : theme.colors.warning }
                                         ]} />
                                     )}
                                 </TouchableOpacity>
@@ -152,22 +155,22 @@ export default function AttendanceCalendar({
             </View>
 
             {/* Footer Details */}
-            <View style={styles.footer}>
+            <View style={[styles.footer, { borderTopColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
                 <View style={styles.footerHeader}>
-                    <Text style={styles.footerTitle}>
+                    <Text style={[styles.footerTitle, { color: theme.colors.textSecondary }]}>
                         {format(selectedDate, 'EEEE, MMMM d')}
                     </Text>
 
                     {showDetails && selectedRecords.length > 1 && (
-                        <View style={styles.navContainer}>
+                        <View style={[styles.navContainer, { backgroundColor: theme.colors.iconBg }]}>
                             <TouchableOpacity 
                                 onPress={() => setSessionIndex(prev => Math.max(0, prev - 1))}
                                 disabled={sessionIndex === 0}
                                 style={[styles.navBtn, sessionIndex === 0 && styles.navBtnDisabled]}
                             >
-                                <HugeiconsIcon icon={ArrowLeft02Icon} size={16} color={sessionIndex === 0 ? "#cbd5e1" : "#64748b"} />
+                                <HugeiconsIcon icon={ArrowLeft02Icon} size={16} color={sessionIndex === 0 ? theme.colors.border : theme.colors.icon} />
                             </TouchableOpacity>
-                            <Text style={styles.navText}>
+                            <Text style={[styles.navText, { color: theme.colors.textSecondary }]}>
                                 {sessionIndex + 1} / {selectedRecords.length}
                             </Text>
                             <TouchableOpacity 
@@ -175,7 +178,7 @@ export default function AttendanceCalendar({
                                 disabled={sessionIndex === selectedRecords.length - 1}
                                 style={[styles.navBtn, sessionIndex === selectedRecords.length - 1 && styles.navBtnDisabled]}
                             >
-                                <HugeiconsIcon icon={ArrowRight02Icon} size={16} color={sessionIndex === selectedRecords.length - 1 ? "#cbd5e1" : "#64748b"} />
+                                <HugeiconsIcon icon={ArrowRight02Icon} size={16} color={sessionIndex === selectedRecords.length - 1 ? theme.colors.border : theme.colors.icon} />
                             </TouchableOpacity>
                         </View>
                     )}
@@ -185,22 +188,22 @@ export default function AttendanceCalendar({
                 {showDetails && (
                     currentRecord ? (
                         <View style={styles.detailsRow}>
-                            <View style={[styles.detailCard, styles.greenBorder]}>
-                                <Text style={styles.labelGreen}>Check In</Text>
+                            <View style={[styles.detailCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.successLight }]}>
+                                <Text style={[styles.label, { color: theme.colors.success }]}>Check In</Text>
                                 <View style={styles.timeRow}>
-                                    <HugeiconsIcon icon={Clock01Icon} size={14} color="#16a34a" />
-                                    <Text style={styles.timeText}>
+                                    <HugeiconsIcon icon={Clock01Icon} size={14} color={theme.colors.success} />
+                                    <Text style={[styles.timeText, { color: theme.colors.text }]}>
                                         {format(new Date(currentRecord.clock_in), 'hh:mm a')}
                                     </Text>
                                 </View>
                             </View>
-                            <View style={[styles.detailCard, currentRecord.clock_out ? styles.greenBorder : styles.orangeBorder]}>
-                                <Text style={currentRecord.clock_out ? styles.labelGreen : styles.labelOrange}>
+                            <View style={[styles.detailCard, { backgroundColor: theme.colors.card, borderColor: currentRecord.clock_out ? theme.colors.successLight : theme.colors.dangerLight }]}>
+                                <Text style={[styles.label, { color: currentRecord.clock_out ? theme.colors.success : theme.colors.warning }]}>
                                     {currentRecord.clock_out ? 'Check Out' : 'Status'}
                                 </Text>
                                 <View style={styles.timeRow}>
-                                    <HugeiconsIcon icon={currentRecord.clock_out ? Clock01Icon : AlertCircleIcon} size={14} color={currentRecord.clock_out ? "#16a34a" : "#ea580c"} />
-                                    <Text style={[styles.timeText, !currentRecord.clock_out && styles.pendingText]}>
+                                    <HugeiconsIcon icon={currentRecord.clock_out ? Clock01Icon : AlertCircleIcon} size={14} color={currentRecord.clock_out ? theme.colors.success : theme.colors.warning} />
+                                    <Text style={[styles.timeText, !currentRecord.clock_out && { color: theme.colors.warning, fontStyle: 'italic' }, { color: currentRecord.clock_out ? theme.colors.text : theme.colors.warning }]}>
                                         {currentRecord.clock_out ? format(new Date(currentRecord.clock_out), 'hh:mm a') : 'Pending Out'}
                                     </Text>
                                 </View>
@@ -208,7 +211,7 @@ export default function AttendanceCalendar({
                         </View>
                     ) : (
                         <View style={styles.emptyState}>
-                            <Text style={styles.emptyText}>No attendance for selected date.</Text>
+                            <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>No attendance for selected date.</Text>
                         </View>
                     )
                 )}
@@ -219,7 +222,6 @@ export default function AttendanceCalendar({
 
 const styles = StyleSheet.create({
     container: {
-        backgroundColor: 'white',
         borderRadius: 24,
         overflow: 'hidden',
         width: '100%',
@@ -230,13 +232,10 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         padding: 16,
         borderBottomWidth: 1,
-        borderBottomColor: '#f1f5f9',
-        backgroundColor: '#f8fafc',
     },
     headerTitle: {
         fontSize: 16,
         fontWeight: 'bold',
-        color: '#0f172a',
     },
     arrowBtn: {
         padding: 8,
@@ -269,32 +268,16 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         borderRadius: 999,
     },
-    selectedBtn: {
-        backgroundColor: '#4f46e5',
-    },
-    todayBtn: {
-        backgroundColor: '#eef2ff',
-        borderWidth: 1,
-        borderColor: '#c7d2fe',
+    selectedText: {
+        color: 'white',
     },
     weekdayText: {
         fontSize: 12,
         fontWeight: 'bold',
-        color: '#94a3b8',
     },
     dayText: {
         fontSize: 13,
         fontWeight: 'bold',
-        color: '#334155',
-    },
-    selectedText: {
-        color: 'white',
-    },
-    todayText: {
-        color: '#4f46e5',
-    },
-    dimmedText: {
-        color: '#cbd5e1',
     },
     dot: {
         position: 'absolute',
@@ -306,27 +289,23 @@ const styles = StyleSheet.create({
     footer: {
         padding: 20,
         borderTopWidth: 1,
-        borderTopColor: '#f1f5f9',
-        backgroundColor: '#f8fafc',
     },
     footerHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 0, // Reduced from 12 since details might be hidden
+        marginBottom: 0,
     },
     footerTitle: {
         fontSize: 12,
         fontWeight: 'bold',
         textTransform: 'uppercase',
-        color: '#94a3b8',
         letterSpacing: 1,
-        marginBottom: 12, // Moved margin here for better control
+        marginBottom: 12, 
     },
     navContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#f1f5f9',
         borderRadius: 12,
         padding: 2,
         marginBottom: 12,
@@ -340,7 +319,6 @@ const styles = StyleSheet.create({
     navText: {
         fontSize: 10,
         fontWeight: 'bold',
-        color: '#64748b',
         marginHorizontal: 8,
     },
     detailsRow: {
@@ -350,17 +328,12 @@ const styles = StyleSheet.create({
     detailCard: {
         flex: 1,
         padding: 12,
-        backgroundColor: 'white',
         borderRadius: 12,
         borderWidth: 1,
     },
-    greenBorder: { borderColor: '#dcfce7' },
-    orangeBorder: { borderColor: '#ffedd5' },
-    labelGreen: { fontSize: 10, fontWeight: 'bold', color: '#16a34a', textTransform: 'uppercase', marginBottom: 4 },
-    labelOrange: { fontSize: 10, fontWeight: 'bold', color: '#ea580c', textTransform: 'uppercase', marginBottom: 4 },
+    label: { fontSize: 10, fontWeight: 'bold', textTransform: 'uppercase', marginBottom: 4 },
     timeRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    timeText: { fontWeight: 'bold', color: '#0f172a' },
-    pendingText: { color: '#ea580c', fontStyle: 'italic' },
+    timeText: { fontWeight: 'bold' },
     emptyState: { alignItems: 'center', paddingVertical: 8 },
-    emptyText: { color: '#94a3b8', fontWeight: '500' },
+    emptyText: { fontWeight: '500' },
 });

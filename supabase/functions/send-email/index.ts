@@ -1,10 +1,21 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
+import nodemailer from "npm:nodemailer@6.9.7";
 
-// CONSTANTS
+// --- CONFIGURATION ---
 const LOGO_URL = "https://ytvfitmcwpyjbklrquyi.supabase.co/storage/v1/object/public/assets/dart-logo.png";
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+const GMAIL_USER = Deno.env.get("GMAIL_USER");
+const GMAIL_APP_PASSWORD = Deno.env.get("GMAIL_APP_PASSWORD");
 
-// --- 1. HTML HEAD & STYLES (Shared) ---
+// --- NODEMAILER SETUP ---
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: GMAIL_USER,
+    pass: GMAIL_APP_PASSWORD,
+  },
+});
+
+// --- HTML TEMPLATES ---
 const getHtmlHead = (title: string) => `
 <!DOCTYPE html>
 <html>
@@ -19,10 +30,6 @@ const getHtmlHead = (title: string) => `
     .header { padding: 40px 0 24px; text-align: center; }
     .title { font-size: 24px; font-weight: 700; color: #0f172a; margin: 0 0 16px; }
     .text { font-size: 16px; color: #64748b; line-height: 24px; margin: 0 0 24px; }
-    .otp-box { background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 20px; margin: 0 0 24px; }
-    .otp-code { font-family: 'Courier New', monospace; font-size: 32px; font-weight: 700; color: #4f46e5; letter-spacing: 8px; }
-    .delete-box { background-color: #FEF2F2; border: 1px solid #FECACA; border-radius: 12px; padding: 20px; margin: 0 0 24px; }
-    .delete-code { font-family: 'Courier New', monospace; font-size: 32px; font-weight: 700; color: #EF4444; letter-spacing: 8px; }
     .btn { display: inline-block; background-color: #4f46e5; color: #ffffff; padding: 14px 32px; border-radius: 12px; text-decoration: none; font-weight: 600; font-size: 16px; }
     .footer { padding: 24px; color: #94a3b8; font-size: 12px; text-align: center; }
     .icon { font-size: 32px; color: #4f46e5; }
@@ -38,7 +45,6 @@ const getHtmlHead = (title: string) => `
         </div>
 `;
 
-// --- 2. HTML FOOTER (Shared) ---
 const getHtmlFooter = (year: number) => `
         <div class="footer">
           <p>&copy; ${year} DART. All rights reserved.</p>
@@ -50,48 +56,29 @@ const getHtmlFooter = (year: number) => `
 </html>
 `;
 
-// --- 3. TEMPLATE BUILDERS ---
-
-// A. OTP Templates (Delete Account, Verify Identity)
-const buildOtpTemplate = (type: string, token: string, year: number) => {
-  const isDelete = type === 'DELETE_ACCOUNT';
-  const title = isDelete ? 'Delete Account' : 'Verify Identity';
-  const desc = isDelete 
-    ? 'You have requested to <strong>permanently delete</strong> your account. This action cannot be undone. Please confirm with the code below.'
-    : 'We received a request to update your security settings. Please verify your identity to continue.';
-  
-  const codeBox = isDelete 
-    ? `<div class="delete-box"><span class="delete-code">${token}</span></div>`
-    : `<div class="otp-box"><span class="otp-code">${token}</span></div>`;
-
-  return `
-    ${getHtmlHead(title)}
-    <div class="content">
-      <h1 class="title">${title}</h1>
-      <p class="text">${desc}</p>
-      ${codeBox}
-    </div>
-    ${getHtmlFooter(year)}
-  `;
-};
-
-// B. Notification Templates (Welcome, Subscription, Password Changed)
 const buildNotifTemplate = (type: string, siteUrl: string, year: number) => {
   let title = '', desc = '', btnText = 'Open App', icon = '&#10003;'; // Checkmark
 
-  if (type === 'WELCOME') {
-    title = 'Account Ready!';
-    desc = 'Your DART account has been successfully created. You can now access all features and start managing your reports.';
-  } else if (type === 'SUBSCRIPTION') {
-    title = 'Upgrade Complete';
-    desc = 'Thank you for subscribing! Your premium features have been unlocked and are ready to use.';
-    icon = '&#9733;'; // Star
-    btnText = 'View Plan';
-  } else if (type === 'PASSWORD_CHANGED') {
-    title = 'Password Updated';
-    desc = 'Your account password has been successfully changed. If you did not perform this action, please contact support immediately.';
-    icon = '&#128274;'; // Lock
-    btnText = 'Login Now';
+  switch (type) {
+    case 'WELCOME':
+      title = 'Account Ready!';
+      desc = 'Your DART account has been successfully created. You can now access all features and start managing your reports.';
+      break;
+    case 'SUBSCRIPTION':
+      title = 'Upgrade Complete';
+      desc = 'Thank you for subscribing! Your premium features have been unlocked and are ready to use.';
+      icon = '&#9733;'; // Star
+      btnText = 'View Plan';
+      break;
+    case 'PASSWORD_CHANGED':
+      title = 'Password Updated';
+      desc = 'Your account password has been successfully changed. If you did not perform this action, please contact support immediately.';
+      icon = '&#128274;'; // Lock
+      btnText = 'Login Now';
+      break;
+    default:
+      title = 'Notification';
+      desc = 'You have a new notification from DART.';
   }
 
   return `
@@ -106,30 +93,21 @@ const buildNotifTemplate = (type: string, siteUrl: string, year: number) => {
   `;
 };
 
-// --- 4. MAIN HANDLER ---
-
+// --- MAIN HANDLER ---
 serve(async (req) => {
-  // Handle CORS
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' } })
+    return new Response('ok', { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' } });
   }
 
   try {
-    const { email, type, token, siteUrl = 'https://your-app-scheme://' } = await req.json();
+    const { email, type, siteUrl = 'https://dartapp.com' } = await req.json();
     const year = new Date().getFullYear();
     let html = '';
     let subject = '';
 
-    // Logic Switch
+    console.log(`Sending email type: ${type} to ${email}`);
+
     switch (type) {
-      case 'DELETE_ACCOUNT':
-        subject = 'Confirm Account Deletion';
-        html = buildOtpTemplate('DELETE_ACCOUNT', token, year);
-        break;
-      case 'VERIFY_IDENTITY':
-        subject = 'Verify Identity';
-        html = buildOtpTemplate('VERIFY_IDENTITY', token, year);
-        break;
       case 'WELCOME':
         subject = "You're all set!";
         html = buildNotifTemplate('WELCOME', siteUrl, year);
@@ -143,32 +121,28 @@ serve(async (req) => {
         html = buildNotifTemplate('PASSWORD_CHANGED', siteUrl, year);
         break;
       default:
-        throw new Error('Invalid email type');
+        // Supabase now handles OTP/Delete/Recovery internally via Dashboard SMTP.
+        // We throw here to prevent this function from sending duplicate or unstyled emails if called by mistake.
+        throw new Error(`Type "${type}" is handled by Supabase Dashboard or is invalid.`);
     }
 
-    // Send via Resend
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${RESEND_API_KEY}`,
-      },
-      body: JSON.stringify({
-        from: 'DART <noreply@dart.com>', // UPDATE THIS
-        to: email,
-        subject: subject,
-        html: html,
-      }),
+    // Send via Gmail SMTP
+    const info = await transporter.sendMail({
+      from: `"DART App" <${GMAIL_USER}>`,
+      to: email,
+      subject: subject,
+      html: html,
     });
 
-    const data = await res.json();
+    console.log("Email sent: %s", info.messageId);
 
-    return new Response(JSON.stringify(data), {
+    return new Response(JSON.stringify({ success: true, messageId: info.messageId }), {
       headers: { 'Content-Type': 'application/json' },
-      status: res.ok ? 200 : 400,
+      status: 200,
     });
 
-  } catch (error) {
+  } catch (error: any) {
+    console.error("Email error:", error.message);
     return new Response(JSON.stringify({ error: error.message }), {
       headers: { 'Content-Type': 'application/json' },
       status: 400,

@@ -1,327 +1,443 @@
 import {
-  ArrowLeftRightIcon,
-  Briefcase01Icon,
-  Calendar03Icon,
-  Clock01Icon,
-  Money03Icon,
-  PencilEdit02Icon,
-  PlusSignIcon,
-  RepeatIcon,
-  Settings02Icon,
-  UserCircleIcon
+    Briefcase01Icon,
+    Briefcase02Icon,
+    Calendar03Icon,
+    Camera01Icon,
+    Cancel01Icon,
+    Clock01Icon,
+    Delete02Icon,
+    DollarCircleIcon,
+    Layers01Icon,
+    PencilEdit02Icon,
+    Settings02Icon,
+    UserCircleIcon,
+    UserGroupIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
-  Image,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-  useColorScheme
+    ActivityIndicator,
+    Image,
+    Modal,
+    Pressable,
+    RefreshControl,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
-import Animated, {
-  Easing,
-  interpolate,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming
-} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import EditDisplayModal, { AVAILABLE_JOB_FIELDS } from '../../components/EditDisplayModal';
+import LoadingOverlay from '../../components/LoadingOverlay'; // Ensure this is imported
+import { useAppTheme } from '../../constants/theme';
+import { queueSyncItem, saveProfileLocal } from '../../lib/database';
+import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 
-// --- THEME COLORS ---
-const Colors = {
-  light: {
-    background: '#F1F5F9',
-    cardBg: '#ffffff',
-    textPrimary: '#0f172a',
-    textSecondary: '#64748b',
-    accent: '#6366f1',
-    border: '#e2e8f0',
-    iconBg: '#f1f5f9',
-    graphicTint: 'rgba(99, 102, 241, 0.05)', 
-  },
-  dark: {
-    background: '#0f172a', 
-    cardBg: '#1e293b',     
-    textPrimary: '#f8fafc',
-    textSecondary: '#94a3b8',
-    accent: '#818cf8',
-    border: '#334155',
-    iconBg: '#334155',
-    graphicTint: 'rgba(255, 255, 255, 0.05)', 
-  }
+// --- COMPONENTS ---
+
+const DetailRow = ({ label, value, icon, theme }: any) => (
+    <View style={styles.detailRow}>
+        <View style={styles.detailIconContainer}>
+            <HugeiconsIcon icon={icon} size={18} color={theme.colors.textSecondary} />
+        </View>
+        <View style={{ flex: 1 }}>
+            <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>{label}</Text>
+            <Text style={[styles.detailValue, { color: theme.colors.text }]}>{value}</Text>
+        </View>
+    </View>
+);
+
+const JobCard = ({ currentJob, visibleKeys, theme, onEdit }: any) => {
+    if (!currentJob) return null;
+
+    const formatPay = (val: number | string) => { 
+        const num = Number(val); 
+        return isNaN(num) ? val : `₱${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; 
+    };
+
+    const getCutoffLabel = (val: string) => { 
+        if (!val) return 'Not Set'; 
+        switch(val) { case 'semi-monthly': return '15th / 30th'; case 'weekly': return 'Weekly'; case 'monthly': return 'End of Month'; default: return val; } 
+    };
+
+    const getDetailValue = (key: string) => {
+        switch(key) {
+            case 'employment_status': return currentJob.employment_status || 'Regular';
+            case 'rate': return formatPay(currentJob.rate || currentJob.salary);
+            case 'rate_type': return currentJob.rate_type ? currentJob.rate_type.charAt(0).toUpperCase() + currentJob.rate_type.slice(1) : 'Hourly';
+            case 'shift': return currentJob.work_schedule ? `${currentJob.work_schedule.start} - ${currentJob.work_schedule.end}` : 'N/A';
+            case 'payroll': return getCutoffLabel(currentJob.cutoff_config?.type);
+            case 'breaks': return currentJob.break_schedule ? `${currentJob.break_schedule.length} Break(s)` : '0';
+            default: return 'N/A';
+        }
+    };
+
+    const getIcon = (key: string) => {
+        switch(key) {
+            case 'rate': return DollarCircleIcon;
+            case 'shift': return Clock01Icon;
+            case 'payroll': return Calendar03Icon;
+            case 'employment_status': return Briefcase02Icon;
+            default: return UserGroupIcon;
+        }
+    };
+
+    const getDetailLabel = (key: string) => AVAILABLE_JOB_FIELDS.find(f => f.key === key)?.label || key;
+
+    return (
+        <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+            <View style={[styles.cardHeader, { borderBottomColor: theme.colors.border }]}>
+                <View style={{ flex: 1 }}>
+                    <Text style={[styles.jobTitle, { color: theme.colors.text }]} numberOfLines={1}>{currentJob.title}</Text>
+                    <Text style={[styles.companyName, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                        {currentJob.company || currentJob.company_name || 'No Company'}
+                    </Text>
+                </View>
+                <TouchableOpacity onPress={onEdit} style={[styles.iconButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+                    <HugeiconsIcon icon={PencilEdit02Icon} size={18} color={theme.colors.text} />
+                </TouchableOpacity>
+            </View>
+
+            <View style={styles.cardContent}>
+                {visibleKeys.length === 0 ? (
+                    <Text style={{ textAlign: 'center', color: theme.colors.textSecondary, fontStyle: 'italic', padding: 12 }}>
+                        No details visible. Tap edit to customize.
+                    </Text>
+                ) : (
+                    <View style={styles.gridContainer}>
+                        {visibleKeys.map((key: string) => (
+                            <View key={key} style={styles.gridItem}>
+                                <DetailRow 
+                                    label={getDetailLabel(key)} 
+                                    value={getDetailValue(key)} 
+                                    icon={getIcon(key)} 
+                                    theme={theme} 
+                                />
+                            </View>
+                        ))}
+                    </View>
+                )}
+            </View>
+        </View>
+    );
 };
 
-export default function ProfileScreen() {
-  const router = useRouter();
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
-  const theme = isDark ? Colors.dark : Colors.light;
-
-  const [refreshing, setRefreshing] = useState(false);
-  const [profile, setProfile] = useState<any>(null);
-  const [selectedJobIndex, setSelectedJobIndex] = useState(0);
-  const [isFlipped, setIsFlipped] = useState(false);
-  
-  const spin = useSharedValue(0);
-  const GRAPHIC_URL = "https://www.transparenttextures.com/patterns/cubes.png";
-
-  useFocusEffect(
-    useCallback(() => {
-      getProfile();
-    }, [])
-  );
-
-  const getProfile = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-      if (data) {
-        setProfile(data);
-        setSelectedJobIndex(0);
-      }
-    } catch (e) { console.log(e); } finally { setRefreshing(false); }
-  };
-
-  const jobs = profile?.jobs || [];
-  const hasMultipleJobs = jobs.length > 1;
-  
-  const rawJob = jobs.length > 0 ? jobs[selectedJobIndex] : null;
-  
-  const currentJob = rawJob ? {
-        title: rawJob.job_title || 'No Title',
-        company: rawJob.company_name || 'No Company',
-        department: rawJob.department || 'No Department',
-        rate: rawJob.salary ? rawJob.salary.toString() : '0',
-        cutoff: rawJob.cutoff_config || '',
-        shift: rawJob.work_schedule ? `${rawJob.work_schedule.start} - ${rawJob.work_schedule.end}` : null 
-  } : {
-        title: profile?.job_title || '', 
-        company: profile?.company_name || '',
-        department: profile?.department || 'No Department',
-        rate: profile?.salary ? profile.salary.toString() : '0',
-        cutoff: profile?.cutoff_config || '',
-        shift: profile?.work_schedule ? `${profile.work_schedule.start} - ${profile.work_schedule.end}` : null 
-  };
-
-  const isJobEmpty = !currentJob.company && !currentJob.title;
-
-  const displayName = profile 
-    ? `${profile.title ? profile.title + ' ' : ''}${profile.first_name || ''} ${profile.last_name || ''}`.trim() || profile.full_name 
-    : 'Loading...';
-
-  const handleSwitchJob = () => {
-    if (!hasMultipleJobs) return;
-    setSelectedJobIndex((prev) => (prev + 1) % jobs.length);
-  };
-
-  const handleEditProfile = () => {
-    router.push({
-      pathname: '/edit-profile',
-      params: { mode: 'edit' } 
-    });
-  };
-
-  const handleFlip = () => {
-    setIsFlipped(!isFlipped);
-    spin.value = withTiming(spin.value === 0 ? 1 : 0, {
-      duration: 600,
-      easing: Easing.inOut(Easing.cubic),
-    });
-  };
-
-  const frontAnimatedStyle = useAnimatedStyle(() => {
-    const rotateValue = interpolate(spin.value, [0, 1], [0, 180]);
-    return {
-      transform: [{ rotateY: `${rotateValue}deg` }],
-      zIndex: spin.value === 0 ? 1 : 0,
-      opacity: interpolate(spin.value, [0, 0.5, 1], [1, 0, 0]),
-    };
-  });
-
-  const backAnimatedStyle = useAnimatedStyle(() => {
-    const rotateValue = interpolate(spin.value, [0, 1], [180, 360]);
-    return {
-      transform: [{ rotateY: `${rotateValue}deg` }],
-      zIndex: spin.value === 1 ? 1 : 0,
-      opacity: interpolate(spin.value, [0, 0.5, 1], [0, 0, 1]),
-    };
-  });
-
-  const getCutoffLabel = (val: string) => {
-      switch(val) {
-          case '15-30': return '15th / 30th';
-          case 'weekly-fri': return 'Weekly';
-          case 'monthly': return 'Monthly';
-          default: return val || 'Not Set';
-      }
-  };
-
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }} edges={['top']}>
-      
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.background }]}>
-        <Text style={[styles.headerTitle, { color: theme.textPrimary }]}>Profile</Text>
+const EmptyJobCard = ({ theme, router }: any) => (
+    <View style={[styles.emptyCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+        <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
+            <HugeiconsIcon icon={Briefcase01Icon} size={32} color={theme.colors.primary} />
+        </View>
+        <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Active Job</Text>
+        <Text style={[styles.emptyDesc, { color: theme.colors.textSecondary }]}>
+            Set up your job profile to start tracking your attendance and earnings.
+        </Text>
         <TouchableOpacity 
-          onPress={() => router.push('/settings')} 
-          style={[styles.settingsBtn, { backgroundColor: theme.cardBg, borderColor: theme.border }]}
+            onPress={() => router.push('/job/form')}
+            style={[styles.primaryButton, { backgroundColor: theme.colors.primary }]}
         >
-          <HugeiconsIcon icon={Settings02Icon} size={24} color={theme.textSecondary} />
+            <Text style={styles.primaryButtonText}>Set Up Job</Text>
         </TouchableOpacity>
-      </View>
+    </View>
+);
 
-      <ScrollView 
-        contentContainerStyle={styles.scrollContainer}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); getProfile(); }} tintColor={theme.accent} />}
-      >
-        
-        {/* --- CARD CONTAINER --- */}
-        <View style={styles.cardContainer}>
+// --- MAIN SCREEN ---
+export default function ProfileScreen() {
+    const router = useRouter();
+    const theme = useAppTheme();
+
+    const [refreshing, setRefreshing] = useState(false);
+    const [isLoading, setIsLoading] = useState(true);
+    const [profile, setProfile] = useState<any>(null);
+    const [currentJob, setCurrentJob] = useState<any>(null);
+    const [email, setEmail] = useState('');
+    const [imageError, setImageError] = useState(false);
+    const [isUpdating, setIsUpdating] = useState(false); // NEW state for overlay
+    
+    // UI State
+    const [modalVisible, setModalVisible] = useState(false);
+    const [avatarModalVisible, setAvatarModalVisible] = useState(false);
+    const [visibleDetailKeys, setVisibleDetailKeys] = useState<string[]>([
+        'employment_status', 'shift', 'rate', 'rate_type', 'payroll', 'breaks'
+    ]);
+
+    useFocusEffect(useCallback(() => { 
+        loadData(false);
+    }, []));
+
+    const loadData = async (forceRefresh = false) => {
+        if (!forceRefresh && !profile) setIsLoading(true);
+        try {
+            const db = await getDB();
             
-            {/* FRONT FACE */}
-            <Animated.View style={[
-                styles.cardFace, 
-                styles.frontFace, 
-                frontAnimatedStyle,
-                { backgroundColor: theme.cardBg, borderColor: theme.border }
-            ]}>
-                <Image 
-                    source={{ uri: GRAPHIC_URL }} 
-                    style={[StyleSheet.absoluteFillObject, { opacity: 0.6, tintColor: theme.graphicTint }]}
-                    resizeMode="repeat"
-                />
+            const { data: { session } } = await supabase.auth.getSession();
+            const userId = session?.user?.id;
 
-                {/* Removed Pro Glass Button */}
+            if (!userId) {
+                const localProfile = await db.getFirstAsync('SELECT * FROM profiles LIMIT 1');
+                if (localProfile) setProfile(localProfile);
+                setIsLoading(false);
+                return;
+            }
 
-                <TouchableOpacity onPress={handleEditProfile} style={[styles.editIconBtn, { backgroundColor: isDark ? '#312e81' : '#eef2ff' }]}>
-                    <HugeiconsIcon icon={PencilEdit02Icon} size={20} color={theme.accent} />
-                </TouchableOpacity>
+            setEmail(session.user.email || '');
 
-                <View style={styles.centeredContent}>
-                    <View style={[styles.avatarContainer, { backgroundColor: theme.iconBg, borderColor: theme.cardBg }]}>
-                        {profile?.avatar_url ? (
-                        <Image source={{ uri: profile.avatar_url }} style={styles.avatar} resizeMode="cover" />
-                        ) : (
-                        <HugeiconsIcon icon={UserCircleIcon} size={64} color={theme.textSecondary} />
+            let profileData: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [userId]);
+            
+            if (profileData && typeof profileData.avatar_history === 'string') {
+                try { profileData.avatar_history = JSON.parse(profileData.avatar_history); } catch (e) { profileData.avatar_history = []; }
+            }
+
+            const shouldFetchRemote = forceRefresh || !profileData;
+            if (shouldFetchRemote) {
+                const { data: remoteProfile } = await supabase.from('profiles').select('*').eq('id', userId).single();
+                if (remoteProfile) {
+                    await saveProfileLocal(remoteProfile);
+                    profileData = remoteProfile;
+                }
+            }
+
+            if (profileData) {
+                setProfile(profileData);
+                setImageError(false);
+
+                let jobData: any = null;
+                if (profileData.current_job_id) {
+                    jobData = await db.getFirstAsync('SELECT * FROM job_positions WHERE id = ?', [profileData.current_job_id]);
+                    if (!jobData && shouldFetchRemote) {
+                        const { data } = await supabase.from('job_positions').select('*').eq('id', profileData.current_job_id).single();
+                        jobData = data;
+                    }
+                } else {
+                    const { data } = await supabase.from('job_positions').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(1).single();
+                    jobData = data;
+                }
+                setCurrentJob(jobData);
+            }
+
+        } catch (e) { 
+            console.log("Profile Load Error:", e); 
+        } finally { 
+            setRefreshing(false); 
+            setIsLoading(false);
+        }
+    };
+
+    const handleUpdateProfile = async (updates: any) => {
+        if (!profile) return;
+        setIsUpdating(true); // Show overlay for heavier updates like avatar
+        try {
+            // Optimistic
+            const updatedProfile = { ...profile, ...updates };
+            setProfile(updatedProfile); 
+            
+            // Local Save
+            await saveProfileLocal(updatedProfile);
+            
+            // Queue Sync
+            const { data: { user } } = await supabase.auth.getSession();
+            if (user) {
+                await queueSyncItem('profiles', user.id, 'UPDATE', updates);
+                // Try Push
+                supabase.from('profiles').update(updates).eq('id', user.id).then(({error}) => {
+                    if(error) console.log("Sync queued.");
+                });
+            }
+        } catch (e) {
+            console.log(e);
+        } finally {
+            setIsUpdating(false);
+        }
+    };
+
+    const pickAvatar = async () => {
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [1, 1],
+            quality: 0.5,
+        });
+
+        if (!result.canceled) {
+            setAvatarModalVisible(false);
+            handleUpdateProfile({ avatar_url: result.assets[0].uri });
+        }
+    };
+
+    const removeFromHistory = async (urlToRemove: string) => {
+        if (!profile) return;
+        let currentHistory = Array.isArray(profile.avatar_history) ? profile.avatar_history : [];
+        const newHistory = currentHistory.filter((url: string) => url !== urlToRemove);
+        handleUpdateProfile({ avatar_history: newHistory });
+    };
+
+    const formatDisplayName = () => {
+        if(!profile) return 'User';
+        const titlePart = profile.title ? `${profile.title.trim()} ` : '';
+        const namePart = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || profile.full_name;
+        const suffixPart = profile.professional_suffix ? `, ${profile.professional_suffix.trim()}` : '';
+        return `${titlePart}${namePart}${suffixPart}`;
+    }
+
+    const displayName = formatDisplayName();
+    const displayJobTitle = profile?.job_title ? profile.job_title : null; 
+    const avatarHistory = Array.isArray(profile?.avatar_history) ? profile.avatar_history : [];
+
+    return (
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
+            <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} translucent backgroundColor="transparent" />
+            
+            <EditDisplayModal visible={modalVisible} onClose={() => setModalVisible(false)} selectedKeys={visibleDetailKeys} onSave={(newKeys) => setVisibleDetailKeys(newKeys)} />
+            <LoadingOverlay visible={isUpdating} message="Updating..." />
+
+            {/* AVATAR HISTORY MODAL */}
+            <Modal visible={avatarModalVisible} transparent animationType="fade" onRequestClose={() => setAvatarModalVisible(false)}>
+                <Pressable onPress={() => setAvatarModalVisible(false)} style={styles.modalOverlay}>
+                    <Pressable style={[styles.modalContent, { backgroundColor: theme.colors.card }]}>
+                        <View style={{ width: 40, height: 4, backgroundColor: theme.colors.border, alignSelf: 'center', marginBottom: 20, borderRadius: 2 }} />
+                        <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Profile Picture</Text>
+                        
+                        <TouchableOpacity onPress={pickAvatar} style={[styles.optionButton, { borderColor: theme.colors.border }]}>
+                            <HugeiconsIcon icon={Camera01Icon} size={24} color={theme.colors.primary} />
+                            <Text style={[styles.optionText, { color: theme.colors.text }]}>Upload New Photo</Text>
+                        </TouchableOpacity>
+
+                        {avatarHistory.length > 0 && (
+                            <>
+                                <Text style={[styles.sectionHeader, { color: theme.colors.textSecondary }]}>PREVIOUS PHOTOS</Text>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 16, paddingVertical: 10 }}>
+                                    {avatarHistory.map((url: string, index: number) => (
+                                        <View key={index} style={{ position: 'relative' }}>
+                                            <TouchableOpacity onPress={() => { setAvatarModalVisible(false); handleUpdateProfile({ avatar_url: url }); }}>
+                                                <Image source={{ uri: url }} style={{ width: 70, height: 70, borderRadius: 35, borderWidth: 1, borderColor: theme.colors.border }} />
+                                            </TouchableOpacity>
+                                            
+                                            <TouchableOpacity 
+                                                onPress={() => removeFromHistory(url)}
+                                                style={{
+                                                    position: 'absolute',
+                                                    top: -4,
+                                                    right: -4,
+                                                    backgroundColor: theme.colors.danger,
+                                                    borderRadius: 12,
+                                                    width: 24,
+                                                    height: 24,
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    borderWidth: 2,
+                                                    borderColor: theme.colors.card
+                                                }}
+                                            >
+                                                <HugeiconsIcon icon={Cancel01Icon} size={12} color="#fff" />
+                                            </TouchableOpacity>
+                                        </View>
+                                    ))}
+                                </ScrollView>
+                            </>
                         )}
-                    </View>
-                    <Text style={[styles.nameText, { color: theme.textPrimary }]}>{displayName}</Text>
-                    {currentJob.title ? (
-                        <Text style={[styles.jobText, { color: theme.accent }]}>{currentJob.title}</Text>
-                    ) : (
-                        <Text style={[styles.jobText, { color: theme.textSecondary, opacity: 0.5 }]}>No Job Title</Text>
-                    )}
+
+                        <TouchableOpacity onPress={() => { setAvatarModalVisible(false); handleUpdateProfile({ avatar_url: null }); }} style={{ flexDirection: 'row', alignItems: 'center', marginTop: 24 }}>
+                            <HugeiconsIcon icon={Delete02Icon} size={20} color={theme.colors.danger} />
+                            <Text style={{ color: theme.colors.danger, fontWeight: '700', marginLeft: 12 }}>Remove Current Photo</Text>
+                        </TouchableOpacity>
+                    </Pressable>
+                </Pressable>
+            </Modal>
+
+            {/* HEADER */}
+            <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
+                <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Profile</Text>
+                <TouchableOpacity 
+                    onPress={() => router.push('/settings')} 
+                    style={[styles.settingsButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+                >
+                    <HugeiconsIcon icon={Settings02Icon} size={22} color={theme.colors.text} />
+                </TouchableOpacity>
+            </View>
+
+            {isLoading ? (
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color={theme.colors.primary} />
                 </View>
-            </Animated.View>
-
-            {/* BACK FACE */}
-            <Animated.View style={[
-                styles.cardFace, 
-                styles.backFace, 
-                backAnimatedStyle,
-                { backgroundColor: theme.cardBg, borderColor: theme.border }
-            ]}>
-                <Image 
-                    source={{ uri: GRAPHIC_URL }} 
-                    style={[StyleSheet.absoluteFillObject, { opacity: 0.6, tintColor: theme.graphicTint }]}
-                    resizeMode="repeat"
-                />
-
-                {hasMultipleJobs && (
-                  <TouchableOpacity onPress={handleSwitchJob} style={[styles.switchJobBtn, { backgroundColor: isDark ? '#312e81' : '#eef2ff' }]}>
-                      <Text style={[styles.switchJobText, { color: theme.accent }]}>Switch Job</Text>
-                      <HugeiconsIcon icon={RepeatIcon} size={16} color={theme.accent} />
-                  </TouchableOpacity>
-                )}
-
-                <View style={styles.centeredContent}>
-                    {/* EMPTY STATE LOGIC */}
-                    {isJobEmpty ? (
-                        <View style={{ alignItems: 'center', justifyContent: 'center', width: '100%', gap: 16 }}>
-                            <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: theme.iconBg, alignItems: 'center', justifyContent: 'center' }}>
-                                <HugeiconsIcon icon={Briefcase01Icon} size={40} color={theme.textSecondary} />
+            ) : (
+                <ScrollView 
+                    contentContainerStyle={styles.scrollContent} 
+                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadData(true)} tintColor={theme.colors.primary} />} 
+                    showsVerticalScrollIndicator={false}
+                >
+                    {/* PROFILE INFO SECTION */}
+                    <View style={styles.profileSection}>
+                        <TouchableOpacity onPress={() => setAvatarModalVisible(true)} activeOpacity={0.8} style={{ marginBottom: 16 }}>
+                            <View style={[styles.avatarWrapper, { borderColor: theme.colors.primary }]}>
+                                {profile?.avatar_url && !imageError ? (
+                                    <Image 
+                                        key={profile.avatar_url}
+                                        source={{ uri: profile.avatar_url }} 
+                                        style={styles.avatar} 
+                                        resizeMode="cover"
+                                        onError={() => setImageError(true)} 
+                                    />
+                                ) : (
+                                    <View style={[styles.avatarPlaceholder, { backgroundColor: theme.colors.iconBg }]}>
+                                        <HugeiconsIcon icon={UserCircleIcon} size={80} color={theme.colors.textSecondary} />
+                                    </View>
+                                )}
+                                <View style={[styles.editAvatarBtn, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                                    <HugeiconsIcon icon={Camera01Icon} size={14} color={theme.colors.text} />
+                                </View>
                             </View>
-                            <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.textSecondary }}>No Job Details Found</Text>
+                        </TouchableOpacity>
+
+                        <Text style={[styles.nameText, { color: theme.colors.text }]}>{displayName}</Text>
+                        {displayJobTitle ? (
+                            <Text style={[styles.titleText, { color: theme.colors.primary }]}>{displayJobTitle}</Text>
+                        ) : null}
+                        <Text style={[styles.emailText, { color: theme.colors.textSecondary }]}>{email}</Text>
+
+                        {/* Action Buttons */}
+                        <View style={styles.actionButtonsRow}>
+                            <TouchableOpacity 
+                                onPress={() => router.push('/edit-profile')} 
+                                style={[styles.actionButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+                            >
+                                <HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.text} />
+                                <Text style={[styles.actionButtonText, { color: theme.colors.text }]}>Edit Info</Text>
+                            </TouchableOpacity>
                             
                             <TouchableOpacity 
-                                onPress={handleEditProfile}
-                                style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.accent, paddingVertical: 12, paddingHorizontal: 24, borderRadius: 16, gap: 8, marginTop: 8 }}
+                                onPress={() => router.push('/job/job')} 
+                                style={[styles.actionButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
                             >
-                                <HugeiconsIcon icon={PlusSignIcon} size={18} color="#fff" />
-                                <Text style={{ color: '#fff', fontWeight: 'bold' }}>Update Profile</Text>
+                                <HugeiconsIcon icon={Layers01Icon} size={16} color={theme.colors.primary} />
+                                <Text style={[styles.actionButtonText, { color: theme.colors.primary }]}>Manage Jobs</Text>
                             </TouchableOpacity>
                         </View>
-                    ) : (
-                        <>
-                            <View style={styles.backHeaderContainer}>
-                                <Text style={[styles.companyHeader, { color: theme.textPrimary }]}>{currentJob.company}</Text>
-                                <Text 
-                                    style={[styles.departmentHeader, { color: theme.textSecondary }]}
-                                    numberOfLines={1}
-                                    adjustsFontSizeToFit={true}
-                                    minimumFontScale={0.7}
-                                >
-                                    {currentJob.department}
-                                </Text>
-                            </View>
-                            
-                            <Divider theme={theme} />
+                    </View>
 
-                            <View style={styles.detailsContainer}>
-                                <DetailRow icon={Money03Icon} label="Rate" value={`₱ ${currentJob.rate}`} theme={theme} />
-                                <Divider theme={theme} />
-                                <DetailRow icon={Calendar03Icon} label="Cutoff" value={getCutoffLabel(currentJob.cutoff)} theme={theme} />
-                                <Divider theme={theme} />
-                                {currentJob.shift && (
-                                    <DetailRow icon={Clock01Icon} label="Shift" value={currentJob.shift} theme={theme} />
-                                )}
-                                <DetailRow icon={Briefcase01Icon} label="Status" value="Active" theme={theme} />
-                            </View>
-                        </>
-                    )}
-                </View>
-            </Animated.View>
-        </View>
+                    {/* JOB CARD */}
+                    <View style={styles.sectionContainer}>
+                        <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>CURRENT JOB</Text>
+                        {currentJob ? (
+                            <JobCard 
+                                currentJob={currentJob} 
+                                visibleKeys={visibleDetailKeys} 
+                                theme={theme} 
+                                onEdit={() => setModalVisible(true)} 
+                            />
+                        ) : (
+                            <EmptyJobCard theme={theme} router={router} />
+                        )}
+                    </View>
 
-        {/* --- EXTERNAL BUTTON --- */}
-        <TouchableOpacity 
-            style={[styles.externalFlipBtn, { backgroundColor: theme.textPrimary, shadowColor: theme.textPrimary }]} 
-            onPress={handleFlip}
-            activeOpacity={0.8}
-        >
-            <HugeiconsIcon icon={ArrowLeftRightIcon} size={20} color={theme.cardBg} />
-            <Text style={[styles.externalFlipBtnText, { color: theme.cardBg }]}>
-                {isFlipped ? "View Personal Info" : "View Job Details"}
-            </Text>
-        </TouchableOpacity>
-
-      </ScrollView>
-    </SafeAreaView>
-  );
-}
-
-// --- SUB-COMPONENTS ---
-const Divider = ({ theme }: any) => <View style={[styles.divider, { backgroundColor: theme.border }]} />;
-
-function DetailRow({ icon: Icon, label, value, theme }: any) {
-  return (
-    <View style={styles.detailRow}>
-      <View style={styles.detailLeft}>
-        <View style={[styles.iconCircle, { backgroundColor: theme.iconBg }]}>
-           <HugeiconsIcon icon={Icon} size={16} color={theme.textSecondary} />
-        </View>
-        <Text style={[styles.detailLabel, { color: theme.textSecondary }]}>{label}</Text>
-      </View>
-      <Text style={[styles.detailValue, { color: theme.textPrimary }]}>{value}</Text>
-    </View>
-  );
+                </ScrollView>
+            )}
+        </SafeAreaView>
+    );
 }
 
 const styles = StyleSheet.create({
@@ -331,106 +447,236 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        zIndex: 10,
+        borderBottomWidth: 1,
     },
-    headerTitle: { fontSize: 28, fontWeight: '800' },
-    settingsBtn: {
-        padding: 12, borderRadius: 999, borderWidth: 1,
-        shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 2,
+    headerTitle: {
+        fontSize: 28,
+        fontWeight: '800',
+        letterSpacing: -0.5,
     },
-    scrollContainer: {
-        flexGrow: 1, 
-        justifyContent: 'flex-start', 
-        alignItems: 'center', 
-        paddingHorizontal: 24,
-        paddingTop: 30,
-        paddingBottom: 120 
-    },
-    
-    cardContainer: { width: '100%', height: 440, position: 'relative', marginBottom: 30 },
-    
-    cardFace: {
-        width: '100%', height: '100%', borderRadius: 32, padding: 24,
-        position: 'absolute', backfaceVisibility: 'hidden', shadowColor: "#000",
-        shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 5,
+    settingsButton: {
+        padding: 10,
+        borderRadius: 99,
         borderWidth: 1,
-        overflow: 'hidden'
     },
-    frontFace: { zIndex: 2 },
-    backFace: { zIndex: 1, transform: [{ rotateY: '180deg' }] },
-    
-    centeredContent: {
+    loadingContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-        width: '100%',
-        zIndex: 10,
     },
-
-    externalFlipBtn: {
-        flexDirection: 'row',
+    scrollContent: {
+        paddingBottom: 120, // Ensure content isn't hidden by tab bar
+    },
+    profileSection: {
+        alignItems: 'center',
+        paddingVertical: 32,
+    },
+    avatarWrapper: {
+        width: 120,
+        height: 120,
+        borderRadius: 60,
+        borderWidth: 3,
+        padding: 3,
+    },
+    avatar: {
+        width: '100%',
+        height: '100%',
+        borderRadius: 60,
+    },
+    avatarPlaceholder: {
+        width: '100%',
+        height: '100%',
+        borderRadius: 60,
         alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 16,
-        paddingHorizontal: 32,
-        borderRadius: 20,
-        gap: 12,
-        width: '100%',
-        maxWidth: 300,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 8,
-        elevation: 4,
     },
-    externalFlipBtnText: {
-        fontSize: 16,
-        fontWeight: 'bold',
+    editAvatarBtn: {
+        position: 'absolute',
+        bottom: 0,
+        right: 0,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 2,
     },
-
-    editIconBtn: {
-        position: 'absolute', top: 20, right: 20, padding: 10,
-        borderRadius: 12, zIndex: 20,
+    nameText: {
+        fontSize: 24,
+        fontWeight: '800',
+        marginBottom: 4,
+        textAlign: 'center',
     },
-    
-    avatarContainer: {
-        width: 120, height: 120, borderRadius: 60, borderWidth: 4,
-        justifyContent: 'center', alignItems: 'center', marginBottom: 20, overflow: 'hidden',
-        shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 10,
-    },
-    avatar: { width: '100%', height: '100%' },
-    nameText: { fontSize: 24, fontWeight: 'bold', textAlign: 'center', marginBottom: 6 },
-    jobText: { fontSize: 16, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 1, textAlign: 'center', marginBottom: 12 },
-
-    switchJobBtn: {
-        position: 'absolute', top: 20, right: 20,
-        flexDirection: 'row', alignItems: 'center', gap: 6,
-        paddingHorizontal: 12, paddingVertical: 8,
-        borderRadius: 20, zIndex: 20
-    },
-    switchJobText: { fontSize: 12, fontWeight: '700' },
-
-    backHeaderContainer: { alignItems: 'center', marginBottom: 20, width: '100%' },
-    
-    companyHeader: { 
-        fontSize: 18,
-        fontWeight: '800', 
-        textAlign: 'center', 
-        marginBottom: 4 
-    },
-    departmentHeader: { 
+    titleText: {
         fontSize: 14,
-        fontWeight: '600', 
-        textAlign: 'center', 
-        textTransform: 'uppercase', 
-        letterSpacing: 1,
-        width: '90%'
+        fontWeight: '700',
+        marginBottom: 4,
+        textAlign: 'center',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
     },
-
-    detailsContainer: { width: '100%', gap: 8, marginTop: 10 },
-    detailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 8 },
-    detailLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-    iconCircle: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-    detailLabel: { fontSize: 14, fontWeight: 'bold' },
-    detailValue: { fontSize: 15, fontWeight: 'bold' },
-    divider: { height: 1, width: '100%', marginVertical: 5 },
+    emailText: {
+        fontSize: 14,
+        fontWeight: '500',
+        opacity: 0.6,
+        marginBottom: 24,
+    },
+    actionButtonsRow: {
+        flexDirection: 'row',
+        gap: 12,
+        width: '80%',
+    },
+    actionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderRadius: 14,
+        borderWidth: 1,
+        flex: 1,
+        justifyContent: 'center',
+    },
+    actionButtonText: {
+        marginLeft: 8,
+        fontWeight: '700',
+        fontSize: 14,
+    },
+    sectionContainer: {
+        paddingHorizontal: 24,
+        marginBottom: 20,
+    },
+    sectionTitle: {
+        fontSize: 11,
+        fontWeight: '700',
+        letterSpacing: 1,
+        marginBottom: 12,
+        opacity: 0.7,
+    },
+    card: {
+        borderRadius: 24,
+        borderWidth: 1,
+        overflow: 'hidden',
+    },
+    cardHeader: {
+        padding: 20,
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderBottomWidth: 1,
+    },
+    jobTitle: {
+        fontSize: 18,
+        fontWeight: '800',
+        marginBottom: 4,
+    },
+    companyName: {
+        fontSize: 14,
+        fontWeight: '500',
+    },
+    iconButton: {
+        padding: 8,
+        borderRadius: 12,
+        borderWidth: 1,
+    },
+    cardContent: {
+        padding: 20,
+    },
+    gridContainer: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        marginHorizontal: -8,
+    },
+    gridItem: {
+        width: '50%',
+        paddingHorizontal: 8,
+        marginBottom: 16,
+    },
+    detailRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+    },
+    detailIconContainer: {
+        marginTop: 2,
+        marginRight: 10,
+    },
+    detailLabel: {
+        fontSize: 10,
+        fontWeight: '700',
+        textTransform: 'uppercase',
+        marginBottom: 2,
+        opacity: 0.7,
+    },
+    detailValue: {
+        fontSize: 14,
+        fontWeight: '700',
+    },
+    emptyCard: {
+        padding: 32,
+        alignItems: 'center',
+        borderRadius: 24,
+        borderWidth: 1,
+        borderStyle: 'dashed',
+    },
+    emptyIconContainer: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 16,
+    },
+    emptyTitle: {
+        fontSize: 18,
+        fontWeight: '800',
+        marginBottom: 8,
+    },
+    emptyDesc: {
+        textAlign: 'center',
+        fontSize: 14,
+        marginBottom: 24,
+        opacity: 0.7,
+    },
+    primaryButton: {
+        paddingVertical: 12,
+        paddingHorizontal: 24,
+        borderRadius: 100,
+    },
+    primaryButtonText: {
+        color: '#fff',
+        fontWeight: '700',
+    },
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        justifyContent: 'flex-end',
+    },
+    modalContent: {
+        padding: 24,
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        paddingBottom: 40,
+    },
+    modalTitle: {
+        fontSize: 20,
+        fontWeight: '800',
+        marginBottom: 24,
+    },
+    optionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 16,
+        borderRadius: 16,
+        borderWidth: 1,
+        marginBottom: 16,
+    },
+    optionText: {
+        marginLeft: 16,
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    sectionHeader: {
+        fontSize: 12,
+        fontWeight: '700',
+        marginTop: 10,
+        marginBottom: 10,
+    },
 });

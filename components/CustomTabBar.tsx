@@ -5,16 +5,23 @@ import React from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAppTheme } from '../constants/theme';
 
 export default function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const theme = useAppTheme();
   
   return (
     <View className="absolute bottom-0 items-center w-full pointer-events-box-none">
       <View 
         style={[
           styles.glassContainer,
-          { paddingBottom: insets.bottom > 0 ? insets.bottom : 20 }
+          { 
+            paddingBottom: insets.bottom > 0 ? insets.bottom : 20,
+            backgroundColor: theme.colors.glass,
+            borderColor: theme.colors.border,
+            shadowColor: theme.colors.primary, 
+          }
         ]}
       >
         {state.routes.map((route, index) => {
@@ -33,9 +40,8 @@ export default function CustomTabBar({ state, descriptors, navigation }: BottomT
             }
           };
 
-          // Updated Map
           const icons: any = {
-            home: Home01Icon, // 'index' changed to 'home'
+            home: Home01Icon,
             reports: File02Icon,
             profile: UserCircleIcon,
           };
@@ -48,6 +54,7 @@ export default function CustomTabBar({ state, descriptors, navigation }: BottomT
               isFocused={isFocused}
               onPress={onPress}
               IconComponent={IconComponent}
+              theme={theme}
             />
           );
         })}
@@ -56,8 +63,7 @@ export default function CustomTabBar({ state, descriptors, navigation }: BottomT
   );
 }
 
-// ... TabIcon and styles remain the same as previously fixed ...
-function TabIcon({ isFocused, onPress, IconComponent }: any) {
+function TabIcon({ isFocused, onPress, IconComponent, theme }: any) {
   const scale = useSharedValue(1);
 
   React.useEffect(() => {
@@ -78,13 +84,13 @@ function TabIcon({ isFocused, onPress, IconComponent }: any) {
         style={[
             styles.iconContainer, 
             animatedStyle, 
-            { backgroundColor: isFocused ? '#6366f1' : 'transparent' }
+            { backgroundColor: isFocused ? theme.colors.primary : 'transparent' }
         ]}
       >
         <HugeiconsIcon 
           icon={IconComponent}
           size={24} 
-          color={isFocused ? 'white' : '#94a3b8'} 
+          color={isFocused ? '#ffffff' : theme.colors.icon} 
           strokeWidth={2}
         />
       </Animated.View>
@@ -102,14 +108,11 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(15, 23, 42, 0.95)',
-    shadowColor: '#6366f1',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.3,
     shadowRadius: 20,
     elevation: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   tabButton: {
     alignItems: 'center',

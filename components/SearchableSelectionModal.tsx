@@ -1,131 +1,139 @@
-import {
-    Cancel01Icon,
-    PlusSignIcon,
-    Search01Icon
-} from '@hugeicons/core-free-icons';
+import { Cancel01Icon, Search01Icon, Tick02Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
+    FlatList,
     Modal,
     Pressable,
-    ScrollView,
     Text,
     TextInput,
     TouchableOpacity,
     View
 } from 'react-native';
 
-interface Option {
-    label: string;
-    value: string;
-}
-
-interface SearchableSelectionModalProps {
-    visible: boolean;
-    onClose: () => void;
-    onSelect: (value: string) => void;
-    title: string;
-    options: Option[];
-    placeholder?: string;
-}
-
 export default function SearchableSelectionModal({ 
-    visible, 
-    onClose, 
-    onSelect, 
-    title, 
-    options, 
-    placeholder 
-}: SearchableSelectionModalProps) {
-    const [search, setSearch] = useState('');
-    const [filteredOptions, setFilteredOptions] = useState<Option[]>(options);
+  visible, 
+  onClose, 
+  onSelect, 
+  title, 
+  options, 
+  currentValue, 
+  theme,
+  placeholder = 'Search...' // Default placeholder
+}: any) {
+  const [search, setSearch] = useState('');
 
-    // Reset search when modal opens
-    useEffect(() => {
-        if (visible) {
-            setSearch('');
-            setFilteredOptions(options);
-        }
-    }, [visible, options]);
+  const filteredOptions = options.filter((opt: any) => 
+    opt.label.toLowerCase().includes(search.toLowerCase()) || 
+    opt.value.toLowerCase().includes(search.toLowerCase())
+  );
 
-    // Local Filtering Logic
-    useEffect(() => {
-        const lowerSearch = search.toLowerCase();
-        const results = options.filter(opt => 
-            opt.label.toLowerCase().includes(lowerSearch)
-        );
-        setFilteredOptions(results);
-    }, [search, options]);
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable 
+        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 }} 
+        onPress={onClose}
+      >
+        <Pressable 
+            style={{ 
+                backgroundColor: theme.colors.card, 
+                borderRadius: 24, 
+                overflow: 'hidden', 
+                borderWidth: 1, 
+                borderColor: theme.colors.border,
+                maxHeight: '80%',
+                width: '100%'
+            }}
+            onPress={() => {}} // Stop propagation
+        >
+          {/* Header */}
+          <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.background }}>
+            <Text style={{ fontSize: 16, fontWeight: 'bold', textAlign: 'center', color: theme.colors.text }}>
+                {title}
+            </Text>
+          </View>
 
-    return (
-        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-            <Pressable 
-                style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 }} 
-                onPress={onClose}
-            >
-                <Pressable className="overflow-hidden bg-white shadow-xl dark:bg-slate-800 rounded-3xl" onPress={() => {}}>
-                    {/* Header */}
-                    <View className="p-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
-                        <Text className="font-bold text-center text-slate-900 dark:text-white">{title}</Text>
-                    </View>
-                    
-                    {/* Search Bar */}
-                    <View className="p-4 border-b border-slate-100 dark:border-slate-700">
-                        <View className="flex-row items-center px-4 py-3 bg-slate-100 dark:bg-slate-700/50 rounded-xl">
-                            <HugeiconsIcon icon={Search01Icon} size={20} color="#94a3b8" />
-                            <TextInput 
-                                placeholder={placeholder || "Search..."}
-                                placeholderTextColor="#94a3b8"
-                                value={search}
-                                onChangeText={setSearch}
-                                className="flex-1 ml-3 text-base font-medium text-slate-900 dark:text-white"
-                                autoFocus={false}
-                            />
-                            {/* Clear Button */}
-                            {search.length > 0 && (
-                                <TouchableOpacity onPress={() => setSearch('')}>
-                                    <HugeiconsIcon icon={Cancel01Icon} size={18} color="#94a3b8" />
-                                </TouchableOpacity>
-                            )}
-                        </View>
-                    </View>
-
-                    {/* List */}
-                    <ScrollView style={{ maxHeight: 400 }} keyboardShouldPersistTaps="handled">
-                        {filteredOptions.length > 0 ? (
-                            filteredOptions.map((opt, idx) => (
-                                <TouchableOpacity 
-                                    key={idx} 
-                                    onPress={() => { onSelect(opt.value); onClose(); }} 
-                                    className="flex-row items-center justify-between p-4 border-b border-slate-100 dark:border-slate-700"
-                                >
-                                    <Text className="text-base font-medium text-slate-700 dark:text-white">{opt.label}</Text>
-                                </TouchableOpacity>
-                            ))
-                        ) : (
-                            <View className="items-center p-8">
-                                <Text className="text-slate-400">No matching jobs found</Text>
-                            </View>
-                        )}
-                        
-                        {/* Add Custom Option */}
-                        {search.length > 0 && !filteredOptions.find(o => o.label.toLowerCase() === search.toLowerCase()) && (
-                            <TouchableOpacity 
-                                onPress={() => { onSelect(search); onClose(); }} 
-                                className="flex-row items-center p-4 bg-indigo-50 dark:bg-indigo-900/20"
-                            >
-                                <HugeiconsIcon icon={PlusSignIcon} size={20} color="#6366f1" />
-                                <Text className="ml-3 font-bold text-indigo-600 dark:text-indigo-400">Add "{search}"</Text>
-                            </TouchableOpacity>
-                        )}
-                    </ScrollView>
-
-                    {/* Footer */}
-                    <TouchableOpacity onPress={onClose} className="p-4 border-t bg-slate-50 dark:bg-slate-900 border-slate-100 dark:border-slate-700">
-                        <Text className="font-bold text-center text-red-500">Cancel</Text>
+          {/* Search Bar */}
+          <View style={{ padding: 12, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+            <View style={{ 
+                flexDirection: 'row', 
+                alignItems: 'center', 
+                backgroundColor: theme.colors.background, 
+                borderRadius: 12, 
+                borderWidth: 1, 
+                borderColor: theme.colors.border,
+                paddingHorizontal: 12,
+                height: 44
+            }}>
+                <HugeiconsIcon icon={Search01Icon} size={18} color={theme.colors.textSecondary} />
+                <TextInput 
+                    style={{ flex: 1, marginLeft: 8, color: theme.colors.text, fontSize: 14 }}
+                    placeholder={placeholder} // Use prop
+                    placeholderTextColor={theme.colors.textSecondary}
+                    value={search}
+                    onChangeText={setSearch}
+                />
+                {search.length > 0 && (
+                    <TouchableOpacity onPress={() => setSearch('')}>
+                        <HugeiconsIcon icon={Cancel01Icon} size={16} color={theme.colors.textSecondary} />
                     </TouchableOpacity>
-                </Pressable>
-            </Pressable>
-        </Modal>
-    );
+                )}
+            </View>
+          </View>
+
+          {/* List */}
+          <FlatList
+            data={filteredOptions}
+            keyExtractor={(item) => item.value}
+            initialNumToRender={10}
+            renderItem={({ item, index }) => (
+                <TouchableOpacity 
+                    onPress={() => { onSelect(item.value); onClose(); setSearch(''); }} 
+                    style={{ 
+                        padding: 16, 
+                        flexDirection: 'row', 
+                        justifyContent: 'space-between', 
+                        alignItems: 'center',
+                        borderBottomWidth: 1,
+                        borderBottomColor: theme.colors.border,
+                        backgroundColor: currentValue === item.value ? theme.colors.primary + '10' : 'transparent'
+                    }}
+                >
+                    <Text style={{ 
+                        fontSize: 16, 
+                        fontWeight: currentValue === item.value ? '700' : '500', 
+                        color: currentValue === item.value ? theme.colors.primary : theme.colors.text 
+                    }}>
+                        {item.label}
+                    </Text>
+                    {currentValue === item.value && (
+                        <HugeiconsIcon icon={Tick02Icon} size={20} color={theme.colors.primary} />
+                    )}
+                </TouchableOpacity>
+            )}
+            ListEmptyComponent={
+                <View style={{ padding: 24, alignItems: 'center' }}>
+                    <Text style={{ color: theme.colors.textSecondary }}>No results found.</Text>
+                </View>
+            }
+          />
+          
+          {/* Footer */}
+          <TouchableOpacity 
+            onPress={onClose} 
+            style={{ 
+                padding: 16, 
+                borderTopWidth: 1, 
+                borderTopColor: theme.colors.border, 
+                backgroundColor: theme.colors.background 
+            }}
+          >
+            <Text style={{ fontSize: 16, fontWeight: 'bold', textAlign: 'center', color: theme.colors.danger }}>
+                Cancel
+            </Text>
+          </TouchableOpacity>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
 }
