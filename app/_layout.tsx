@@ -6,11 +6,13 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useColorScheme } from 'nativewind';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, LogBox, StyleSheet, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler'; // <--- IMPORT THIS
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+
 import AppSplash from '../components/AppSplash';
 import BiometricLockScreen from '../components/BiometricLockScreen';
 import { AuthProvider, useAuth } from '../context/AuthContext';
-import { SyncProvider } from '../context/SyncContext'; // <--- IMPORTED SYNC PROVIDER
+import { SyncProvider } from '../context/SyncContext';
 import '../global.css';
 
 LogBox.ignoreLogs(['SafeAreaView has been deprecated', '[expo-av]']);
@@ -18,12 +20,16 @@ SplashScreen.preventAutoHideAsync();
 
 function RootLayoutNav() {
   const { session, isLoading: isAuthLoading } = useAuth();
-  const [isAuthorized, setIsAuthorized] = useState(true); // Default to UNLOCKED (true)
+  
+  // SECURE BY DEFAULT: Start as unauthorized (locked)
+  const [isAuthorized, setIsAuthorized] = useState(false); 
+  // LOADING STATE: Keeps splash visible while checking biometrics
+  const [isCheckingBio, setIsCheckingBio] = useState(true);
+
   const [isAppReady, setIsAppReady] = useState(false);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const { colorScheme, setColorScheme } = useColorScheme();
   
-  // Ref to track if we've already checked biometrics during this session/launch
   const hasCheckedBio = useRef(false);
 
   const [fontsLoaded] = useFonts({
@@ -39,32 +45,36 @@ function RootLayoutNav() {
 
   // Biometrics Logic
   const checkBioSettings = async () => {
-    if (isAuthLoading) return; // Wait for auth to load
+    if (isAuthLoading) return;
     
-    // Only proceed if user is logged in
     if (session?.user) {
         try {
             const settingsJson = await AsyncStorage.getItem('appSettings');
             if (settingsJson) {
                 const settings = JSON.parse(settingsJson);
-                // STRICT CHECK: Only lock if explicitly true
+                // Check if user has explicitly enabled biometrics
                 if (settings.biometricEnabled === true) {
-                    setIsAuthorized(false); // Lock the app
+                    setIsAuthorized(false); // Confirm lock
                 } else {
-                    setIsAuthorized(true); // Ensure it's unlocked
+                    setIsAuthorized(true); // Unlock
                 }
             } else {
-                setIsAuthorized(true); // No settings found, default to unlocked
+                setIsAuthorized(true); // Default to unlocked if no settings
             }
         } catch (e) {
             console.log("Error reading biometric settings:", e);
-            setIsAuthorized(true); // Fallback to unlocked on error
+            setIsAuthorized(true); // Fail open (unlocked) on error to prevent lockout
         }
+    } else {
+        // Not logged in -> No need for biometric lock
+        setIsAuthorized(true);
     }
+    
+    // Bio check complete
     hasCheckedBio.current = true;
+    setIsCheckingBio(false);
   };
 
-  // 1. Check on initial load (once fonts and auth are ready)
   useEffect(() => {
     if (!isAuthLoading && fontsLoaded && !hasCheckedBio.current) {
         checkBioSettings();
@@ -72,8 +82,9 @@ function RootLayoutNav() {
   }, [isAuthLoading, fontsLoaded, session]);
 
   // Splash Screen Hide Logic
+  // Only hide when: Fonts loaded, Auth checked, AND Biometrics checked
   useEffect(() => {
-    if (fontsLoaded && !isAuthLoading) {
+    if (fontsLoaded && !isAuthLoading && !isCheckingBio) {
       setTimeout(() => {
         SplashScreen.hideAsync();
         Animated.timing(fadeAnim, { 
@@ -83,9 +94,9 @@ function RootLayoutNav() {
         }).start(() => setIsAppReady(true));
       }, 500);
     }
-  }, [fontsLoaded, isAuthLoading]);
+  }, [fontsLoaded, isAuthLoading, isCheckingBio]);
 
-  if (!fontsLoaded || isAuthLoading) return null;
+  if (!fontsLoaded || isAuthLoading || isCheckingBio) return null;
 
   // Render Lock Screen if NOT authorized
   if (!isAuthorized) {
@@ -102,15 +113,12 @@ function RootLayoutNav() {
           <Stack.Screen name="onboarding/welcome" options={{ animation: 'slide_from_right', gestureEnabled: false }} />
           <Stack.Screen name="onboarding/info" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
-          {/* Settings Group */}
           <Stack.Screen name="settings" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="settings/account-security" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="settings/notifications" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="settings/privacy-policy" options={{ animation: 'slide_from_right' }} />
-          {/* Job Group */}
           <Stack.Screen name="job/job" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="job/form" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
-          {/* Reports Group */}
           <Stack.Screen name="reports/details" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
           <Stack.Screen name="reports/history" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="reports/print" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
@@ -128,13 +136,15 @@ function RootLayoutNav() {
 
 export default function RootLayout() {
   return (
-    <SafeAreaProvider>
-      <AuthProvider>
-        <SyncProvider> 
-          {/* SyncProvider must be INSIDE AuthProvider so it can access the 'user' object */}
-          <RootLayoutNav />
-        </SyncProvider>
-      </AuthProvider>
-    </SafeAreaProvider>
+    // WRAPPER ADDED HERE
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <AuthProvider>
+          <SyncProvider> 
+            <RootLayoutNav />
+          </SyncProvider>
+        </AuthProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

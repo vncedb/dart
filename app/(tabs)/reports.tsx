@@ -27,6 +27,7 @@ import ActionMenu from '../../components/ActionMenu';
 import FloatingAlert from '../../components/FloatingAlert';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
+import TabHeader from '../../components/TabHeader'; // <--- IMPORTED
 import { useAppTheme } from '../../constants/theme';
 import { useSync } from '../../context/SyncContext';
 import { getDB } from '../../lib/db-client';
@@ -316,26 +317,24 @@ export default function ReportsScreen() {
       <FloatingAlert visible={floatingAlert.visible} message={floatingAlert.message} type={floatingAlert.type} onHide={() => setFloatingAlert({...floatingAlert, visible: false})} />
       <LoadingOverlay visible={loadingAction} message="Processing..." />
       
-      <View style={{ backgroundColor: theme.colors.background, paddingHorizontal: 24, paddingVertical: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', zIndex: 10, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
-          {selectedId ? (
+      {/* HEADER REFACTORED */}
+      {selectedId ? (
+          <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
               <View className="flex-row items-center justify-between w-full">
                   <Text style={{ color: theme.colors.danger, fontSize: 24, fontWeight: '800' }}>1 Selected</Text>
                   <TouchableOpacity onPress={handleDeleteSelected} style={{ backgroundColor: theme.colors.dangerLight }} className="p-2 rounded-full">
                       <HugeiconsIcon icon={Delete02Icon} size={24} color={theme.colors.danger} />
                   </TouchableOpacity>
               </View>
-          ) : (
-              <>
-                <View>
-                    <Text style={{ color: theme.colors.text, fontSize: 28, fontWeight: '800' }}>Reports</Text>
-                    {pendingNotification && <Text style={{ color: theme.colors.danger }} className="mt-1 text-xs font-bold">● Pending Actions</Text>}
-                </View>
-                <TouchableOpacity onPress={() => router.push('/reports/history')} style={{ padding: 12, borderRadius: 999, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.card }}>
-                    <HugeiconsIcon icon={Clock01Icon} size={24} color={theme.colors.textSecondary} />
-                </TouchableOpacity>
-              </>
-          )}
-      </View>
+          </View>
+      ) : (
+          <TabHeader 
+             title="Reports" 
+             rightIcon={Clock01Icon} 
+             onRightPress={() => router.push('/reports/history')}
+             subtitle={pendingNotification ? <Text style={{ color: theme.colors.danger, fontSize: 12, fontWeight: '700' }}>● Pending Actions</Text> : undefined}
+          />
+      )}
 
       <ActionMenu visible={menuVisible} onClose={() => setMenuVisible(false)} actions={[{ label: 'Generate & Print', icon: PrinterIcon, onPress: onGenerateReport, color: '#6366f1' }, { label: 'Delete Cutoff', icon: Delete02Icon, onPress: onDeleteCutoff, color: '#ef4444' }]} position={menuPosition} />
       
@@ -370,5 +369,15 @@ export default function ReportsScreen() {
 
 const styles = StyleSheet.create({
     reportItem: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 20, marginBottom: 10, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 4, elevation: 2 },
-    dateBox: { width: 50, height: 54, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(0,0,0,0.03)' }
+    dateBox: { width: 50, height: 54, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(0,0,0,0.03)' },
+    // Only keeping this header style for the Selection Mode override
+    header: {
+        paddingHorizontal: 24,
+        paddingVertical: 16,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        borderBottomWidth: 1,
+        zIndex: 10,
+    }
 });
