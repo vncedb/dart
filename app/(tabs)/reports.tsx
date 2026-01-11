@@ -6,7 +6,8 @@ import {
     PrinterIcon,
     Search01Icon,
     Task01Icon,
-    Tick02Icon
+    Tick02Icon,
+    Upload02Icon // Imported
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { useFocusEffect, useNavigation, useRouter } from 'expo-router';
@@ -27,9 +28,8 @@ import ActionMenu from '../../components/ActionMenu';
 import FloatingAlert from '../../components/FloatingAlert';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
-import TabHeader from '../../components/TabHeader'; // <--- IMPORTED
 import { useAppTheme } from '../../constants/theme';
-import { useSync } from '../../context/SyncContext';
+import { useSync } from '../../context/SyncContext'; // Import useSync
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 
@@ -37,7 +37,9 @@ export default function ReportsScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const theme = useAppTheme();
-  const { triggerSync } = useSync();
+  
+  // Get sync status and trigger function
+  const { triggerSync, isSyncing } = useSync(); 
   
   const [sections, setSections] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true); 
@@ -155,6 +157,11 @@ export default function ReportsScreen() {
         setRefreshing(false); 
         setIsLoading(false);
     }
+  };
+
+  const handleManualSync = async () => {
+    await triggerSync();
+    fetchReports(); // Refresh local list after potential pull
   };
 
   const handleDeleteSelected = () => {
@@ -317,7 +324,7 @@ export default function ReportsScreen() {
       <FloatingAlert visible={floatingAlert.visible} message={floatingAlert.message} type={floatingAlert.type} onHide={() => setFloatingAlert({...floatingAlert, visible: false})} />
       <LoadingOverlay visible={loadingAction} message="Processing..." />
       
-      {/* HEADER REFACTORED */}
+      {/* HEADER WITH SYNC BUTTON */}
       {selectedId ? (
           <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
               <View className="flex-row items-center justify-between w-full">
@@ -328,12 +335,33 @@ export default function ReportsScreen() {
               </View>
           </View>
       ) : (
-          <TabHeader 
-             title="Reports" 
-             rightIcon={Clock01Icon} 
-             onRightPress={() => router.push('/reports/history')}
-             subtitle={pendingNotification ? <Text style={{ color: theme.colors.danger, fontSize: 12, fontWeight: '700' }}>● Pending Actions</Text> : undefined}
-          />
+          <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
+              <View>
+                 <Text style={{ color: theme.colors.text, fontSize: 28, fontWeight: '800', letterSpacing: -0.5 }}>Reports</Text>
+                 {pendingNotification && <Text style={{ color: theme.colors.danger, fontSize: 12, fontWeight: '700' }}>● Pending Actions</Text>}
+              </View>
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                  <TouchableOpacity 
+                    onPress={handleManualSync} 
+                    disabled={isSyncing}
+                    style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1 }} 
+                    className="p-3 rounded-full shadow-sm"
+                  >
+                     {isSyncing ? (
+                         <ActivityIndicator size="small" color={theme.colors.primary} />
+                     ) : (
+                         <HugeiconsIcon icon={Upload02Icon} size={20} color={theme.colors.primary} />
+                     )}
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    onPress={() => router.push('/reports/history')} 
+                    style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1 }} 
+                    className="p-3 rounded-full shadow-sm"
+                  >
+                      <HugeiconsIcon icon={Clock01Icon} size={20} color={theme.colors.text} />
+                  </TouchableOpacity>
+              </View>
+          </View>
       )}
 
       <ActionMenu visible={menuVisible} onClose={() => setMenuVisible(false)} actions={[{ label: 'Generate & Print', icon: PrinterIcon, onPress: onGenerateReport, color: '#6366f1' }, { label: 'Delete Cutoff', icon: Delete02Icon, onPress: onDeleteCutoff, color: '#ef4444' }]} position={menuPosition} />
@@ -370,7 +398,6 @@ export default function ReportsScreen() {
 const styles = StyleSheet.create({
     reportItem: { flexDirection: 'row', alignItems: 'center', padding: 12, borderRadius: 20, marginBottom: 10, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 4, elevation: 2 },
     dateBox: { width: 50, height: 54, borderRadius: 14, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(0,0,0,0.03)' },
-    // Only keeping this header style for the Selection Mode override
     header: {
         paddingHorizontal: 24,
         paddingVertical: 16,
@@ -379,5 +406,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         borderBottomWidth: 1,
         zIndex: 10,
+        backgroundColor: 'transparent'
     }
 });

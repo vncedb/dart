@@ -1,7 +1,5 @@
 import {
-    ArrowDown01Icon,
-    ArrowLeft02Icon,
-    ArrowRight01Icon,
+    ArrowRight02Icon, // Changed from ArrowRight01Icon to ArrowRight02Icon
     Briefcase01Icon,
     Camera01Icon,
     InformationCircleIcon,
@@ -15,7 +13,7 @@ import NetInfo from '@react-native-community/netinfo';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useColorScheme } from 'nativewind';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
     FlatList,
     Image,
@@ -40,11 +38,12 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import { ModernAlert } from '../../components/ModernUI';
 import { JOBS_LIST } from '../../constants/Jobs';
 import { useAuth } from '../../context/AuthContext';
-import { queueSyncItem, saveProfileLocal } from '../../lib/database'; // Import local DB helpers
+import { saveProfileLocal } from '../../lib/database';
 import { supabase } from '../../lib/supabase';
 
 // --- JOB TITLE MODAL ---
@@ -119,12 +118,14 @@ const JobTitleModal = ({ visible, onClose, onSelect, currentValue }: any) => {
 };
 
 // --- COMPONENTS ---
-const RenderInput = ({ label, value, onChangeText, placeholder, errorField, icon: Icon, errors, clearAllErrors, maxLength }: any) => {
+const RenderInput = ({ label, value, onChangeText, placeholder, errorField, icon: Icon, errors, clearAllErrors, maxLength, optional }: any) => {
   const errorMsg = errors[errorField];
   const hasError = !!errorMsg;
   return (
       <View className="relative z-10 mb-4">
-          <Text className="mb-2 font-bold text-slate-700 dark:text-slate-300">{label} <Text className="text-red-500">*</Text></Text>
+          <Text className="mb-2 font-bold text-slate-700 dark:text-slate-300">
+            {label} {!optional && <Text className="text-red-500">*</Text>}
+          </Text>
           <View className={`flex-row items-center w-full px-4 border rounded-2xl transition-all ${hasError ? 'border-red-500 bg-red-50 dark:bg-red-900/10' : 'bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700'}`}>
               <View className="mr-3"><HugeiconsIcon icon={Icon} size={20} color={hasError ? "#ef4444" : "#64748b"} /></View>
               <TextInput className={`flex-1 py-4 text-lg font-medium ${hasError ? 'text-red-900 dark:text-red-100' : 'text-slate-900 dark:text-white'}`} placeholder={placeholder} placeholderTextColor={hasError ? "#fca5a5" : "#94a3b8"} value={value} onChangeText={onChangeText} onFocus={clearAllErrors} maxLength={maxLength} />
@@ -135,30 +136,15 @@ const RenderInput = ({ label, value, onChangeText, placeholder, errorField, icon
   );
 };
 
-const RenderSelect = ({ label, value, onPress, placeholder, errorField, icon: Icon, errors }: any) => {
-  const errorMsg = errors[errorField];
-  const hasError = !!errorMsg;
-  return (
-      <View className="relative z-10 mb-4">
-          <Text className="mb-2 font-bold text-slate-700 dark:text-slate-300">{label} <Text className="text-red-500">*</Text></Text>
-          <TouchableOpacity onPress={onPress} activeOpacity={0.7} className={`flex-row items-center w-full px-4 border rounded-2xl h-[60px] ${hasError ? 'border-red-500 bg-red-50 dark:bg-red-900/10' : 'bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700'}`}>
-              <View className="mr-3"><HugeiconsIcon icon={Icon} size={20} color={hasError ? "#ef4444" : "#64748b"} /></View>
-              <Text className={`flex-1 text-lg font-medium ${value ? (hasError ? 'text-red-900' : 'text-slate-900 dark:text-white') : (hasError ? 'text-red-300' : 'text-slate-400')}`}>{value || placeholder}</Text>
-              <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={hasError ? "#ef4444" : "#94a3b8"} />
-          </TouchableOpacity>
-          {hasError && <Text className="mt-1 ml-1 text-xs font-semibold text-red-500">{errorMsg}</Text>}
-      </View>
-  );
-};
-
 export default function InfoScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
-  const { setIsOnboarded, user: authUser } = useAuth(); // Get auth user directly if available
+  const { setIsOnboarded } = useAuth(); 
 
   const [firstName, setFirstName] = useState('');
+  const [middleName, setMiddleName] = useState('');
   const [lastName, setLastName] = useState('');
   const [jobTitle, setJobTitle] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -176,12 +162,6 @@ export default function InfoScreen() {
     borderColor: interpolateColor(borderProgress.value, [0, 1], [isDark ? '#1e293b' : '#ffffff', '#6366f1']),
     borderWidth: 4,
   }));
-
-  // Fetch existing data if "Edit" was clicked or if reloading
-  useEffect(() => {
-    // Logic to load temporary saved data or profile data could go here
-    // For now, we assume this is a fresh entry or handled by global state management if you implement it
-  }, []);
 
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.5 });
@@ -202,82 +182,81 @@ export default function InfoScreen() {
         const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
         return data.publicUrl;
     } catch (error) {
-        console.warn("Offline or Upload Failed:", error);
-        return uri; // Return local URI if upload fails so we can try later or display it
+        console.warn("Avatar upload failed:", error);
+        return uri; 
     }
   };
 
   const handleNext = async () => {
+      // 1. Validation
       const newErrors: typeof errors = {};
       let hasError = false;
       if (!firstName.trim()) { newErrors.firstName = "First Name is required"; hasError = true; }
       if (!lastName.trim()) { newErrors.lastName = "Last Name is required"; hasError = true; }
-      // Removed "Job Title is required" if you want it optional, but usually for profile it's good to have.
-      // If you want it optional as per request:
-      // if (!jobTitle.trim()) { newErrors.jobTitle = "Job Title is required"; hasError = true; }
       
       setErrors(newErrors);
       if (hasError) return;
+
+      // 2. CHECK INTERNET (Strict Requirement for Initial Setup)
+      const netInfo = await NetInfo.fetch();
+      if (!netInfo.isConnected || !netInfo.isInternetReachable) {
+          setAlertConfig({
+              visible: true,
+              type: 'warning',
+              title: 'No Internet Connection',
+              message: 'To complete your profile setup, an internet connection is required. Please check your connection and try again.',
+              confirmText: 'Okay',
+              onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
+          });
+          return;
+      }
 
       setLoading(true);
       try {
           const { data: { user } } = await supabase.auth.getUser();
           
           if (user) {
-              const netInfo = await NetInfo.fetch();
-              const isOnline = netInfo.isConnected && netInfo.isInternetReachable;
-
               let finalAvatarUrl = avatarUrl;
               
-              // Only try to upload if online, otherwise keep local path
-              if (isOnline && avatarUrl && !avatarUrl.startsWith('http')) {
+              if (avatarUrl && !avatarUrl.startsWith('http')) {
                   try {
                     finalAvatarUrl = await uploadAvatar(avatarUrl, user.id);
                   } catch (e) {
-                    console.log("Avatar upload skipped (offline or error)");
+                    console.log("Avatar upload error");
                   }
               }
 
               const profileData = {
                   id: user.id,
                   first_name: firstName,
+                  middle_name: middleName || null, 
                   last_name: lastName,
                   job_title: jobTitle,
-                  full_name: `${firstName} ${lastName}`.trim(),
+                  full_name: `${firstName} ${middleName ? middleName + ' ' : ''}${lastName}`.trim(),
                   updated_at: new Date().toISOString(),
                   avatar_url: finalAvatarUrl,
                   is_onboarded: true, 
               };
 
-              // 1. SAVE LOCAL FIRST (Always works)
-              await saveProfileLocal(profileData);
+              // 3. Update Supabase (Online)
+              const { error } = await supabase.from('profiles').update(profileData).eq('id', user.id);
+              if (error) throw error;
 
-              // 2. SYNC OR QUEUE
-              if (isOnline) {
-                 const { error } = await supabase.from('profiles').update(profileData).eq('id', user.id);
-                 if (error) throw error;
-              } else {
-                 console.log("Offline: Queuing profile update...");
-                 await queueSyncItem('profiles', user.id, 'UPDATE', profileData);
-              }
+              // 4. Update Local DB (Offline Cache)
+              await saveProfileLocal(profileData);
               
-              // 3. Update Context & Navigate
-              await setIsOnboarded(true); // Ensure this function updates AsyncStorage!
-              
-              // Navigate
+              // 5. Complete
+              await setIsOnboarded(true); 
               router.replace('/(tabs)/home');
           }
       } catch (error: any) {
           setAlertConfig({ 
             visible: true, 
             type: 'error', 
-            title: 'Setup Issue', 
-            message: "We saved your info locally but couldn't sync online yet. You can proceed.", 
-            onDismiss: () => {
-                setAlertConfig((p:any) => ({...p, visible: false}));
-                setIsOnboarded(true);
-                router.replace('/(tabs)/home');
-            } 
+            title: 'Setup Failed', 
+            message: error.message || "Something went wrong. Please try again.",
+            confirmText: 'Try Again',
+            onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})),
           });
       } finally {
           setLoading(false);
@@ -289,14 +268,7 @@ export default function InfoScreen() {
           <LoadingOverlay visible={loading} message="Setting up your profile..." />
           <ModernAlert {...alertConfig} />
 
-          {/* Setup Profile Header */}
-          <View style={{ paddingTop: insets.top + 10, paddingHorizontal: 24, paddingBottom: 10 }} className="z-50 flex-row items-center justify-between bg-white dark:bg-slate-900">
-              <TouchableOpacity onPress={() => router.back()} className="p-2 -ml-2 rounded-full active:bg-slate-100 dark:active:bg-slate-800">
-                  <HugeiconsIcon icon={ArrowLeft02Icon} size={24} color={isDark ? "#FFF" : "#0f172a"} />
-              </TouchableOpacity>
-              <Text className="text-lg font-bold text-slate-900 dark:text-white">Setup Your Profile</Text>
-              <View style={{ width: 40 }} /> 
-          </View>
+          <Header title="Setup Your Profile" />
 
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
               <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -315,18 +287,19 @@ export default function InfoScreen() {
 
                           <View className="gap-2">
                               <RenderInput label="First Name" value={firstName} onChangeText={setFirstName} placeholder="First Name" errorField="firstName" icon={UserCircleIcon} errors={errors} clearAllErrors={() => setErrors({})} maxLength={20} />
+                              
+                              <RenderInput label="Middle Name" value={middleName} onChangeText={setMiddleName} placeholder="Middle Name (Optional)" errorField="middleName" icon={UserCircleIcon} errors={errors} clearAllErrors={() => setErrors({})} maxLength={20} optional={true} />
+                              
                               <RenderInput label="Last Name" value={lastName} onChangeText={setLastName} placeholder="Last Name" errorField="lastName" icon={UserCircleIcon} errors={errors} clearAllErrors={() => setErrors({})} maxLength={20} />
                               
-                              {/* Job Setup Button Logic */}
                               <View className="relative z-10 mb-4">
                                 <Text className="mb-2 font-bold text-slate-700 dark:text-slate-300">Job Position</Text>
                                 <TouchableOpacity 
                                     onPress={() => {
-                                        // If job not set, alert or go to form
                                         if(!jobTitle) {
-                                            router.push('/job/form'); // Navigate to your Job Form screen
+                                            router.push('/job/form'); 
                                         } else {
-                                            setModalVisible(true); // Or edit existing
+                                            setModalVisible(true);
                                         }
                                     }}
                                     className="flex-row items-center justify-between w-full px-4 py-4 border border-indigo-100 bg-indigo-50 rounded-2xl dark:bg-indigo-900/20 dark:border-indigo-800"
@@ -337,7 +310,7 @@ export default function InfoScreen() {
                                             {jobTitle || "Setup Job Position"}
                                         </Text>
                                     </View>
-                                    {!jobTitle && <HugeiconsIcon icon={ArrowRight01Icon} size={20} color="#6366f1" />}
+                                    {!jobTitle && <HugeiconsIcon icon={ArrowRight02Icon} size={20} color="#6366f1" />}
                                 </TouchableOpacity>
                                 {jobTitle ? <Text className="mt-2 text-xs text-center text-slate-400">Tap to change job title</Text> : null}
                               </View>
@@ -347,19 +320,15 @@ export default function InfoScreen() {
 
                       <View className="bg-white border-t dark:bg-slate-900 border-slate-100 dark:border-slate-800" style={{ paddingHorizontal: 24, paddingTop: 20, paddingBottom: insets.bottom + 20, shadowColor: "#000", shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 10 }}>
                           <TouchableOpacity onPress={handleNext} disabled={loading} className={`flex-row items-center justify-center w-full h-16 gap-2 rounded-2xl ${loading ? 'bg-slate-300 dark:bg-slate-700' : 'bg-indigo-600 shadow-lg shadow-indigo-500/30'}`}>
-                              <Text className="font-sans text-xl font-bold text-white">{loading ? "Saving..." : "Setup Now"}</Text>
-                              {!loading && <HugeiconsIcon icon={ArrowRight01Icon} color="white" size={24} strokeWidth={2.5} />}
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => { setIsOnboarded(true); router.replace('/(tabs)/home'); }} className="mt-4">
-                             <Text className="font-semibold text-center text-slate-400">Continue Later</Text>
+                              <Text className="font-sans text-xl font-bold text-white">{loading ? "Setting up..." : "Complete Setup"}</Text>
+                              {!loading && <HugeiconsIcon icon={ArrowRight02Icon} color="white" size={24} strokeWidth={2.5} />}
                           </TouchableOpacity>
                       </View>
                   </View>
               </TouchableWithoutFeedback>
           </KeyboardAvoidingView>
 
-          {/* Replaced SearchableSelectionModal with JobTitleModal */}
           <JobTitleModal visible={isModalVisible} onClose={() => setModalVisible(false)} currentValue={jobTitle} onSelect={(val: string) => setJobTitle(val)} />
       </View>
   );
-}   
+}

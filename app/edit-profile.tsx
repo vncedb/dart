@@ -81,8 +81,8 @@ export default function EditProfileScreen() {
   const [profile, setProfile] = useState({
     id: '', 
     first_name: '', 
+    middle_name: '', 
     last_name: '', 
-    nickname: '', 
     title: '', 
     professional_suffix: '', 
     full_name: '', 
@@ -94,30 +94,52 @@ export default function EditProfileScreen() {
   useFocusEffect(useCallback(() => { fetchData(); }, []));
 
   const fetchData = async () => {
+      setLoading(true);
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
         
         const db = await getDB();
         
-        // 1. Fetch Local First
-        const localProfile = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
-        
-        // Fetch jobs logic...
-        const { data: jobsData } = await supabase.from('job_positions').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
-        setAvailableJobs(jobsData || []);
+        let profileData: any = null;
+        let jobsData: any[] = [];
 
-        let profileData: any = localProfile;
-        
-        // If local empty, try remote
-        if (!profileData) {
-            const { data: remoteProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-            if (remoteProfile) {
-                // Save retrieved remote data to local immediately for next time
-                await saveProfileLocal(remoteProfile);
+        // --- STRATEGY: ONLINE FIRST ---
+        try {
+            // 1. Fetch Remote Profile
+            const { data: remoteProfile, error: profileError } = await supabase
+                .from('profiles')
+                .select('*')
+                .eq('id', user.id)
+                .single();
+
+            if (!profileError && remoteProfile) {
                 profileData = remoteProfile;
+                await saveProfileLocal(remoteProfile); // Cache it
+            } else {
+                throw new Error("Remote Profile Fetch Failed");
             }
+
+            // 2. Fetch Remote Jobs
+            const { data: remoteJobs } = await supabase
+                .from('job_positions')
+                .select('*')
+                .eq('user_id', user.id)
+                .order('created_at', { ascending: false });
+            
+            jobsData = remoteJobs || [];
+
+        } catch (networkError) {
+             console.log("Online load failed, falling back to offline...", networkError);
+             
+             // Fallback: Local
+             profileData = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
+             // Note: You would also need logic here to fetch local jobs if you are storing them locally (which you should be)
+             const { data: localJobs } = await supabase.from('job_positions').select('*').eq('user_id', user.id); 
+             jobsData = localJobs || [];
         }
+
+        setAvailableJobs(jobsData);
         
         let currentJobName = 'Select a Job';
         let currentCompany = '';
@@ -133,7 +155,7 @@ export default function EditProfileScreen() {
                 id: user.id, 
                 first_name: profileData.first_name || '',
                 last_name: profileData.last_name || '',
-                nickname: profileData.nickname || '', // Ensure nickname is loaded
+                middle_name: profileData.middle_name || '',
                 title: profileData.title || '',
                 professional_suffix: profileData.professional_suffix || '', 
                 full_name: profileData.full_name || '', 
@@ -147,7 +169,7 @@ export default function EditProfileScreen() {
 
   const handleSave = async () => {
     if (!profile.first_name.trim() || !profile.last_name.trim()) {
-      setAlertConfig({ visible: true, type: 'error', title: 'Missing Info', message: 'Name is required.', confirmText: 'OK', onConfirm: () => setAlertConfig((p:any)=>({...p, visible: false})) });
+      setAlertConfig({ visible: true, type: 'error', title: 'Missing Info', message: 'First and Last Name are required.', confirmText: 'OK', onConfirm: () => setAlertConfig((p:any)=>({...p, visible: false})) });
       return;
     }
     setSaving(true);
@@ -158,8 +180,8 @@ export default function EditProfileScreen() {
       const updates = {
         id: user.id,
         first_name: profile.first_name, 
+        middle_name: profile.middle_name,
         last_name: profile.last_name,
-        nickname: profile.nickname,
         title: profile.title, 
         professional_suffix: profile.professional_suffix,
         full_name: `${profile.first_name} ${profile.last_name}`.trim(),
@@ -168,7 +190,6 @@ export default function EditProfileScreen() {
       };
 
       // 1. SAVE LOCAL (AWAIT THIS)
-      // This ensures SQLite is updated BEFORE we navigate back.
       await saveProfileLocal(updates);
 
       // 2. Queue Sync
@@ -224,8 +245,8 @@ export default function EditProfileScreen() {
                 </View>
 
                 <InputGroup theme={theme} label="First Name" required value={profile.first_name} onChange={(t: string) => setProfile({...profile, first_name: t})} />
+                <InputGroup theme={theme} label="Middle Name" value={profile.middle_name} onChange={(t: string) => setProfile({...profile, middle_name: t})} />
                 <InputGroup theme={theme} label="Last Name" required value={profile.last_name} onChange={(t: string) => setProfile({...profile, last_name: t})} />
-                <InputGroup theme={theme} label="Nickname" value={profile.nickname} onChange={(t: string) => setProfile({...profile, nickname: t})} />
               </View>
 
               <View style={{ marginBottom: 24 }}>

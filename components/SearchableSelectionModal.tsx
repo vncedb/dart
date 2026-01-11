@@ -1,93 +1,134 @@
-import { Cancel01Icon, Search01Icon } from '@hugeicons/core-free-icons';
+import {
+    Cancel01Icon,
+    PlusSignIcon,
+    Search01Icon
+} from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import React, { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import {
+    Modal,
+    Pressable,
+    ScrollView,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
+} from 'react-native';
 
-import { useAppTheme } from '../constants/theme';
+interface Option {
+    label: string;
+    value: string;
+}
+
+interface SearchableSelectionModalProps {
+    visible: boolean;
+    onClose: () => void;
+    onSelect: (value: string) => void;
+    title: string;
+    options: Option[];
+    placeholder?: string;
+    // Added optional props to maintain compatibility with your existing parent components
+    theme?: any; 
+    currentValue?: any;
+}
 
 export default function SearchableSelectionModal({ 
     visible, 
     onClose, 
-    title, 
-    options = [], // Default to empty array if undefined
     onSelect, 
-    placeholder, 
-    theme, 
-    currentValue 
-}: any) {
-    const defaultTheme = useAppTheme();
-    const activeTheme = theme || defaultTheme; 
-    
+    title, 
+    options, 
+    placeholder 
+}: SearchableSelectionModalProps) {
     const [search, setSearch] = useState('');
+    const [filteredOptions, setFilteredOptions] = useState<Option[]>(options);
 
-    // --- FIX: Added safety check (opt || '') to prevent crash ---
-    const filteredOptions = options.filter((opt: string) => {
-        if (!opt) return false; // Skip null/undefined items
-        return String(opt).toLowerCase().includes(search.toLowerCase());
-    });
+    // Reset search when modal opens
+    useEffect(() => {
+        if (visible) {
+            setSearch('');
+            setFilteredOptions(options);
+        }
+    }, [visible, options]);
+
+    // Local Filtering Logic
+    useEffect(() => {
+        const lowerSearch = search.toLowerCase();
+        const results = options.filter(opt => 
+            opt.label.toLowerCase().includes(lowerSearch)
+        );
+        setFilteredOptions(results);
+    }, [search, options]);
 
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-            <Pressable style={styles.overlay} onPress={onClose}>
-                <View style={[styles.modalContainer, { backgroundColor: activeTheme.colors.card, borderColor: activeTheme.colors.border }]}>
-                    <View style={[styles.header, { borderBottomColor: activeTheme.colors.border }]}>
-                        <Text style={[styles.title, { color: activeTheme.colors.text }]}>{title}</Text>
-                        <TouchableOpacity onPress={onClose}>
-                            <HugeiconsIcon icon={Cancel01Icon} size={24} color={activeTheme.colors.icon} />
-                        </TouchableOpacity>
+            <Pressable 
+                style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 }} 
+                onPress={onClose}
+            >
+                <Pressable className="overflow-hidden bg-white shadow-xl dark:bg-slate-800 rounded-3xl" onPress={() => {}}>
+                    {/* Header */}
+                    <View className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+                        <Text className="font-bold text-center text-slate-900 dark:text-white">{title}</Text>
                     </View>
                     
-                    <View style={[styles.searchContainer, { backgroundColor: activeTheme.colors.background, borderColor: activeTheme.colors.border }]}>
-                        <HugeiconsIcon icon={Search01Icon} size={20} color={activeTheme.colors.icon} />
-                        <TextInput 
-                            value={search}
-                            onChangeText={setSearch}
-                            placeholder={placeholder}
-                            placeholderTextColor={activeTheme.colors.textSecondary}
-                            style={[styles.input, { color: activeTheme.colors.text }]}
-                        />
+                    {/* Search Bar */}
+                    <View className="px-6 py-4 border-b border-slate-100 dark:border-slate-700">
+                        <View className="flex-row items-center px-4 py-3 bg-slate-100 dark:bg-slate-700/50 rounded-xl">
+                            <HugeiconsIcon icon={Search01Icon} size={20} color="#94a3b8" />
+                            <TextInput 
+                                placeholder={placeholder || "Search..."}
+                                placeholderTextColor="#94a3b8"
+                                value={search}
+                                onChangeText={setSearch}
+                                className="flex-1 ml-3 text-base font-medium text-slate-900 dark:text-white"
+                                autoFocus={false}
+                            />
+                            {/* Clear Button */}
+                            {search.length > 0 && (
+                                <TouchableOpacity onPress={() => setSearch('')}>
+                                    <HugeiconsIcon icon={Cancel01Icon} size={18} color="#94a3b8" />
+                                </TouchableOpacity>
+                            )}
+                        </View>
                     </View>
 
-                    <ScrollView style={styles.list} contentContainerStyle={{ paddingBottom: 16 }}>
-                        {filteredOptions.map((option: string, index: number) => (
-                            <TouchableOpacity 
-                                key={index} 
-                                onPress={() => { onSelect(option); onClose(); setSearch(''); }}
-                                style={[
-                                    styles.option, 
-                                    { borderBottomColor: activeTheme.colors.border },
-                                    currentValue === option && { backgroundColor: activeTheme.colors.primaryLight }
-                                ]}
-                            >
-                                <Text style={[
-                                    styles.optionText, 
-                                    { color: currentValue === option ? activeTheme.colors.primary : activeTheme.colors.text }
-                                ]}>
-                                    {option}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                        
-                        {filteredOptions.length === 0 && (
-                            <View style={{ padding: 20, alignItems: 'center' }}>
-                                <Text style={{ color: activeTheme.colors.textSecondary }}>No results found.</Text>
+                    {/* List with Fixed Max Height */}
+                    <ScrollView style={{ maxHeight: 400 }} keyboardShouldPersistTaps="handled">
+                        {filteredOptions.length > 0 ? (
+                            filteredOptions.map((opt, idx) => (
+                                <TouchableOpacity 
+                                    key={idx} 
+                                    onPress={() => { onSelect(opt.value); onClose(); }} 
+                                    className="flex-row items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700"
+                                >
+                                    <Text className="text-base font-medium text-slate-700 dark:text-white">{opt.label}</Text>
+                                </TouchableOpacity>
+                            ))
+                        ) : (
+                            <View className="items-center p-8">
+                                <Text className="text-slate-400">No matching options found</Text>
                             </View>
                         )}
+                        
+                        {/* Add Custom Option Logic */}
+                        {search.length > 0 && !filteredOptions.find(o => o.label.toLowerCase() === search.toLowerCase()) && (
+                            <TouchableOpacity 
+                                onPress={() => { onSelect(search); onClose(); }} 
+                                className="flex-row items-center px-6 py-4 bg-indigo-50 dark:bg-indigo-900/20"
+                            >
+                                <HugeiconsIcon icon={PlusSignIcon} size={20} color="#6366f1" />
+                                <Text className="ml-3 font-bold text-indigo-600 dark:text-indigo-400">Add &quot;{search}&quot;</Text>
+                            </TouchableOpacity>
+                        )}
                     </ScrollView>
-                </View>
+
+                    {/* Footer */}
+                    <TouchableOpacity onPress={onClose} className="px-6 py-4 border-t bg-slate-50 dark:bg-slate-900 border-slate-100 dark:border-slate-700">
+                        <Text className="font-bold text-center text-red-500">Cancel</Text>
+                    </TouchableOpacity>
+                </Pressable>
             </Pressable>
         </Modal>
     );
 }
-
-const styles = StyleSheet.create({
-    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 },
-    modalContainer: { borderRadius: 24, maxHeight: '70%', borderWidth: 1, overflow: 'hidden' },
-    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderBottomWidth: 1 },
-    title: { fontSize: 18, fontWeight: '700' },
-    searchContainer: { flexDirection: 'row', alignItems: 'center', margin: 16, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, height: 44 },
-    input: { flex: 1, marginLeft: 8, fontSize: 16, fontWeight: '600' },
-    list: { paddingHorizontal: 16 },
-    option: { paddingVertical: 16, borderBottomWidth: 1, borderRadius: 8, paddingHorizontal: 8 },
-    optionText: { fontSize: 16, fontWeight: '600' }
-});

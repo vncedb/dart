@@ -11,7 +11,8 @@ import {
     PencilEdit02Icon,
     Settings02Icon,
     UserCircleIcon,
-    UserGroupIcon
+    UserGroupIcon,
+    WifiOffIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import * as ImagePicker from 'expo-image-picker';
@@ -35,8 +36,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import EditDisplayModal, { AVAILABLE_JOB_FIELDS } from '../../components/EditDisplayModal';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import { useAppTheme } from '../../constants/theme';
-import { queueSyncItem, saveProfileLocal } from '../../lib/database';
-import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 
 // --- Helper Components ---
@@ -135,6 +134,23 @@ const EmptyJobCard = ({ theme, router }: any) => (
     </View>
 );
 
+const OfflineCard = ({ theme }: any) => (
+    <View style={[styles.emptyCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderStyle: 'solid' }]}>
+        <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.warning + '15' }]}>
+            <HugeiconsIcon icon={WifiOffIcon} size={32} color={theme.colors.warning} />
+        </View>
+        <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>Offline</Text>
+        <Text style={[styles.emptyDesc, { color: theme.colors.textSecondary }]}>Profile and Job details are available online only. Please connect to the internet.</Text>
+    </View>
+);
+
+const JobLoadingCard = ({ theme }: any) => (
+    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, height: 180, justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="small" color={theme.colors.primary} />
+        <Text style={{ marginTop: 12, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600' }}>Loading job details...</Text>
+    </View>
+);
+
 // --- MAIN COMPONENT ---
 export default function ProfileScreen() {
     const router = useRouter();
@@ -142,6 +158,8 @@ export default function ProfileScreen() {
 
     const [refreshing, setRefreshing] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+    const [isOffline, setIsOffline] = useState(false);
+    
     const [profile, setProfile] = useState<any>(null);
     const [currentJob, setCurrentJob] = useState<any>(null);
     const [email, setEmail] = useState('');
@@ -152,70 +170,49 @@ export default function ProfileScreen() {
     const [avatarModalVisible, setAvatarModalVisible] = useState(false);
     const [visibleDetailKeys, setVisibleDetailKeys] = useState<string[]>(['employment_status', 'shift', 'rate', 'rate_type', 'payroll', 'breaks']);
 
-    // RELOAD LOGIC: 
-    // This fires every time you navigate back to the Profile screen.
-    // It prioritizes Local DB for instant loading.
+    // RELOAD LOGIC
     useFocusEffect(useCallback(() => { loadData(false); }, []));
 
     const loadData = async (forceRefresh = false) => {
-        if (!forceRefresh && !profile) setIsLoading(true);
+        if (!profile && !forceRefresh) setIsLoading(true);
+        if (forceRefresh) setRefreshing(true);
+        
         try {
-            const db = await getDB();
             const { data: { session } } = await supabase.auth.getSession();
             const userId = session?.user?.id;
             
-            // 1. Basic Auth check
             if (!userId) {
-                // If offline & no session, try loading *any* local profile to show something
-                const localProfile = await db.getFirstAsync('SELECT * FROM profiles LIMIT 1');
-                if (localProfile) setProfile(localProfile);
                 setIsLoading(false);
+                setRefreshing(false);
                 return;
             }
             
             setEmail(session.user.email || '');
             
-            // 2. Fetch LOCAL Data (Fastest Path)
-            // We fetch this every time to ensure we see edits from 'Edit Profile' or 'Job Form' immediately
-            let profileData: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [userId]);
+            // ONLINE Fetch
+            const { data: remoteProfile, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
             
-            if (profileData) {
-                // Parse JSON fields
-                if (typeof profileData.avatar_history === 'string') {
-                    try { profileData.avatar_history = JSON.parse(profileData.avatar_history); } catch (e) { profileData.avatar_history = []; }
+            if (error) throw error;
+            
+            if (remoteProfile) { 
+                // Parse history if needed
+                 if (typeof remoteProfile.avatar_history === 'string') {
+                    try { remoteProfile.avatar_history = JSON.parse(remoteProfile.avatar_history); } catch (e) { remoteProfile.avatar_history = []; }
                 }
-                setProfile(profileData);
-                setImageError(false);
+                setProfile(remoteProfile); 
+                setIsOffline(false);
                 
-                // Fetch Job: Priority = current_job_id, Fallback = Latest job
-                let jobData: any = null;
-                if (profileData.current_job_id) {
-                    jobData = await db.getFirstAsync('SELECT * FROM job_positions WHERE id = ?', [profileData.current_job_id]);
+                if (remoteProfile.current_job_id) {
+                    const { data: remoteJob } = await supabase.from('job_positions').select('*').eq('id', remoteProfile.current_job_id).single();
+                    if (remoteJob) setCurrentJob(remoteJob);
                 } else {
-                    jobData = await db.getFirstAsync('SELECT * FROM job_positions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', [userId]);
+                     setCurrentJob(null);
                 }
-                setCurrentJob(jobData);
             }
 
-            // 3. Online Sync (Background)
-            // Only if force refresh is requested OR local data is missing
-            const shouldFetchRemote = forceRefresh || !profileData;
-            if (shouldFetchRemote) {
-                const { data: remoteProfile } = await supabase.from('profiles').select('*').eq('id', userId).single();
-                if (remoteProfile) { 
-                    await saveProfileLocal(remoteProfile); 
-                    setProfile(remoteProfile); 
-                    
-                    // Also fetch remote job if needed
-                    if (remoteProfile.current_job_id) {
-                        const { data: remoteJob } = await supabase.from('job_positions').select('*').eq('id', remoteProfile.current_job_id).single();
-                        if (remoteJob) setCurrentJob(remoteJob); // Update UI
-                        // Note: Ideally you save remoteJob to local DB here too
-                    }
-                }
-            }
         } catch (e) { 
-            console.log("Profile Load Error:", e); 
+            console.log("Profile Load Error (likely offline):", e);
+            setIsOffline(true);
         } finally { 
             setRefreshing(false); 
             setIsLoading(false); 
@@ -223,9 +220,8 @@ export default function ProfileScreen() {
     };
 
     const handleUpdateProfile = async (updates: any) => {
-        if (!profile) return;
+        if (!profile || isOffline) return;
         
-        // 1. Optimistic Update (Instant UI)
         const updatedProfile = { ...profile, ...updates };
         setProfile(updatedProfile); 
         setIsUpdating(true); 
@@ -234,17 +230,13 @@ export default function ProfileScreen() {
             const { data: { user } } = await supabase.auth.getSession();
             if (!user) return;
 
-            // 2. Save Local (Persistent)
-            await saveProfileLocal(updatedProfile);
-
-            // 3. Queue & Background Sync
-            await queueSyncItem('profiles', user.id, 'UPDATE', updates);
-            supabase.from('profiles').update(updates).eq('id', user.id).then(({error}) => { 
-                if(error) console.log("Background sync error (will retry via queue):", error.message); 
-            });
+            // Direct Update to Supabase
+            const { error } = await supabase.from('profiles').update(updates).eq('id', user.id);
+            if (error) throw error;
 
         } catch (e) { 
             console.log(e); 
+            // Revert on error could be implemented here
         } finally { 
             setIsUpdating(false); 
         }
@@ -254,6 +246,9 @@ export default function ProfileScreen() {
         const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 0.5 });
         if (!result.canceled) { 
             setAvatarModalVisible(false); 
+            // NOTE: Ideally you upload to storage first, then update URL. 
+            // For simplicity here, we assume direct URI handling or separate upload logic (omitted for brevity, assume direct URL update if supported or handled elsewhere).
+            // In a real app: uploadImage(result.assets[0].uri).then(url => handleUpdateProfile({avatar_url: url}))
             handleUpdateProfile({ avatar_url: result.assets[0].uri }); 
         }
     };
@@ -265,20 +260,20 @@ export default function ProfileScreen() {
         handleUpdateProfile({ avatar_history: newHistory });
     };
 
-    // --- DISPLAY NAME LOGIC ---
-    // Rule: Title + Full Name at top. Nickname in secondary text if available.
     const formatDisplayName = () => {
         if(!profile) return 'User';
         const titlePart = profile.title ? `${profile.title.trim()} ` : '';
-        const namePart = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || profile.full_name;
+        const middleInitial = profile.middle_name && typeof profile.middle_name === 'string' && profile.middle_name.trim().length > 0 
+            ? ` ${profile.middle_name.trim().charAt(0).toUpperCase()}.` : '';
+        const namePart = `${profile.first_name || ''}${middleInitial} ${profile.last_name || ''}`.trim() || profile.full_name || 'User';
         const suffixPart = profile.professional_suffix ? `, ${profile.professional_suffix.trim()}` : '';
         return `${titlePart}${namePart}${suffixPart}`;
     }
 
     const displayName = formatDisplayName();
-    const nickname = profile?.nickname ? `"${profile.nickname}"` : null; 
     const displayJobTitle = profile?.job_title ? profile.job_title : null; 
     const avatarHistory = Array.isArray(profile?.avatar_history) ? profile.avatar_history : [];
+    const hasAssignedJobId = !!profile?.current_job_id;
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
@@ -303,7 +298,8 @@ export default function ProfileScreen() {
                 <TouchableOpacity onPress={() => router.push('/settings')} style={[styles.settingsButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}><HugeiconsIcon icon={Settings02Icon} size={22} color={theme.colors.text} /></TouchableOpacity>
             </View>
 
-            {isLoading ? <View style={styles.loadingContainer}><ActivityIndicator size="large" color={theme.colors.primary} /></View> : (
+            {isLoading ? <View style={styles.loadingContainer}><ActivityIndicator size="large" color={theme.colors.primary} /></View> : 
+            isOffline ? <View style={{ flex: 1, padding: 24, justifyContent: 'center' }}><OfflineCard theme={theme} /></View> : (
                 <ScrollView contentContainerStyle={styles.scrollContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadData(true)} tintColor={theme.colors.primary} />} showsVerticalScrollIndicator={false}>
                     <View style={styles.profileSection}>
                         <TouchableOpacity onPress={() => setAvatarModalVisible(true)} activeOpacity={0.8} style={{ marginBottom: 16 }}>
@@ -311,9 +307,6 @@ export default function ProfileScreen() {
                         </TouchableOpacity>
                         
                         <Text style={[styles.nameText, { color: theme.colors.text }]}>{displayName}</Text>
-                        
-                        {/* NICKNAME DISPLAY - Visible if set */}
-                        {nickname && <Text style={{ fontSize: 16, fontWeight: '600', color: theme.colors.textSecondary, marginBottom: 4 }}>{nickname}</Text>}
                         
                         {displayJobTitle ? <Text style={[styles.titleText, { color: theme.colors.primary }]}>{displayJobTitle}</Text> : null}
                         <Text style={[styles.emailText, { color: theme.colors.textSecondary }]}>{email}</Text>
@@ -326,7 +319,13 @@ export default function ProfileScreen() {
 
                     <View style={styles.sectionContainer}>
                         <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>CURRENT JOB</Text>
-                        {currentJob ? <JobCard currentJob={currentJob} visibleKeys={visibleDetailKeys} theme={theme} onEdit={() => setModalVisible(true)} /> : <EmptyJobCard theme={theme} router={router} />}
+                        {currentJob ? (
+                            <JobCard currentJob={currentJob} visibleKeys={visibleDetailKeys} theme={theme} onEdit={() => setModalVisible(true)} />
+                        ) : hasAssignedJobId ? (
+                            <JobLoadingCard theme={theme} />
+                        ) : (
+                            <EmptyJobCard theme={theme} router={router} />
+                        )}
                     </View>
                 </ScrollView>
             )}

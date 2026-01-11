@@ -13,6 +13,7 @@ import {
     UserIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
+import NetInfo from '@react-native-community/netinfo';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -83,7 +84,7 @@ export default function JobForm() {
     const params = useLocalSearchParams();
     const jobId = params.id as string;
 
-    const [saving, setSaving] = useState(false); // Used for overlay
+    const [saving, setSaving] = useState(false);
     const [initialLoading, setInitialLoading] = useState(true);
     const [isDirty, setIsDirty] = useState(false);
     
@@ -289,6 +290,21 @@ export default function JobForm() {
             setAlertConfig({ visible: true, type: 'error', title: 'Missing Fields', message: 'Job Title, Company Name, and Pay Rate are required.', confirmText: 'Okay', onConfirm: () => setAlertConfig((prev:any) => ({ ...prev, visible: false })) });
             return;
         }
+
+        // --- STRICT ONLINE REQUIREMENT ---
+        const netInfo = await NetInfo.fetch();
+        if (!netInfo.isConnected || !netInfo.isInternetReachable) {
+            setAlertConfig({
+                visible: true,
+                type: 'warning',
+                title: 'No Internet Connection',
+                message: 'You need an internet connection to save or update job details.',
+                confirmText: 'Okay',
+                onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false }))
+            });
+            return;
+        }
+
         setSaving(true);
         try {
             const { data: { user } } = await supabase.auth.getUser();
@@ -318,28 +334,22 @@ export default function JobForm() {
                 cutoff_config: { type: cutoffType }
             };
             
+            // 1. Save to Supabase
+            const { error } = await supabase.from('job_positions').upsert(payload);
+            if (error) throw error;
+
+            // 2. Save Local (Cache)
             const db = await getDB();
             await db.runAsync(
                 'INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)',
                 ['job_settings', JSON.stringify(payload)]
             );
-
-            try {
-                const { error } = await supabase.from('job_positions').upsert(payload);
-                if (error) throw error;
-                
-                if (!jobId) {
-                    const { data: profile } = await supabase.from('profiles').select('current_job_id').eq('id', user.id).single();
-                    if (profile && !profile.current_job_id) { 
-                        await supabase.from('profiles').update({ current_job_id: finalJobId }).eq('id', user.id); 
-                    }
+            
+            if (!jobId) {
+                const { data: profile } = await supabase.from('profiles').select('current_job_id').eq('id', user.id).single();
+                if (profile && !profile.current_job_id) { 
+                    await supabase.from('profiles').update({ current_job_id: finalJobId }).eq('id', user.id); 
                 }
-            } catch (syncError) {
-                console.log("Offline mode: Queueing job sync...");
-                await db.runAsync(
-                    'INSERT INTO sync_queue (table_name, row_id, action, data, status) VALUES (?, ?, ?, ?, ?)',
-                    ['job_positions', finalJobId, jobId ? 'UPDATE' : 'INSERT', JSON.stringify(payload), 'PENDING']
-                );
             }
             
             setIsDirty(false);

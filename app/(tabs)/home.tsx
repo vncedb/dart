@@ -7,7 +7,8 @@ import {
     Logout03Icon,
     PencilEdit02Icon,
     PlusSignIcon,
-    RefreshIcon
+    RefreshIcon,
+    WifiOffIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -36,7 +37,7 @@ import {
 } from 'react-native';
 import Animated, {
     configureReanimatedLogger,
-    Easing, // <--- ADDED THIS IMPORT TO FIX THE ERROR
+    Easing,
     ReanimatedLogLevel,
     useAnimatedStyle,
     useSharedValue,
@@ -158,7 +159,6 @@ const DailySummaryCard = ({ totalMinutes, isClockedIn, theme, dailyGoal = 8, isO
     const progressValue = useSharedValue(0);
     const scaleValue = useSharedValue(1);
     
-    // Easing is used here, so it MUST be imported
     useEffect(() => { 
         progressValue.value = withTiming(percentage, { duration: 1500, easing: Easing.out(Easing.cubic) }); 
     }, [percentage]);
@@ -224,11 +224,24 @@ const OvertimeModal = ({ visible, onClose, onConfirm, theme }: any) => {
     );
 };
 
-const JobSetupCard = ({ theme, router }: any) => {
+const JobSetupCard = ({ theme, router, isOffline }: any) => {
     return (
         <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, padding: 24, borderRadius: 24, flexDirection: 'row', alignItems: 'center' }}>
-            <View style={{ width: 56, height: 56, borderRadius: 16, backgroundColor: theme.colors.primary + '20', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}><HugeiconsIcon icon={Briefcase01Icon} size={28} color={theme.colors.primary} /></View>
-            <View style={{ flex: 1 }}><Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: '800', marginBottom: 4 }}>Set up your Job</Text><TouchableOpacity onPress={() => router.push('/job/form')} style={{ backgroundColor: theme.colors.primary, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 10, alignSelf: 'flex-start' }}><Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>Start Setup</Text></TouchableOpacity></View>
+            <View style={{ width: 56, height: 56, borderRadius: 16, backgroundColor: theme.colors.primary + '20', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
+                {isOffline ? <HugeiconsIcon icon={WifiOffIcon} size={28} color={theme.colors.primary} /> : <HugeiconsIcon icon={Briefcase01Icon} size={28} color={theme.colors.primary} />}
+            </View>
+            <View style={{ flex: 1 }}>
+                <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: '800', marginBottom: 4 }}>
+                    {isOffline ? 'Job Data Unavailable' : 'Set up your Job'}
+                </Text>
+                {isOffline ? (
+                     <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>Connect to internet to load job details.</Text>
+                ) : (
+                    <TouchableOpacity onPress={() => router.push('/job/form')} style={{ backgroundColor: theme.colors.primary, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 10, alignSelf: 'flex-start' }}>
+                        <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>Start Setup</Text>
+                    </TouchableOpacity>
+                )}
+            </View>
         </View>
     );
 };
@@ -244,12 +257,18 @@ export default function Home() {
     const [isInitialLoading, setIsInitialLoading] = useState(true); 
     const [refreshing, setRefreshing] = useState(false);
     
+    // Remote Data (Online)
     const [profile, setProfile] = useState<any>(null);
     const [jobSettings, setJobSettings] = useState<any>(null); 
-    const [dailyGoal, setDailyGoal] = useState(8); 
+    const [isOfflineProfile, setIsOfflineProfile] = useState(false);
+
+    // Local Data (Offline)
     const [todaysRecords, setTodaysRecords] = useState<any[]>([]);
     const [monthRecords, setMonthRecords] = useState<any[]>([]);
     const [tasks, setTasks] = useState<any[]>([]);
+    
+    // Computed
+    const [dailyGoal, setDailyGoal] = useState(8); 
     const [timelineData, setTimelineData] = useState<any[]>([]);
     const [appSettings, setAppSettings] = useState({ vibrationEnabled: true, soundEnabled: true });
     
@@ -268,29 +287,23 @@ export default function Home() {
     const isClockedIn = latestRecord?.status === 'pending';
     const isSessionOvertime = latestRecord?.remarks?.includes('Overtime');
 
-    // --- STRICT NAME LOGIC ---
     const displayName = profile ? (() => {
-        if (profile.nickname && profile.nickname.trim().length > 0) {
-            return profile.nickname.trim();
-        }
-        
+        if (profile.nickname && profile.nickname.trim().length > 0) return profile.nickname.trim();
         const titlePart = profile.title ? `${profile.title.trim()} ` : '';
         const firstName = profile.first_name ? profile.first_name.trim() : (profile.full_name ? profile.full_name.split(' ')[0] : 'User');
         return `${titlePart}${firstName}`.trim();
-    })() : 'User';
+    })() : (isOfflineProfile ? 'Offline User' : 'User');
 
     const activityTitle = isToday(selectedDate) ? "Today's Activity" : `Activity • ${format(selectedDate, 'MMM d')}`;
 
-    const handleHideAlert = useCallback(() => {
-        setAlertVisible(false);
-    }, []);
+    const handleHideAlert = useCallback(() => { setAlertVisible(false); }, []);
 
     useEffect(() => {
         registerForPushNotificationsAsync();
         setupNotificationCategories();
     }, []);
 
-    // Work + Break Timer
+    // Timer logic
     useEffect(() => {
         const timer = setInterval(() => {
             let totalMs = 0;
@@ -300,30 +313,12 @@ export default function Home() {
                 totalMs += Math.max(0, end - start);
             });
             setWorkedMinutes(totalMs / (1000 * 60));
-
-            if (jobSettings && jobSettings.break_schedule) {
-                const isBreakTime = checkIsBreakTime(jobSettings.break_schedule);
-                setIsBreak(isBreakTime);
-            }
+            if (jobSettings && jobSettings.break_schedule) setIsBreak(checkIsBreakTime(jobSettings.break_schedule));
         }, 1000);
         return () => clearInterval(timer);
     }, [todaysRecords, jobSettings]);
 
-    const fetchMonthAttendance = async (date: Date) => {
-        try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session?.user) return;
-            const db = await getDB();
-            const start = startOfMonth(date).toISOString().split('T')[0];
-            const end = endOfMonth(date).toISOString().split('T')[0];
-            const data = await db.getAllAsync(
-                'SELECT id, date, clock_in, clock_out FROM attendance WHERE user_id = ? AND date >= ? AND date <= ?',
-                [session.user.id, start, end]
-            );
-            if (data) setMonthRecords(data as any);
-        } catch (e) { console.log(e); }
-    };
-
+    // Data Loading Logic
     const loadData = async () => {
         try {
             const { data: { session } } = await supabase.auth.getSession();
@@ -331,49 +326,63 @@ export default function Home() {
             const user = session.user;
             const db = await getDB();
             const dateStr = getLocalDate(selectedDate);
-            const [attendance, dailyTasks, profileData, jobData] = await Promise.all([
+            const startMonth = startOfMonth(selectedDate).toISOString().split('T')[0];
+            const endMonth = endOfMonth(selectedDate).toISOString().split('T')[0];
+
+            // 1. OFFLINE DATA (SQLite) - Reports
+            const [attendance, dailyTasks, monthlyAtt] = await Promise.all([
                 db.getAllAsync('SELECT * FROM attendance WHERE user_id = ? AND date = ? ORDER BY clock_in DESC', [user.id, dateStr]),
                 db.getAllAsync('SELECT * FROM accomplishments WHERE user_id = ? AND date = ?', [user.id, dateStr]),
-                db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]),
-                db.getFirstAsync('SELECT * FROM job_positions WHERE user_id = ? ORDER BY created_at DESC LIMIT 1', [user.id])
+                db.getAllAsync('SELECT id, date, clock_in, clock_out FROM attendance WHERE user_id = ? AND date >= ? AND date <= ?', [user.id, startMonth, endMonth])
             ]);
-            
-            if (profileData) {
-                setProfile(profileData);
-                if ((profileData as any).current_job_id) {
-                     const specificJob = await db.getFirstAsync('SELECT * FROM job_positions WHERE id = ?', [(profileData as any).current_job_id]);
-                     if (specificJob) {
-                         setJobSettings(specificJob);
-                         setDailyGoal(calculateDailyGoal(specificJob));
-                     } else if (jobData) {
-                         setJobSettings(jobData);
-                         setDailyGoal(calculateDailyGoal(jobData));
-                     }
-                } else if (jobData) {
-                    setJobSettings(jobData);
-                    setDailyGoal(calculateDailyGoal(jobData));
-                }
-            } else {
-                setJobSettings(null);
-                setDailyGoal(8);
-            }
             
             setTodaysRecords(attendance as any[]);
             setTasks(dailyTasks as any[]);
+            setMonthRecords(monthlyAtt as any[]);
+
+            // 2. ONLINE DATA (Supabase) - Profile & Job
+            try {
+                const { data: profileData, error: profileError } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+                
+                if (profileError) throw profileError;
+                setProfile(profileData);
+                setIsOfflineProfile(false);
+
+                // Fetch Job
+                let jobData = null;
+                if (profileData && profileData.current_job_id) {
+                    const { data: specificJob } = await supabase.from('job_positions').select('*').eq('id', profileData.current_job_id).single();
+                    jobData = specificJob;
+                } else {
+                    const { data: latestJob } = await supabase.from('job_positions').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).single();
+                    jobData = latestJob;
+                }
+
+                if (jobData) {
+                    setJobSettings(jobData);
+                    setDailyGoal(calculateDailyGoal(jobData));
+                } else {
+                    setJobSettings(null);
+                    setDailyGoal(8);
+                }
+
+            } catch (onlineError) {
+                // If fetching online data fails, we are likely offline or have no profile
+                console.log("Online fetch failed:", onlineError);
+                setIsOfflineProfile(true);
+                // Keep previous profile/job state if available, or null
+            }
+
         } catch (e: any) { 
             console.log(e);
-            setModernAlertConfig({ 
-                visible: true, type: 'error', title: 'Error', message: e.message || 'Unable to fetch data.', 
-                confirmText: 'Retry', onConfirm: () => { setModernAlertConfig((prev: any) => ({...prev, visible: false})); setRefreshing(true); loadData(); },
-                cancelText: 'Close', onCancel: () => setModernAlertConfig((prev: any) => ({...prev, visible: false}))
-            });
-        } 
-        finally { setRefreshing(false); setTimeout(() => setIsInitialLoading(false), 300); }
+        } finally { 
+            setRefreshing(false); 
+            setTimeout(() => setIsInitialLoading(false), 300); 
+        }
     };
 
     useFocusEffect(useCallback(() => {
         loadData();
-        fetchMonthAttendance(selectedDate);
         AsyncStorage.getItem('appSettings').then(s => { if (s) setAppSettings(JSON.parse(s)); });
     }, [selectedDate]));
 
@@ -431,6 +440,12 @@ export default function Home() {
     };
 
     const handleClockButtonPress = () => {
+        // If offline and no job settings loaded, warn user
+        if (!jobSettings && isOfflineProfile) {
+            setModernAlertConfig({ visible: true, type: 'warning', title: 'Offline', message: 'Cannot verify job schedule while offline.', confirmText: 'Okay', onConfirm: () => setModernAlertConfig((prev:any)=>({...prev, visible:false})) });
+            return;
+        }
+        
         if (!jobSettings) {
             setModernAlertConfig({ visible: true, type: 'warning', title: 'No Job Found', message: 'Please set up your job details first.', confirmText: 'Add Job', onConfirm: () => { setModernAlertConfig((prev:any)=>({...prev, visible:false})); router.push('/job/form'); } });
             return;
@@ -475,7 +490,9 @@ export default function Home() {
                             />
                             <BiometricButton onSuccess={handleClockButtonPress} isClockedIn={isClockedIn} isLoading={loading} settings={appSettings} />
                         </View>
-                        <View style={{ marginBottom: 24 }} collapsable={false}>{jobSettings ? <DailySummaryCard totalMinutes={workedMinutes} isClockedIn={isClockedIn} theme={theme} dailyGoal={dailyGoal} isOvertime={isSessionOvertime} startTime={latestRecord?.clock_in} /> : <JobSetupCard theme={theme} router={router} />}</View>
+                        <View style={{ marginBottom: 24 }} collapsable={false}>
+                            {jobSettings ? <DailySummaryCard totalMinutes={workedMinutes} isClockedIn={isClockedIn} theme={theme} dailyGoal={dailyGoal} isOvertime={isSessionOvertime} startTime={latestRecord?.clock_in} /> : <JobSetupCard theme={theme} router={router} isOffline={isOfflineProfile} />}
+                        </View>
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}><Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.5 }}>{activityTitle}</Text><TouchableOpacity disabled={!isClockedIn} onPress={() => router.push('/reports/add-entry')} style={{ backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background, borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><HugeiconsIcon icon={PlusSignIcon} size={20} color={isClockedIn ? theme.colors.primary : theme.colors.icon} /></TouchableOpacity></View>
                         <View style={{ backgroundColor: theme.colors.card, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' }} collapsable={false}>
                             <View style={{ padding: 20 }}>
