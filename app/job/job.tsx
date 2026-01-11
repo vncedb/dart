@@ -13,12 +13,11 @@ import NetInfo from '@react-native-community/netinfo';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
-    ActivityIndicator,
     FlatList,
     RefreshControl,
     Text,
     TouchableOpacity,
-    View,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -26,6 +25,9 @@ import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
 import { useAppTheme } from '../../constants/theme';
+import { useSync } from '../../context/SyncContext';
+import { deleteJobLocal, queueSyncItem, saveJobLocal } from '../../lib/database';
+import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 
 const formatRateDisplay = (amount: number, type: string) => {
@@ -33,8 +35,7 @@ const formatRateDisplay = (amount: number, type: string) => {
     let unit = 'hour';
     if (type === 'daily') unit = 'day';
     if (type === 'monthly') unit = 'month';
-    const unitDisplay = `${unit}/s`; 
-    return `${formattedAmount} / ${unitDisplay}`;
+    return `${formattedAmount} / ${unit}`;
 };
 
 const formatTime12h = (time24: string) => {
@@ -46,39 +47,23 @@ const formatTime12h = (time24: string) => {
 };
 
 const EmptyJobCard = ({ theme, router, isOffline }: any) => {
-    if (isOffline) {
-        return (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 60, paddingHorizontal: 40 }}>
-                <View style={{ width: 100, height: 100, borderRadius: 30, backgroundColor: theme.colors.warning + '20', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
-                    <HugeiconsIcon icon={WifiOffIcon} size={48} color={theme.colors.warning} />
-                </View>
-                <Text style={{ color: theme.colors.text, fontSize: 24, fontWeight: '800', textAlign: 'center', marginBottom: 12 }}>
-                    Offline
-                </Text>
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 16, textAlign: 'center', lineHeight: 24, marginBottom: 32 }}>
-                    Connect to the internet to view or manage your jobs.
-                </Text>
-            </View>
-        );
-    }
     return (
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', marginTop: 60, paddingHorizontal: 40 }}>
-            <View style={{ width: 100, height: 100, borderRadius: 30, backgroundColor: theme.colors.card, alignItems: 'center', justifyContent: 'center', marginBottom: 24, shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20 }}>
-                <HugeiconsIcon icon={Briefcase01Icon} size={48} color={theme.colors.primary} />
+            <View style={{ width: 100, height: 100, borderRadius: 30, backgroundColor: isOffline ? theme.colors.warning + '20' : theme.colors.card, alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
+                <HugeiconsIcon icon={isOffline ? WifiOffIcon : Briefcase01Icon} size={48} color={isOffline ? theme.colors.warning : theme.colors.primary} />
             </View>
             <Text style={{ color: theme.colors.text, fontSize: 24, fontWeight: '800', textAlign: 'center', marginBottom: 12 }}>
-                No Jobs Found
+                {isOffline ? 'Offline Mode' : 'No Jobs Found'}
             </Text>
             <Text style={{ color: theme.colors.textSecondary, fontSize: 16, textAlign: 'center', lineHeight: 24, marginBottom: 32 }}>
-                You haven't added any work profiles yet. Add a job to start tracking your attendance and earnings.
+                {isOffline ? 'You can view locally saved jobs. Connect to internet to sync changes.' : 'Add a job to start tracking your attendance.'}
             </Text>
-            <TouchableOpacity 
-                onPress={() => router.push('/job/form')} 
-                style={{ backgroundColor: theme.colors.primary, flexDirection: 'row', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 32, borderRadius: 100, shadowColor: theme.colors.primary, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 15 }}
-            >
-                <HugeiconsIcon icon={PlusSignIcon} size={20} color="#FFF" strokeWidth={3} />
-                <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 16, marginLeft: 8 }}>Add First Job</Text>
-            </TouchableOpacity>
+            {!isOffline && (
+                <TouchableOpacity onPress={() => router.push('/job/form')} style={{ backgroundColor: theme.colors.primary, flexDirection: 'row', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 32, borderRadius: 100 }}>
+                    <HugeiconsIcon icon={PlusSignIcon} size={20} color="#FFF" strokeWidth={3} />
+                    <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 16, marginLeft: 8 }}>Add First Job</Text>
+                </TouchableOpacity>
+            )}
         </View>
     );
 };
@@ -86,6 +71,7 @@ const EmptyJobCard = ({ theme, router, isOffline }: any) => {
 export default function MyJobsScreen() {
     const theme = useAppTheme();
     const router = useRouter();
+    const { triggerSync } = useSync();
     
     const [jobs, setJobs] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
@@ -98,56 +84,69 @@ export default function MyJobsScreen() {
         try {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
+            const db = await getDB();
+
+            const localJobs = await db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ? ORDER BY created_at DESC', [user.id]);
+            const parsedLocalJobs = (localJobs as any[]).map(j => ({
+                ...j,
+                work_schedule: typeof j.work_schedule === 'string' ? JSON.parse(j.work_schedule) : j.work_schedule,
+                break_schedule: typeof j.break_schedule === 'string' ? JSON.parse(j.break_schedule) : j.break_schedule
+            }));
+            setJobs(parsedLocalJobs);
 
             const netInfo = await NetInfo.fetch();
-            if (!netInfo.isConnected || !netInfo.isInternetReachable) {
-                setIsOffline(true);
-                setLoading(false);
-                setRefreshing(false);
-                return;
-            }
-
+            if (!netInfo.isConnected) { setIsOffline(true); return; }
             setIsOffline(false);
-            const { data, error } = await supabase
-                .from('job_positions')
-                .select('*')
-                .eq('user_id', user.id)
-                .order('created_at', { ascending: false });
 
-            if (error) throw error;
-            setJobs(data || []);
-            
-        } catch (error) {
-            console.log('Error fetching jobs:', error);
-            // Don't set offline true here generically, only on network fail
-        } finally {
-            setLoading(false);
-            setRefreshing(false);
-        }
+            const { data: remoteJobs } = await supabase.from('job_positions').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+            if (remoteJobs) {
+                setJobs(remoteJobs); 
+                for (const job of remoteJobs) { await saveJobLocal(job); }
+            }
+        } catch (error) { console.log('Error fetching jobs:', error); } 
+        finally { setLoading(false); setRefreshing(false); }
     };
 
-    useFocusEffect(
-        useCallback(() => {
-            fetchJobs();
-        }, [])
-    );
+    useFocusEffect(useCallback(() => { fetchJobs(); }, []));
 
     const handleDelete = async (id: string) => {
-        const netInfo = await NetInfo.fetch();
-        if (!netInfo.isConnected || !netInfo.isInternetReachable) {
-            setAlertConfig({ visible: true, type: 'warning', title: 'No Internet', message: 'You need an internet connection to delete jobs.', confirmText: 'Okay', onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) });
-            return;
-        }
-
         setAlertConfig({
             visible: true, type: 'warning', title: 'Delete Job?', message: 'This will permanently remove this job position.', confirmText: 'Delete', cancelText: 'Cancel',
             onConfirm: async () => {
                 setAlertConfig((prev: any) => ({ ...prev, visible: false }));
                 setDeleting(true);
                 try {
-                    await supabase.from('job_positions').delete().eq('id', id);
-                    fetchJobs(); 
-                } catch (e) { console.log('Delete error:', e); } finally { setDeleting(false); }
+                    const db = await getDB();
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if(!user) return;
+
+                    // 1. Check if job is linked to profile locally
+                    const profile: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
+                    
+                    if (profile && profile.current_job_id === id) {
+                        // UNLINK LOCALLY FIRST
+                        await db.runAsync('UPDATE profiles SET current_job_id = NULL WHERE id = ?', [user.id]);
+                        // QUEUE UNLINK SYNC
+                        await queueSyncItem('profiles', user.id, 'UPDATE', { current_job_id: null });
+                    }
+
+                    // 2. DELETE LOCALLY
+                    await deleteJobLocal(id);
+
+                    // 3. QUEUE DELETE SYNC
+                    await queueSyncItem('job_positions', id, 'DELETE');
+                    
+                    // 4. SYNC
+                    triggerSync();
+                    
+                    // 5. UPDATE UI
+                    await fetchJobs();
+
+                } catch (e) { 
+                    console.log('Delete error:', e); 
+                } finally { 
+                    setDeleting(false); 
+                }
             },
             onCancel: () => setAlertConfig((prev: any) => ({ ...prev, visible: false }))
         });
@@ -156,7 +155,6 @@ export default function MyJobsScreen() {
     const renderJobItem = ({ item }: any) => {
         const isSalarySet = item.rate && item.rate > 0;
         const workSchedule = item.work_schedule || { start: '09:00', end: '17:00' };
-        const breaks = item.break_schedule || [];
 
         return (
             <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }} className="p-5 mb-5 border shadow-sm rounded-3xl">
@@ -180,29 +178,12 @@ export default function MyJobsScreen() {
         );
     };
 
-    if (loading && !refreshing) {
-        return (
-            <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
-                <Header title="My Jobs" />
-                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={theme.colors.primary} /></View>
-            </SafeAreaView>
-        )
-    }
-
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
             <LoadingOverlay visible={deleting} message="Deleting job..." />
             <ModernAlert {...alertConfig} />
-            <Header title="My Jobs" rightElement={jobs.length > 0 && !isOffline ? (<TouchableOpacity onPress={() => router.push('/job/form')} style={{ backgroundColor: theme.colors.primaryLight, padding: 8, borderRadius: 20 }}><HugeiconsIcon icon={PlusSignIcon} size={24} color={theme.colors.primary} /></TouchableOpacity>) : null} />
-            <FlatList
-                data={jobs}
-                keyExtractor={(item) => item.id}
-                renderItem={renderJobItem}
-                contentContainerStyle={{ padding: 24, paddingBottom: 100, flexGrow: 1 }}
-                showsVerticalScrollIndicator={false}
-                ListEmptyComponent={<EmptyJobCard theme={theme} router={router} isOffline={isOffline} />}
-                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchJobs(); }} tintColor={theme.colors.primary} />}
-            />
+            <Header title="My Jobs" rightElement={!isOffline ? (<TouchableOpacity onPress={() => router.push('/job/form')} style={{ backgroundColor: theme.colors.primaryLight, padding: 8, borderRadius: 20 }}><HugeiconsIcon icon={PlusSignIcon} size={24} color={theme.colors.primary} /></TouchableOpacity>) : null} />
+            <FlatList data={jobs} keyExtractor={(item) => item.id} renderItem={renderJobItem} contentContainerStyle={{ padding: 24, paddingBottom: 100, flexGrow: 1 }} showsVerticalScrollIndicator={false} ListEmptyComponent={<EmptyJobCard theme={theme} router={router} isOffline={isOffline} />} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchJobs(); }} tintColor={theme.colors.primary} />} />
         </SafeAreaView>
     );
 }

@@ -20,7 +20,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
-    Dimensions,
     Image,
     KeyboardAvoidingView,
     Modal,
@@ -39,6 +38,7 @@ import Animated, {
     configureReanimatedLogger,
     Easing,
     ReanimatedLogLevel,
+    useAnimatedProps,
     useAnimatedStyle,
     useSharedValue,
     withRepeat,
@@ -49,7 +49,6 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Defs, G, LinearGradient, Rect, Stop } from 'react-native-svg';
 
-// Components & Utils
 import BiometricButton from '../../components/BiometricButton';
 import DynamicBar from '../../components/DynamicBar';
 import DynamicDateHeader from '../../components/DynamicDateHeader';
@@ -63,7 +62,6 @@ import { registerForPushNotificationsAsync, setupNotificationCategories } from '
 
 configureReanimatedLogger({ level: ReanimatedLogLevel.warn, strict: false });
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 // --- HELPER FUNCTIONS ---
@@ -77,7 +75,6 @@ const checkIsBreakTime = (schedule: any[]) => {
     if (!schedule || !Array.isArray(schedule)) return false;
     const now = new Date();
     const currentMins = now.getHours() * 60 + now.getMinutes();
-    
     return schedule.some(brk => {
         const start = timeToMinutes(brk.start);
         const end = timeToMinutes(brk.end);
@@ -126,28 +123,45 @@ const ActivityImage = ({ uri, theme }: { uri: string, theme: any }) => {
     );
 };
 
+// --- SKELETON LOADING ---
 const SkeletonItem = ({ style, borderRadius = 12 }: { style?: any, borderRadius?: number }) => {
     const theme = useAppTheme();
     const opacity = useSharedValue(0.3);
     useEffect(() => { opacity.value = withRepeat(withSequence(withTiming(0.6, { duration: 800 }), withTiming(0.3, { duration: 800 })), -1, true); }, []);
     const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
-    return <Animated.View style={[{ backgroundColor: theme.dark ? theme.colors.border : theme.colors.slate200, borderRadius }, style, animatedStyle]} />;
+    return <Animated.View style={[{ backgroundColor: theme.colors.border, borderRadius }, style, animatedStyle]} />;
 };
 
-const HomeSkeleton = () => (
-    <View style={{ gap: 32, marginTop: 10 }}>
-        <View style={{ alignItems: 'center', gap: 24 }}>
-            <SkeletonItem style={{ width: 160, height: 40, borderRadius: 20 }} />
-            <SkeletonItem style={{ width: 160, height: 160, borderRadius: 80 }} /> 
+const HomeSkeleton = () => {
+    const insets = useSafeAreaInsets();
+    const theme = useAppTheme();
+    return (
+        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+            <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} translucent backgroundColor="transparent" />
+            <View style={{ paddingHorizontal: 24, paddingTop: 120 + insets.top }}>
+                <View style={{ alignItems: 'center', marginBottom: 40, gap: 24 }}>
+                    <SkeletonItem style={{ width: 220, height: 24, borderRadius: 12 }} />
+                    <SkeletonItem style={{ width: 160, height: 160, borderRadius: 80 }} /> 
+                </View>
+                <View style={{ marginBottom: 24 }}>
+                    <SkeletonItem style={{ width: '100%', height: 200, borderRadius: 24 }} />
+                </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 }}>
+                    <SkeletonItem style={{ width: 140, height: 24, borderRadius: 8 }} />
+                    <SkeletonItem style={{ width: 36, height: 36, borderRadius: 18 }} />
+                </View>
+                <View style={{ borderLeftWidth: 2, borderLeftColor: theme.colors.border, marginLeft: 8, paddingLeft: 16 }}>
+                    {[1, 2, 3].map((i) => (
+                        <View key={i} style={{ marginBottom: 24, justifyContent: 'center' }}>
+                            <SkeletonItem style={{ position: 'absolute', left: -28, width: 12, height: 12, borderRadius: 6 }} />
+                            <SkeletonItem style={{ width: '100%', height: 70, borderRadius: 12 }} />
+                        </View>
+                    ))}
+                </View>
+            </View>
         </View>
-        <SkeletonItem style={{ width: '100%', height: 200, borderRadius: 32 }} />
-        <View style={{ gap: 16 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}><SkeletonItem style={{ width: 140, height: 24, borderRadius: 8 }} /><SkeletonItem style={{ width: 40, height: 40, borderRadius: 20 }} /></View>
-            <SkeletonItem style={{ width: '100%', height: 80, borderRadius: 24 }} />
-            <SkeletonItem style={{ width: '100%', height: 80, borderRadius: 24 }} />
-        </View>
-    </View>
-);
+    );
+};
 
 const DailySummaryCard = ({ totalMinutes, isClockedIn, theme, dailyGoal = 8, isOvertime = false, startTime }: any) => {
     const safeMinutes = Math.max(0, totalMinutes);
@@ -159,25 +173,19 @@ const DailySummaryCard = ({ totalMinutes, isClockedIn, theme, dailyGoal = 8, isO
     const progressValue = useSharedValue(0);
     const scaleValue = useSharedValue(1);
     
-    useEffect(() => { 
-        progressValue.value = withTiming(percentage, { duration: 1500, easing: Easing.out(Easing.cubic) }); 
-    }, [percentage]);
-
+    useEffect(() => { progressValue.value = withTiming(percentage, { duration: 1500, easing: Easing.out(Easing.cubic) }); }, [percentage]);
     const handlePressIn = () => { scaleValue.value = withSpring(0.97); };
     const handlePressOut = () => { scaleValue.value = withSpring(1); };
     const activeColor = isOvertime ? '#EF4444' : isClockedIn ? '#10B981' : '#94A3B8';
     const statusText = isOvertime ? 'OVERTIME' : isClockedIn ? 'ACTIVE' : 'CHECKED OUT';
-    const timeColor = theme.colors.text;
     const SIZE = 110; const RADIUS = 48; const STROKE_WIDTH = 8; const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-    const animatedCircleProps = useAnimatedStyle(() => ({ strokeDashoffset: CIRCUMFERENCE * (1 - progressValue.value) }));
+    const animatedCircleProps = useAnimatedProps(() => ({ strokeDashoffset: CIRCUMFERENCE * (1 - progressValue.value) }));
     const animatedCardStyle = useAnimatedStyle(() => ({ transform: [{ scale: scaleValue.value }] }));
 
     return (
-        <Pressable onPressIn={handlePressIn} onPressOut={handlePressOut} activeOpacity={1}>
+        <Pressable onPressIn={handlePressIn} onPressOut={handlePressOut}>
             <Animated.View style={[styles.cardNew, animatedCardStyle, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                <View style={StyleSheet.absoluteFill}>
-                    <Svg height="100%" width="100%"><Defs><LinearGradient id="meshGrad" x1="0" y1="0" x2="1" y2="1"><Stop offset="0" stopColor={theme.dark ? "#020617" : "#F8FAFC"} stopOpacity="1" /><Stop offset="1" stopColor={theme.dark ? "#1E293B" : "#F1F5F9"} stopOpacity="1" /></LinearGradient></Defs><Rect x="0" y="0" width="100%" height="100%" fill="url(#meshGrad)" /></Svg>
-                </View>
+                <View style={StyleSheet.absoluteFill}><Svg height="100%" width="100%"><Defs><LinearGradient id="meshGrad" x1="0" y1="0" x2="1" y2="1"><Stop offset="0" stopColor={theme.dark ? "#020617" : "#F8FAFC"} stopOpacity="1" /><Stop offset="1" stopColor={theme.dark ? "#1E293B" : "#F1F5F9"} stopOpacity="1" /></LinearGradient></Defs><Rect x="0" y="0" width="100%" height="100%" fill="url(#meshGrad)" /></Svg></View>
                 <View style={{ padding: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                     <View style={{ flex: 1, paddingRight: 16 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
@@ -185,9 +193,8 @@ const DailySummaryCard = ({ totalMinutes, isClockedIn, theme, dailyGoal = 8, isO
                                 <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: activeColor, marginRight: 6 }} /><Text style={{ color: activeColor, fontSize: 10, fontWeight: '800', letterSpacing: 0.5 }}>{statusText}</Text>
                             </View>
                         </View>
-                        <Text style={{ fontSize: 36, fontWeight: '900', color: timeColor, fontVariant: ['tabular-nums'], letterSpacing: -1, lineHeight: 40 }}>{h}<Text style={{ fontSize: 18, color: theme.colors.textSecondary, fontWeight: '600' }}>h</Text> {m}<Text style={{ fontSize: 18, color: theme.colors.textSecondary, fontWeight: '600' }}>m</Text></Text>
-                        <Text style={{ fontSize: 12, fontWeight: '600', color: theme.colors.textSecondary, marginBottom: 16 }}>Total Duration</Text>
-                        <View style={{ flexDirection: 'row', gap: 20 }}>
+                        <Text style={{ fontSize: 36, fontWeight: '900', color: theme.colors.text, fontVariant: ['tabular-nums'], letterSpacing: -1, lineHeight: 40 }}>{h}<Text style={{ fontSize: 18, color: theme.colors.textSecondary, fontWeight: '600' }}>h</Text> {m}<Text style={{ fontSize: 18, color: theme.colors.textSecondary, fontWeight: '600' }}>m</Text></Text>
+                        <View style={{ flexDirection: 'row', gap: 20, marginTop: 16 }}>
                             <View><Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.textSecondary, opacity: 0.7 }}>CHECK-IN</Text><Text style={{ fontSize: 13, fontWeight: '700', color: theme.colors.text, marginTop: 2 }}>{isClockedIn && startTime ? format(new Date(startTime), 'h:mm a') : '--:--'}</Text></View>
                             <View><Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.textSecondary, opacity: 0.7 }}>GOAL</Text><Text style={{ fontSize: 13, fontWeight: '700', color: theme.colors.text, marginTop: 2 }}>{dailyGoal}h</Text></View>
                         </View>
@@ -232,10 +239,10 @@ const JobSetupCard = ({ theme, router, isOffline }: any) => {
             </View>
             <View style={{ flex: 1 }}>
                 <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: '800', marginBottom: 4 }}>
-                    {isOffline ? 'Job Data Unavailable' : 'Set up your Job'}
+                    {isOffline ? 'Offline Mode' : 'Set up your Job'}
                 </Text>
                 {isOffline ? (
-                     <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>Connect to internet to load job details.</Text>
+                     <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>Using cached job details.</Text>
                 ) : (
                     <TouchableOpacity onPress={() => router.push('/job/form')} style={{ backgroundColor: theme.colors.primary, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 10, alignSelf: 'flex-start' }}>
                         <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>Start Setup</Text>
@@ -250,19 +257,16 @@ export default function Home() {
     const insets = useSafeAreaInsets();
     const router = useRouter();
     const theme = useAppTheme();
-    const { triggerSync } = useSync(); 
+    const { triggerSync, syncStatus } = useSync(); 
     const successPlayer = useAudioPlayer(require('../../assets/success.mp3'));
 
     const [loading, setLoading] = useState(false);
     const [isInitialLoading, setIsInitialLoading] = useState(true); 
     const [refreshing, setRefreshing] = useState(false);
     
-    // Remote Data (Online)
+    // Data State
     const [profile, setProfile] = useState<any>(null);
     const [jobSettings, setJobSettings] = useState<any>(null); 
-    const [isOfflineProfile, setIsOfflineProfile] = useState(false);
-
-    // Local Data (Offline)
     const [todaysRecords, setTodaysRecords] = useState<any[]>([]);
     const [monthRecords, setMonthRecords] = useState<any[]>([]);
     const [tasks, setTasks] = useState<any[]>([]);
@@ -288,11 +292,10 @@ export default function Home() {
     const isSessionOvertime = latestRecord?.remarks?.includes('Overtime');
 
     const displayName = profile ? (() => {
-        if (profile.nickname && profile.nickname.trim().length > 0) return profile.nickname.trim();
         const titlePart = profile.title ? `${profile.title.trim()} ` : '';
         const firstName = profile.first_name ? profile.first_name.trim() : (profile.full_name ? profile.full_name.split(' ')[0] : 'User');
         return `${titlePart}${firstName}`.trim();
-    })() : (isOfflineProfile ? 'Offline User' : 'User');
+    })() : 'User';
 
     const activityTitle = isToday(selectedDate) ? "Today's Activity" : `Activity • ${format(selectedDate, 'MMM d')}`;
 
@@ -303,7 +306,6 @@ export default function Home() {
         setupNotificationCategories();
     }, []);
 
-    // Timer logic
     useEffect(() => {
         const timer = setInterval(() => {
             let totalMs = 0;
@@ -318,8 +320,8 @@ export default function Home() {
         return () => clearInterval(timer);
     }, [todaysRecords, jobSettings]);
 
-    // Data Loading Logic
-    const loadData = async () => {
+    // LOAD DATA: UseCallback fixed, Loads Local First
+    const loadData = useCallback(async () => {
         try {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session?.user) return;
@@ -329,62 +331,54 @@ export default function Home() {
             const startMonth = startOfMonth(selectedDate).toISOString().split('T')[0];
             const endMonth = endOfMonth(selectedDate).toISOString().split('T')[0];
 
-            // 1. OFFLINE DATA (SQLite) - Reports
-            const [attendance, dailyTasks, monthlyAtt] = await Promise.all([
+            const [attendance, dailyTasks, monthlyAtt, localProfile, localJobs] = await Promise.all([
                 db.getAllAsync('SELECT * FROM attendance WHERE user_id = ? AND date = ? ORDER BY clock_in DESC', [user.id, dateStr]),
                 db.getAllAsync('SELECT * FROM accomplishments WHERE user_id = ? AND date = ?', [user.id, dateStr]),
-                db.getAllAsync('SELECT id, date, clock_in, clock_out FROM attendance WHERE user_id = ? AND date >= ? AND date <= ?', [user.id, startMonth, endMonth])
+                db.getAllAsync('SELECT id, date, clock_in, clock_out FROM attendance WHERE user_id = ? AND date >= ? AND date <= ?', [user.id, startMonth, endMonth]),
+                db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]),
+                db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ? ORDER BY created_at DESC', [user.id])
             ]);
             
             setTodaysRecords(attendance as any[]);
             setTasks(dailyTasks as any[]);
             setMonthRecords(monthlyAtt as any[]);
 
-            // 2. ONLINE DATA (Supabase) - Profile & Job
-            try {
-                const { data: profileData, error: profileError } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-                
-                if (profileError) throw profileError;
-                setProfile(profileData);
-                setIsOfflineProfile(false);
+            if (localProfile) setProfile(localProfile);
 
-                // Fetch Job
-                let jobData = null;
-                if (profileData && profileData.current_job_id) {
-                    const { data: specificJob } = await supabase.from('job_positions').select('*').eq('id', profileData.current_job_id).single();
-                    jobData = specificJob;
-                } else {
-                    const { data: latestJob } = await supabase.from('job_positions').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(1).single();
-                    jobData = latestJob;
-                }
-
-                if (jobData) {
-                    setJobSettings(jobData);
-                    setDailyGoal(calculateDailyGoal(jobData));
-                } else {
-                    setJobSettings(null);
-                    setDailyGoal(8);
-                }
-
-            } catch (onlineError) {
-                // If fetching online data fails, we are likely offline or have no profile
-                console.log("Online fetch failed:", onlineError);
-                setIsOfflineProfile(true);
-                // Keep previous profile/job state if available, or null
+            if (localJobs && (localJobs as any[]).length > 0) {
+                 const jobs = localJobs as any[];
+                 const specificJobId = (localProfile as any)?.current_job_id;
+                 const activeJob = specificJobId ? jobs.find(j => j.id === specificJobId) : jobs[0];
+                 
+                 if (activeJob) {
+                    const parsedJob = {
+                        ...activeJob,
+                        work_schedule: typeof activeJob.work_schedule === 'string' ? JSON.parse(activeJob.work_schedule) : activeJob.work_schedule,
+                        break_schedule: typeof activeJob.break_schedule === 'string' ? JSON.parse(activeJob.break_schedule) : activeJob.break_schedule,
+                    };
+                    setJobSettings(parsedJob);
+                    setDailyGoal(calculateDailyGoal(parsedJob));
+                 }
             }
 
         } catch (e: any) { 
-            console.log(e);
+            console.log("Load Data Error:", e);
         } finally { 
             setRefreshing(false); 
             setTimeout(() => setIsInitialLoading(false), 300); 
         }
-    };
+    }, [selectedDate]);
 
     useFocusEffect(useCallback(() => {
         loadData();
         AsyncStorage.getItem('appSettings').then(s => { if (s) setAppSettings(JSON.parse(s)); });
-    }, [selectedDate]));
+    }, [loadData]));
+
+    const onRefresh = async () => {
+        setRefreshing(true);
+        await triggerSync(); 
+        await loadData();
+    };
 
     useEffect(() => {
         const timeline: any[] = [];
@@ -425,8 +419,10 @@ export default function Home() {
                 } else { await AsyncStorage.removeItem('active_ot_end'); }
                 const newId = generateUUID();
                 const record = { id: newId, user_id: user.id, clock_in: now.toISOString(), date: getLocalDate(), status: 'pending', remarks };
+                
                 await db.runAsync('INSERT INTO attendance (id, user_id, date, clock_in, status, remarks) VALUES (?, ?, ?, ?, ?, ?)', [record.id, record.user_id, record.date, record.clock_in, record.status, record.remarks]);
                 await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', ['attendance', record.id, 'INSERT', JSON.stringify(record)]);
+                
                 setAlertMessage(isOvertime ? "Overtime Started!" : "Welcome In!"); 
                 setAlertType('check-in');
             }
@@ -435,22 +431,17 @@ export default function Home() {
             
             setAlertVisible(true);
             await loadData();
-            triggerSync();
+            triggerSync(); 
         } catch (e: any) { Alert.alert("Error", e.message); } finally { setLoading(false); }
     };
 
     const handleClockButtonPress = () => {
-        // If offline and no job settings loaded, warn user
-        if (!jobSettings && isOfflineProfile) {
-            setModernAlertConfig({ visible: true, type: 'warning', title: 'Offline', message: 'Cannot verify job schedule while offline.', confirmText: 'Okay', onConfirm: () => setModernAlertConfig((prev:any)=>({...prev, visible:false})) });
-            return;
-        }
-        
         if (!jobSettings) {
             setModernAlertConfig({ visible: true, type: 'warning', title: 'No Job Found', message: 'Please set up your job details first.', confirmText: 'Add Job', onConfirm: () => { setModernAlertConfig((prev:any)=>({...prev, visible:false})); router.push('/job/form'); } });
             return;
         }
         if (isClockedIn) { processClockAction(); return; }
+        
         if (jobSettings?.work_schedule?.start && jobSettings?.work_schedule?.end) {
             const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
             const startMins = timeToMinutes(jobSettings.work_schedule.start);
@@ -462,9 +453,12 @@ export default function Home() {
         processClockAction(false);
     };
 
-    const handleAdd = () => { router.push('/reports/add-entry'); };
     const handleEdit = (t: any) => { router.push({ pathname: '/reports/add-entry', params: { id: t.id } }); };
     const handleDeleteTask = (t: any) => { setModernAlertConfig({ visible: true, type: 'warning', title: 'Delete Entry?', message: 'This will remove the entry from your history.', confirmText: 'Delete', cancelText: 'Cancel', onConfirm: async () => { setModernAlertConfig((prev: any) => ({ ...prev, visible: false })); setLoading(true); try { const db = await getDB(); await db.runAsync('DELETE FROM accomplishments WHERE id = ?', [t.id]); await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action) VALUES (?, ?, ?)', ['accomplishments', t.id, 'DELETE']); await loadData(); triggerSync(); setAlertMessage("Entry deleted"); setAlertType('success'); setAlertVisible(true); } catch (e) { console.log(e); } finally { setLoading(false); } }, onCancel: () => setModernAlertConfig((prev: any) => ({ ...prev, visible: false })) }); };
+
+    if (isInitialLoading) {
+        return <HomeSkeleton />;
+    }
 
     return (
         <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -476,41 +470,37 @@ export default function Home() {
 
             <DynamicDateHeader selectedDate={selectedDate} onSelectDate={(date) => setSelectedDate(date)} monthRecords={monthRecords} isClockedIn={isClockedIn} workedMinutes={workedMinutes} dailyGoal={dailyGoal} />
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24, paddingTop: 120 + insets.top, paddingBottom: 140 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} progressViewOffset={insets.top + 100} tintColor={theme.colors.primary} />}>
-                {isInitialLoading ? <HomeSkeleton /> : (
-                    <>
-                        <View style={{ alignItems: 'center', marginBottom: 40 }}>
-                            <DynamicBar 
-                                nameToDisplay={displayName}
-                                alertVisible={alertVisible}
-                                alertMessage={alertMessage}
-                                alertType={alertType}
-                                onHideAlert={handleHideAlert}
-                                customGreeting={isBreak ? "Happy Break Time" : null} 
-                            />
-                            <BiometricButton onSuccess={handleClockButtonPress} isClockedIn={isClockedIn} isLoading={loading} settings={appSettings} />
-                        </View>
-                        <View style={{ marginBottom: 24 }} collapsable={false}>
-                            {jobSettings ? <DailySummaryCard totalMinutes={workedMinutes} isClockedIn={isClockedIn} theme={theme} dailyGoal={dailyGoal} isOvertime={isSessionOvertime} startTime={latestRecord?.clock_in} /> : <JobSetupCard theme={theme} router={router} isOffline={isOfflineProfile} />}
-                        </View>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}><Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.5 }}>{activityTitle}</Text><TouchableOpacity disabled={!isClockedIn} onPress={() => router.push('/reports/add-entry')} style={{ backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background, borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><HugeiconsIcon icon={PlusSignIcon} size={20} color={isClockedIn ? theme.colors.primary : theme.colors.icon} /></TouchableOpacity></View>
-                        <View style={{ backgroundColor: theme.colors.card, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' }} collapsable={false}>
-                            <View style={{ padding: 20 }}>
-                                {timelineData.length === 0 ? <View style={{ alignItems: 'center', padding: 20, opacity: 0.5 }}><HugeiconsIcon icon={HourglassIcon} size={32} color={theme.colors.icon} /><Text style={{ color: theme.colors.textSecondary, marginTop: 8, fontSize: 12 }}>No activity yet.</Text></View> : (
-                                    <View style={{ borderLeftWidth: 2, borderLeftColor: theme.colors.border, marginLeft: 8, paddingLeft: 16 }}>
-                                        {timelineData.map((item: any) => (
-                                            <View key={`${item.type}-${item.id}`} style={{ marginBottom: 24 }}>
-                                                <View style={{ position: 'absolute', left: -32, top: '50%', marginTop: -16 }}>{item.type === 'check-in' ? <View style={{ backgroundColor: theme.colors.card, borderRadius: 16, padding: 4, borderWidth: 2, borderColor: theme.colors.success }}><HugeiconsIcon icon={Login03Icon} size={16} color={theme.colors.success} /></View> : item.type === 'check-out' ? <View style={{ backgroundColor: theme.colors.card, borderRadius: 16, padding: 4, borderWidth: 2, borderColor: theme.colors.warning }}><HugeiconsIcon icon={Logout03Icon} size={16} color={theme.colors.warning} /></View> : <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: theme.colors.card, borderWidth: 3, borderColor: theme.colors.primary, marginLeft: 10 }} />}</View>
-                                                {item.type === 'task' ? <View style={{ backgroundColor: theme.colors.background, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border }}><View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}><Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '700', opacity: 0.8 }}>{format(new Date(item.data.created_at), 'h:mm a')}</Text><View style={{ flexDirection: 'row', gap: 12 }}><TouchableOpacity onPress={() => handleEdit(item.data)} hitSlop={10}><HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.textSecondary} /></TouchableOpacity><TouchableOpacity onPress={() => handleDeleteTask(item.data)} hitSlop={10}><HugeiconsIcon icon={Delete02Icon} size={16} color="#ef4444" /></TouchableOpacity></View></View><Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: 14, marginBottom: 4 }}>{item.data.description}</Text>{item.data.remarks && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>{item.data.remarks}</Text>}{item.data.image_url && <ActivityImage uri={item.data.image_url} theme={theme} />}</View> : <View style={{ justifyContent: 'center', minHeight: 32 }}><View style={{ flexDirection: 'row', alignItems: 'center' }}><Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: 14, marginRight: 8 }}>{item.type === 'check-in' ? 'Checked In' : 'Checked Out'}
-                                                </Text>{item.isOvertime && <View style={{ backgroundColor: theme.colors.warning + '20', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: theme.colors.warning }}><Text style={{ fontSize: 10, fontWeight: '800', color: theme.colors.warning }}>OT</Text></View>}</View><Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{format(new Date(item.time), 'h:mm a')}</Text></View>}
-                                            </View>
-                                        ))}
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24, paddingTop: 120 + insets.top, paddingBottom: 140 }} refreshControl={<RefreshControl refreshing={refreshing || syncStatus === 'syncing'} onRefresh={onRefresh} progressViewOffset={insets.top + 100} tintColor={theme.colors.primary} />}>
+                <View style={{ alignItems: 'center', marginBottom: 40 }}>
+                    <DynamicBar 
+                        nameToDisplay={displayName}
+                        alertVisible={alertVisible}
+                        alertMessage={alertMessage}
+                        alertType={alertType}
+                        onHideAlert={handleHideAlert}
+                        customGreeting={isBreak ? "Happy Break Time" : null} 
+                    />
+                    <BiometricButton onSuccess={handleClockButtonPress} isClockedIn={isClockedIn} isLoading={loading} settings={appSettings} />
+                </View>
+                <View style={{ marginBottom: 24 }} collapsable={false}>
+                    {jobSettings ? <DailySummaryCard totalMinutes={workedMinutes} isClockedIn={isClockedIn} theme={theme} dailyGoal={dailyGoal} isOvertime={isSessionOvertime} startTime={latestRecord?.clock_in} /> : <JobSetupCard theme={theme} router={router} isOffline={false} />}
+                </View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}><Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.5 }}>{activityTitle}</Text><TouchableOpacity disabled={!isClockedIn} onPress={() => router.push('/reports/add-entry')} style={{ backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background, borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><HugeiconsIcon icon={PlusSignIcon} size={20} color={isClockedIn ? theme.colors.primary : theme.colors.icon} /></TouchableOpacity></View>
+                <View style={{ backgroundColor: theme.colors.card, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' }} collapsable={false}>
+                    <View style={{ padding: 20 }}>
+                        {timelineData.length === 0 ? <View style={{ alignItems: 'center', padding: 20, opacity: 0.5 }}><HugeiconsIcon icon={HourglassIcon} size={32} color={theme.colors.icon} /><Text style={{ color: theme.colors.textSecondary, marginTop: 8, fontSize: 12 }}>No activity yet.</Text></View> : (
+                            <View style={{ borderLeftWidth: 2, borderLeftColor: theme.colors.border, marginLeft: 8, paddingLeft: 16 }}>
+                                {timelineData.map((item: any) => (
+                                    <View key={`${item.type}-${item.id}`} style={{ marginBottom: 24 }}>
+                                        <View style={{ position: 'absolute', left: -32, top: '50%', marginTop: -16 }}>{item.type === 'check-in' ? <View style={{ backgroundColor: theme.colors.card, borderRadius: 16, padding: 4, borderWidth: 2, borderColor: theme.colors.success }}><HugeiconsIcon icon={Login03Icon} size={16} color={theme.colors.success} /></View> : item.type === 'check-out' ? <View style={{ backgroundColor: theme.colors.card, borderRadius: 16, padding: 4, borderWidth: 2, borderColor: theme.colors.warning }}><HugeiconsIcon icon={Logout03Icon} size={16} color={theme.colors.warning} /></View> : <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: theme.colors.card, borderWidth: 3, borderColor: theme.colors.primary, marginLeft: 10 }} />}</View>
+                                        {item.type === 'task' ? <View style={{ backgroundColor: theme.colors.background, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border }}><View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}><Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '700', opacity: 0.8 }}>{format(new Date(item.data.created_at), 'h:mm a')}</Text><View style={{ flexDirection: 'row', gap: 12 }}><TouchableOpacity onPress={() => handleEdit(item.data)} hitSlop={10}><HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.textSecondary} /></TouchableOpacity><TouchableOpacity onPress={() => handleDeleteTask(item.data)} hitSlop={10}><HugeiconsIcon icon={Delete02Icon} size={16} color="#ef4444" /></TouchableOpacity></View></View><Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: 14, marginBottom: 4 }}>{item.data.description}</Text>{item.data.remarks && <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>{item.data.remarks}</Text>}{item.data.image_url && <ActivityImage uri={item.data.image_url} theme={theme} />}</View> : <View style={{ justifyContent: 'center', minHeight: 32 }}><View style={{ flexDirection: 'row', alignItems: 'center' }}><Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: 14, marginRight: 8 }}>{item.type === 'check-in' ? 'Checked In' : 'Checked Out'}
+                                        </Text>{item.isOvertime && <View style={{ backgroundColor: theme.colors.warning + '20', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: theme.colors.warning }}><Text style={{ fontSize: 10, fontWeight: '800', color: theme.colors.warning }}>OT</Text></View>}</View><Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{format(new Date(item.time), 'h:mm a')}</Text></View>}
                                     </View>
-                                )}
+                                ))}
                             </View>
-                        </View>
-                    </>
-                )}
+                        )}
+                    </View>
+                </View>
             </ScrollView>
         </View>
     );

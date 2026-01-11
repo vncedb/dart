@@ -28,8 +28,9 @@ import ModernAlert from '../components/ModernAlert';
 import SearchableSelectionModal from '../components/SearchableSelectionModal';
 import { PROFESSIONAL_SUFFIXES, PROFESSIONAL_TITLES } from '../constants/profile-options';
 import { useAppTheme } from '../constants/theme';
+import { useSync } from '../context/SyncContext';
 import { supabase } from '../lib/supabase';
-// Import Database Helpers for Sync
+// Import Local Helpers
 import { queueSyncItem, saveProfileLocal } from '../lib/database';
 import { getDB } from '../lib/db-client';
 
@@ -69,6 +70,7 @@ const JobSelectionModal = ({ visible, onClose, onSelect, currentJobId, jobs, onA
 export default function EditProfileScreen() {
   const router = useRouter();
   const theme = useAppTheme();
+  const { triggerSync } = useSync();
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -98,47 +100,24 @@ export default function EditProfileScreen() {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
-        
         const db = await getDB();
         
         let profileData: any = null;
         let jobsData: any[] = [];
 
-        // --- STRATEGY: ONLINE FIRST ---
-        try {
-            // 1. Fetch Remote Profile
-            const { data: remoteProfile, error: profileError } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', user.id)
-                .single();
+        // Local First
+        profileData = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
+        const localJobs = await db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ?', [user.id]);
+        jobsData = localJobs as any[] || [];
 
-            if (!profileError && remoteProfile) {
-                profileData = remoteProfile;
-                await saveProfileLocal(remoteProfile); // Cache it
-            } else {
-                throw new Error("Remote Profile Fetch Failed");
-            }
-
-            // 2. Fetch Remote Jobs
-            const { data: remoteJobs } = await supabase
-                .from('job_positions')
-                .select('*')
-                .eq('user_id', user.id)
-                .order('created_at', { ascending: false });
-            
-            jobsData = remoteJobs || [];
-
-        } catch (networkError) {
-             console.log("Online load failed, falling back to offline...", networkError);
-             
-             // Fallback: Local
-             profileData = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
-             // Note: You would also need logic here to fetch local jobs if you are storing them locally (which you should be)
-             const { data: localJobs } = await supabase.from('job_positions').select('*').eq('user_id', user.id); 
-             jobsData = localJobs || [];
+        if (!profileData) {
+             const { data: remoteProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+             if (remoteProfile) {
+                 profileData = remoteProfile;
+                 await saveProfileLocal(remoteProfile); 
+             }
         }
-
+        
         setAvailableJobs(jobsData);
         
         let currentJobName = 'Select a Job';
@@ -189,18 +168,10 @@ export default function EditProfileScreen() {
         updated_at: new Date().toISOString(),
       };
 
-      // 1. SAVE LOCAL (AWAIT THIS)
       await saveProfileLocal(updates);
-
-      // 2. Queue Sync
       await queueSyncItem('profiles', user.id, 'UPDATE', updates);
+      triggerSync();
 
-      // 3. Fire and Forget Sync (Background)
-      supabase.from('profiles').upsert(updates).then(({ error }) => {
-          if (error) console.log("Background sync error (retry later):", error.message);
-      });
-
-      // 4. Instant Navigation
       router.back();
 
     } catch (error: any) {
@@ -208,6 +179,13 @@ export default function EditProfileScreen() {
       setSaving(false);
     } 
   };
+
+  const InputGroup = ({ label, value, onChange, required, theme }: any) => (
+    <View style={{ marginBottom: 20 }}>
+      <Text style={{ fontSize: 12, fontWeight: 'bold', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>{label} {required && <Text style={{ color: theme.colors.danger }}>*</Text>}</Text>
+      <TextInput value={value} onChangeText={onChange} style={{ padding: 16, fontSize: 16, fontWeight: 'bold', backgroundColor: theme.colors.card, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, color: theme.colors.text }} placeholderTextColor={theme.colors.textSecondary} placeholder={`Enter ${label}`} />
+    </View>
+  );
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
@@ -223,10 +201,8 @@ export default function EditProfileScreen() {
       {loading ? <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={theme.colors.primary} /></View> : (
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
             <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 40 }}>
-              
               <View style={{ marginBottom: 32 }}>
                 <Text style={{ fontSize: 13, fontWeight: 'bold', color: theme.colors.primary, textTransform: 'uppercase', marginBottom: 16, letterSpacing: 1 }}>Personal Information</Text>
-                
                 <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
                     <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 12, fontWeight: 'bold', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>Title</Text>
@@ -243,12 +219,10 @@ export default function EditProfileScreen() {
                         </TouchableOpacity>
                     </View>
                 </View>
-
                 <InputGroup theme={theme} label="First Name" required value={profile.first_name} onChange={(t: string) => setProfile({...profile, first_name: t})} />
                 <InputGroup theme={theme} label="Middle Name" value={profile.middle_name} onChange={(t: string) => setProfile({...profile, middle_name: t})} />
                 <InputGroup theme={theme} label="Last Name" required value={profile.last_name} onChange={(t: string) => setProfile({...profile, last_name: t})} />
               </View>
-
               <View style={{ marginBottom: 24 }}>
                 <Text style={{ fontSize: 13, fontWeight: 'bold', color: theme.colors.primary, textTransform: 'uppercase', marginBottom: 16, letterSpacing: 1 }}>Job Assignment</Text>
                 <View>
@@ -265,17 +239,9 @@ export default function EditProfileScreen() {
                     </TouchableOpacity>
                 </View>
               </View>
-
             </ScrollView>
           </KeyboardAvoidingView>
       )}
     </SafeAreaView>
   );
 }
-
-const InputGroup = ({ label, value, onChange, required, theme }: any) => (
-  <View style={{ marginBottom: 20 }}>
-    <Text style={{ fontSize: 12, fontWeight: 'bold', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>{label} {required && <Text style={{ color: theme.colors.danger }}>*</Text>}</Text>
-    <TextInput value={value} onChangeText={onChange} style={{ padding: 16, fontSize: 16, fontWeight: 'bold', backgroundColor: theme.colors.card, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, color: theme.colors.text }} placeholderTextColor={theme.colors.textSecondary} placeholder={`Enter ${label}`} />
-  </View>
-);
