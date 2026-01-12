@@ -15,6 +15,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import NetInfo from '@react-native-community/netinfo';
 import * as FileSystem from 'expo-file-system';
+import { downloadAsync, getInfoAsync, makeDirectoryAsync } from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -136,7 +137,6 @@ export default function ProfileScreen() {
     const [viewData, setViewData] = useState<{ profile: any; job: any }>({ profile: null, job: null });
     const [email, setEmail] = useState('');
     const [imageError, setImageError] = useState(false);
-    const [isAvatarLoading, setIsAvatarLoading] = useState(false);
     
     const [isUpdating, setIsUpdating] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState('Updating...');
@@ -144,14 +144,12 @@ export default function ProfileScreen() {
     const [avatarModalVisible, setAvatarModalVisible] = useState(false);
     const [visibleDetailKeys, setVisibleDetailKeys] = useState<string[]>(['employment_status', 'shift', 'rate', 'rate_type', 'payroll', 'breaks']);
 
+    // Force re-render of image when URL changes
     useEffect(() => {
-        if (viewData.profile?.avatar_url) {
+        if (viewData.profile?.avatar_url || viewData.profile?.local_avatar_path) {
             setImageError(false);
-            setIsAvatarLoading(true);
-        } else {
-            setIsAvatarLoading(false);
         }
-    }, [viewData.profile?.avatar_url]);
+    }, [viewData.profile?.avatar_url, viewData.profile?.local_avatar_path]);
 
     const loadData = useCallback(async (isRefresh = false) => {
         try {
@@ -161,6 +159,7 @@ export default function ProfileScreen() {
             setEmail(session.user.email || '');
             const db = await getDB();
 
+            // 1. OFFLINE FIRST: Load local data immediately
             const localProfile = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [userId]);
             let tempProfile = localProfile;
             let tempJob = null;
@@ -180,54 +179,63 @@ export default function ProfileScreen() {
                 }
             }
 
-            // 1. Show Local Data Immediately (Stale-while-revalidate)
             if (tempProfile) {
                 setViewData({ profile: tempProfile, job: tempJob });
             } else {
                 setIsLoading(true); 
             }
 
-            // 2. Fetch Remote Data (Always run this to update background)
-            const { data: remoteProfile } = await supabase.from('profiles').select('*').eq('id', userId).single();
-            if (remoteProfile) {
-                // START: OFFLINE IMAGE CACHING LOGIC
-                if (remoteProfile.avatar_url) {
-                    try {
-                        // Create unique filename based on URL hash or simplified name
-                        // We use the last part of the URL + user ID to ensure uniqueness and freshness check
-                        const fileName = `${userId}_${remoteProfile.avatar_url.split('/').pop()}`;
-                        const localUri = `${FileSystem.documentDirectory}${fileName}`;
-                        
-                        // Check if we already have this specific file
-                        const fileInfo = await FileSystem.getInfoAsync(localUri);
-                        
-                        if (!fileInfo.exists) {
-                            // Download and cache
-                            await FileSystem.downloadAsync(remoteProfile.avatar_url, localUri);
-                        }
-                        
-                        // Save the local path to the profile object
-                        remoteProfile.local_avatar_path = localUri;
-                    } catch (err) {
-                        console.log("Error caching avatar for offline use:", err);
-                        // Fallback: keep existing local path if download fails? 
-                        // For now we just don't update local_avatar_path if download fails
-                        if (tempProfile && (tempProfile as any).local_avatar_path) {
-                             remoteProfile.local_avatar_path = (tempProfile as any).local_avatar_path;
+            // 2. REMOTE FETCH: Update background & cache images
+            const state = await NetInfo.fetch();
+            if (state.isConnected) {
+                const { data: remoteProfile } = await supabase.from('profiles').select('*').eq('id', userId).single();
+                if (remoteProfile) {
+                    if (remoteProfile.avatar_url) {
+                        try {
+                            // FIX: Sanitize filename. Remove '?' query params and special chars
+                            const rawFileName = remoteProfile.avatar_url.split('/').pop();
+                            const cleanFileName = rawFileName ? rawFileName.split('?')[0].replace(/[^a-zA-Z0-9._-]/g, '_') : 'avatar.jpg';
+                            const fileName = `${userId}_${cleanFileName}`;
+
+                            // FIX: Robust Directory Check
+                            const rootDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
+                            
+                            if (rootDir) {
+                                const avatarDir = `${rootDir}avatars/`;
+                                // Ensure avatars folder exists
+                                const dirInfo = await getInfoAsync(avatarDir);
+                                if (!dirInfo.exists) {
+                                    await makeDirectoryAsync(avatarDir, { intermediates: true });
+                                }
+
+                                const localUri = `${avatarDir}${fileName}`;
+                                const fileInfo = await getInfoAsync(localUri);
+                                
+                                if (!fileInfo.exists) {
+                                    // Download fresh image
+                                    await downloadAsync(remoteProfile.avatar_url, localUri);
+                                }
+                                remoteProfile.local_avatar_path = localUri;
+                            }
+                        } catch (err) {
+                            console.log("Error caching avatar for offline use:", err);
+                            // Fallback to existing local path if download fails
+                            if (tempProfile && (tempProfile as any).local_avatar_path) {
+                                 remoteProfile.local_avatar_path = (tempProfile as any).local_avatar_path;
+                            }
                         }
                     }
-                }
-                // END: OFFLINE IMAGE CACHING LOGIC
 
-                await saveProfileLocal(remoteProfile);
-                
-                let remoteJob = null;
-                if (remoteProfile.current_job_id) {
-                    const { data: jobRes } = await supabase.from('job_positions').select('*').eq('id', remoteProfile.current_job_id).single();
-                    remoteJob = jobRes;
-                    if (remoteJob) await saveJobLocal(remoteJob);
+                    await saveProfileLocal(remoteProfile);
+                    
+                    let remoteJob = null;
+                    if (remoteProfile.current_job_id) {
+                        const { data: jobRes } = await supabase.from('job_positions').select('*').eq('id', remoteProfile.current_job_id).single();
+                        remoteJob = jobRes;
+                        if (remoteJob) await saveJobLocal(remoteJob);
+                    }
+                    setViewData({ profile: remoteProfile, job: remoteJob });
                 }
-                setViewData({ profile: remoteProfile, job: remoteJob });
             }
         } catch (e) { console.log("Error loading profile:", e); } 
         finally { 
@@ -289,8 +297,6 @@ export default function ProfileScreen() {
                  try {
                      const publicUrl = await uploadAvatar(updates.avatar_url, user.id);
                      finalUpdates.avatar_url = publicUrl;
-                     
-                     // We also update local path immediately since we have the file locally
                      finalUpdates.local_avatar_path = updates.avatar_url; 
                      
                      if (oldAvatarUrl && oldAvatarUrl !== publicUrl) deleteOldAvatar(oldAvatarUrl);
@@ -310,10 +316,6 @@ export default function ProfileScreen() {
             setViewData(prev => ({ ...prev, profile: updatedProfile }));
             
             await saveProfileLocal(updatedProfile);
-            // We don't sync 'local_avatar_path' to server, so we strip it if needed, 
-            // but sync_queue handles data blob. Be careful not to send local path to server if schema doesn't match.
-            // Assuming your sync worker extracts fields. If it sends raw JSON, ensure backend ignores unknown fields.
-            // For safety, let's strip it for the sync queue.
             const { local_avatar_path, ...syncData } = finalUpdates;
             await queueSyncItem('profiles', user.id, 'UPDATE', syncData);
             
@@ -352,7 +354,6 @@ export default function ProfileScreen() {
 
     const displayJobTitle = userProfile?.job_title || null; 
     
-    // Determine which source to use: Local file > Remote URL
     const avatarSource = userProfile?.local_avatar_path 
         ? { uri: userProfile.local_avatar_path } 
         : (userProfile?.avatar_url ? { uri: userProfile.avatar_url } : null);
@@ -399,23 +400,15 @@ export default function ProfileScreen() {
                                     {avatarSource && !imageError ? (
                                         <>
                                             <Image 
-                                                key={avatarSource.uri} // Force re-render if URI changes
+                                                key={avatarSource.uri} // Re-render when URI updates
                                                 source={avatarSource} 
                                                 style={styles.avatar} 
                                                 resizeMode="cover" 
-                                                onLoadStart={() => setIsAvatarLoading(true)}
-                                                onLoadEnd={() => setIsAvatarLoading(false)}
-                                                onError={() => {
-                                                    // If local fails, maybe retry or just show placeholder
+                                                onError={(e) => {
+                                                    console.log('Image Load Error', e.nativeEvent.error);
                                                     setImageError(true);
-                                                    setIsAvatarLoading(false);
                                                 }}
                                             />
-                                            {isAvatarLoading && (
-                                                <View style={[StyleSheet.absoluteFill, styles.avatarPlaceholder, { backgroundColor: theme.colors.card }]}>
-                                                    <ActivityIndicator size="small" color={theme.colors.primary} />
-                                                </View>
-                                            )}
                                         </>
                                     ) : (
                                         <View style={[StyleSheet.absoluteFill, styles.avatarPlaceholder, { backgroundColor: theme.colors.card }]}>

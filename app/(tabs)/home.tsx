@@ -12,7 +12,7 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { endOfMonth, format, isToday, startOfMonth } from 'date-fns';
+import { addMinutes, endOfMonth, format, isAfter, isToday, startOfMonth } from 'date-fns';
 import { useAudioPlayer } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -24,7 +24,6 @@ import {
     KeyboardAvoidingView,
     Modal,
     Platform,
-    Pressable,
     RefreshControl,
     ScrollView,
     StatusBar,
@@ -36,20 +35,18 @@ import {
 } from 'react-native';
 import Animated, {
     configureReanimatedLogger,
-    Easing,
     ReanimatedLogLevel,
-    useAnimatedProps,
     useAnimatedStyle,
     useSharedValue,
     withRepeat,
     withSequence,
-    withSpring,
     withTiming
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Circle, Defs, G, LinearGradient, Rect, Stop } from 'react-native-svg';
+import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import BiometricButton from '../../components/BiometricButton';
+import DailySummaryCard from '../../components/DailySummaryCard';
 import DynamicBar from '../../components/DynamicBar';
 import DynamicDateHeader from '../../components/DynamicDateHeader';
 import ModernAlert from '../../components/ModernAlert';
@@ -61,8 +58,6 @@ import { supabase } from '../../lib/supabase';
 import { registerForPushNotificationsAsync, setupNotificationCategories } from '../../utils/NotificationService';
 
 configureReanimatedLogger({ level: ReanimatedLogLevel.warn, strict: false });
-
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 // --- HELPER FUNCTIONS ---
 const timeToMinutes = (timeStr: string) => {
@@ -163,52 +158,6 @@ const HomeSkeleton = () => {
     );
 };
 
-const DailySummaryCard = ({ totalMinutes, isClockedIn, theme, dailyGoal = 8, isOvertime = false, startTime }: any) => {
-    const safeMinutes = Math.max(0, totalMinutes);
-    const h = Math.floor(safeMinutes / 60);
-    const m = Math.floor(safeMinutes % 60);
-    const goalMinutes = dailyGoal * 60;
-    const percentage = goalMinutes > 0 ? Math.min(safeMinutes / goalMinutes, 1) : 0;
-    const displayPercentage = Math.round(percentage * 100);
-    const progressValue = useSharedValue(0);
-    const scaleValue = useSharedValue(1);
-    
-    useEffect(() => { progressValue.value = withTiming(percentage, { duration: 1500, easing: Easing.out(Easing.cubic) }); }, [percentage]);
-    const handlePressIn = () => { scaleValue.value = withSpring(0.97); };
-    const handlePressOut = () => { scaleValue.value = withSpring(1); };
-    const activeColor = isOvertime ? '#EF4444' : isClockedIn ? '#10B981' : '#94A3B8';
-    const statusText = isOvertime ? 'OVERTIME' : isClockedIn ? 'ACTIVE' : 'CHECKED OUT';
-    const SIZE = 110; const RADIUS = 48; const STROKE_WIDTH = 8; const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-    const animatedCircleProps = useAnimatedProps(() => ({ strokeDashoffset: CIRCUMFERENCE * (1 - progressValue.value) }));
-    const animatedCardStyle = useAnimatedStyle(() => ({ transform: [{ scale: scaleValue.value }] }));
-
-    return (
-        <Pressable onPressIn={handlePressIn} onPressOut={handlePressOut}>
-            <Animated.View style={[styles.cardNew, animatedCardStyle, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                <View style={StyleSheet.absoluteFill}><Svg height="100%" width="100%"><Defs><LinearGradient id="meshGrad" x1="0" y1="0" x2="1" y2="1"><Stop offset="0" stopColor={theme.dark ? "#020617" : "#F8FAFC"} stopOpacity="1" /><Stop offset="1" stopColor={theme.dark ? "#1E293B" : "#F1F5F9"} stopOpacity="1" /></LinearGradient></Defs><Rect x="0" y="0" width="100%" height="100%" fill="url(#meshGrad)" /></Svg></View>
-                <View style={{ padding: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <View style={{ flex: 1, paddingRight: 16 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: isClockedIn ? `${activeColor}15` : theme.colors.border, borderWidth: 1, borderColor: isClockedIn ? activeColor : theme.colors.border }}>
-                                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: activeColor, marginRight: 6 }} /><Text style={{ color: activeColor, fontSize: 10, fontWeight: '800', letterSpacing: 0.5 }}>{statusText}</Text>
-                            </View>
-                        </View>
-                        <Text style={{ fontSize: 36, fontWeight: '900', color: theme.colors.text, fontVariant: ['tabular-nums'], letterSpacing: -1, lineHeight: 40 }}>{h}<Text style={{ fontSize: 18, color: theme.colors.textSecondary, fontWeight: '600' }}>h</Text> {m}<Text style={{ fontSize: 18, color: theme.colors.textSecondary, fontWeight: '600' }}>m</Text></Text>
-                        <View style={{ flexDirection: 'row', gap: 20, marginTop: 16 }}>
-                            <View><Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.textSecondary, opacity: 0.7 }}>CHECK-IN</Text><Text style={{ fontSize: 13, fontWeight: '700', color: theme.colors.text, marginTop: 2 }}>{isClockedIn && startTime ? format(new Date(startTime), 'h:mm a') : '--:--'}</Text></View>
-                            <View><Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.textSecondary, opacity: 0.7 }}>GOAL</Text><Text style={{ fontSize: 13, fontWeight: '700', color: theme.colors.text, marginTop: 2 }}>{dailyGoal}h</Text></View>
-                        </View>
-                    </View>
-                    <View style={{ width: SIZE, height: SIZE, alignItems: 'center', justifyContent: 'center' }}>
-                        <Svg width={SIZE} height={SIZE}><G rotation="-90" origin={`${SIZE/2}, ${SIZE/2}`}><Circle cx={SIZE/2} cy={SIZE/2} r={RADIUS} stroke={theme.dark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.05)"} strokeWidth={STROKE_WIDTH} fill="none" /><AnimatedCircle cx={SIZE/2} cy={SIZE/2} r={RADIUS} stroke={activeColor} strokeWidth={STROKE_WIDTH} fill="none" strokeDasharray={CIRCUMFERENCE} animatedProps={animatedCircleProps} strokeLinecap="round" /></G></Svg>
-                        <View style={StyleSheet.absoluteFillObject} className="items-center justify-center"><Text style={{ fontSize: 20, fontWeight: '800', color: theme.colors.text }}>{displayPercentage}<Text style={{ fontSize: 12 }}>%</Text></Text></View>
-                    </View>
-                </View>
-            </Animated.View>
-        </Pressable>
-    );
-};
-
 const OvertimeModal = ({ visible, onClose, onConfirm, theme }: any) => {
     const [hours, setHours] = useState('');
     return (
@@ -219,11 +168,11 @@ const OvertimeModal = ({ visible, onClose, onConfirm, theme }: any) => {
                         <HugeiconsIcon icon={Briefcase01Icon} size={32} color={theme.colors.warning} />
                     </View>
                     <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Overtime Detected</Text>
-                    <Text style={[styles.modalDesc, { color: theme.colors.textSecondary }]}>Starting a session outside your scheduled shift. Please specify the duration.</Text>
-                    <TextInput value={hours} onChangeText={setHours} placeholder="Hours" keyboardType="numeric" placeholderTextColor={theme.colors.textSecondary} textAlign="center" style={[styles.modalInput, { backgroundColor: theme.colors.background, color: theme.colors.text, borderColor: theme.colors.border }]} />
+                    <Text style={[styles.modalDesc, { color: theme.colors.textSecondary }]}>You are checking in outside your standard shift. Would you like to log this as Overtime?</Text>
+                    <TextInput value={hours} onChangeText={setHours} placeholder="Est. Duration (Optional)" keyboardType="numeric" placeholderTextColor={theme.colors.textSecondary} textAlign="center" style={[styles.modalInput, { backgroundColor: theme.colors.background, color: theme.colors.text, borderColor: theme.colors.border }]} />
                     <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
                         <TouchableOpacity onPress={onClose} style={[styles.modalButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}><Text style={{ color: theme.colors.text, fontWeight: '700' }}>Cancel</Text></TouchableOpacity>
-                        <TouchableOpacity onPress={() => { if(hours) onConfirm(parseFloat(hours)); }} style={[styles.modalButton, { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary }]}><Text style={{ color: '#fff', fontWeight: '800' }}>Start</Text></TouchableOpacity>
+                        <TouchableOpacity onPress={() => onConfirm(hours ? parseFloat(hours) : 0)} style={[styles.modalButton, { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary }]}><Text style={{ color: '#fff', fontWeight: '800' }}>Confirm</Text></TouchableOpacity>
                     </View>
                 </View>
             </KeyboardAvoidingView>
@@ -320,7 +269,43 @@ export default function Home() {
         return () => clearInterval(timer);
     }, [todaysRecords, jobSettings]);
 
-    // LOAD DATA: UseCallback fixed, Loads Local First
+    // --- AUTO CHECKOUT LOGIC ---
+    const checkAutoCheckout = async (currentJob: any, lastRecord: any) => {
+        if (!lastRecord || lastRecord.status !== 'pending' || !currentJob?.work_schedule?.end) return;
+    
+        const now = new Date();
+        const [endH, endM] = currentJob.work_schedule.end.split(':').map(Number);
+        const shiftEnd = new Date();
+        shiftEnd.setHours(endH, endM, 0, 0);
+    
+        // If current time is more than 30 mins past shift end, auto checkout
+        // Using 30 mins buffer to allow for slight late checkouts without triggering "Auto"
+        if (isAfter(now, addMinutes(shiftEnd, 30)) && isToday(new Date(lastRecord.clock_in))) {
+            const db = await getDB();
+            const endIso = shiftEnd.toISOString();
+            
+            await db.runAsync('UPDATE attendance SET clock_out = ?, status = ?, remarks = ? WHERE id = ?', 
+                [endIso, 'completed', 'Auto-checkout: Shift End', lastRecord.id]
+            );
+            
+            await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', 
+                ['attendance', lastRecord.id, 'UPDATE', JSON.stringify({ clock_out: endIso, status: 'completed', remarks: 'Auto-checkout: Shift End' })]
+            );
+            
+            setModernAlertConfig({
+                visible: true,
+                type: 'info',
+                title: 'Auto Checked Out',
+                message: `You were automatically checked out at ${format(shiftEnd, 'h:mm a')} because your shift ended.`,
+                confirmText: 'Okay',
+                onConfirm: () => setModernAlertConfig((prev:any) => ({...prev, visible: false}))
+            });
+            
+            await loadData();
+            triggerSync();
+        }
+    };
+
     const loadData = useCallback(async () => {
         try {
             const { data: { session } } = await supabase.auth.getSession();
@@ -358,6 +343,11 @@ export default function Home() {
                     };
                     setJobSettings(parsedJob);
                     setDailyGoal(calculateDailyGoal(parsedJob));
+                    
+                    // Run Auto-Checkout Check
+                    if (attendance && (attendance as any[]).length > 0) {
+                         checkAutoCheckout(parsedJob, (attendance as any[])[0]);
+                    }
                  }
             }
 
@@ -412,11 +402,10 @@ export default function Home() {
             } else {
                 const now = new Date();
                 let remarks = null;
-                if (isOvertime && duration > 0) {
-                    const expectedEnd = new Date(now.getTime() + duration * 60 * 60 * 1000);
-                    remarks = `Overtime: ${duration} hrs`;
-                    await AsyncStorage.setItem('active_ot_end', expectedEnd.toISOString());
-                } else { await AsyncStorage.removeItem('active_ot_end'); }
+                if (isOvertime) {
+                    remarks = duration > 0 ? `Overtime: ${duration} hrs` : 'Overtime';
+                    // Optional: Set a local notification or reminder for OT end if duration is set
+                }
                 const newId = generateUUID();
                 const record = { id: newId, user_id: user.id, clock_in: now.toISOString(), date: getLocalDate(), status: 'pending', remarks };
                 
@@ -440,16 +429,26 @@ export default function Home() {
             setModernAlertConfig({ visible: true, type: 'warning', title: 'No Job Found', message: 'Please set up your job details first.', confirmText: 'Add Job', onConfirm: () => { setModernAlertConfig((prev:any)=>({...prev, visible:false})); router.push('/job/form'); } });
             return;
         }
-        if (isClockedIn) { processClockAction(); return; }
         
-        if (jobSettings?.work_schedule?.start && jobSettings?.work_schedule?.end) {
-            const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
-            const startMins = timeToMinutes(jobSettings.work_schedule.start);
-            const endMins = timeToMinutes(jobSettings.work_schedule.end);
-            const isDayShift = startMins < endMins;
-            const isInside = isDayShift ? (nowMins >= startMins - 30 && nowMins <= endMins) : (nowMins >= startMins - 30 || nowMins <= endMins);
-            if (!isInside) { setOtModalVisible(true); return; }
+        // --- OVERTIME CHECK-IN LOGIC ---
+        if (!isClockedIn) {
+            if (jobSettings?.work_schedule?.start && jobSettings?.work_schedule?.end) {
+                const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
+                const startMins = timeToMinutes(jobSettings.work_schedule.start);
+                const endMins = timeToMinutes(jobSettings.work_schedule.end);
+                
+                // Buffer (30 mins): Allow early clock-in 30 mins before start
+                const isEarly = nowMins < (startMins - 30);
+                const isLate = nowMins > endMins;
+                
+                // If it's outside normal hours, prompt for Overtime
+                if (isEarly || isLate) {
+                    setOtModalVisible(true);
+                    return;
+                }
+            }
         }
+        
         processClockAction(false);
     };
 
@@ -507,7 +506,6 @@ export default function Home() {
 }
 
 const styles = StyleSheet.create({
-    cardNew: { borderRadius: 24, marginBottom: 32, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 6, overflow: 'hidden', position: 'relative', height: 200, borderWidth: 1 },
     modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 },
     modalContent: { width: '100%', borderRadius: 28, padding: 24, alignItems: 'center', borderWidth: 1 },
     modalIcon: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },

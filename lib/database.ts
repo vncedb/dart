@@ -10,27 +10,34 @@ export const initDatabase = async () => {
     -- OFFLINE TABLES
     CREATE TABLE IF NOT EXISTS attendance (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL, date TEXT NOT NULL, clock_in TEXT NOT NULL, clock_out TEXT, status TEXT, remarks TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS accomplishments (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL, date TEXT NOT NULL, description TEXT NOT NULL, remarks TEXT, image_url TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
-    CREATE TABLE IF NOT EXISTS sync_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, table_name TEXT NOT NULL, row_id TEXT, action TEXT NOT NULL, data TEXT, status TEXT DEFAULT 'PENDING', created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+    
+    -- Sync queue with retry_count for robustness
+    CREATE TABLE IF NOT EXISTS sync_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, table_name TEXT NOT NULL, row_id TEXT, action TEXT NOT NULL, data TEXT, status TEXT DEFAULT 'PENDING', retry_count INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+    
     CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT);
 
     -- CACHE TABLES
-    -- FIX: Ensure avatar_url is in the schema
     CREATE TABLE IF NOT EXISTS profiles (id TEXT PRIMARY KEY NOT NULL, email TEXT, first_name TEXT, last_name TEXT, middle_name TEXT, title TEXT, professional_suffix TEXT, current_job_id TEXT, full_name TEXT, avatar_url TEXT, local_avatar_path TEXT, updated_at TEXT);
     CREATE TABLE IF NOT EXISTS job_positions (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, title TEXT, company TEXT, department TEXT, employment_status TEXT, rate REAL, rate_type TEXT, work_schedule TEXT, break_schedule TEXT, created_at TEXT, updated_at TEXT);
+    
+    -- INDICES FOR PERFORMANCE
+    CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance(user_id, date);
+    CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);
   `);
 
   // --- MIGRATIONS ---
-  // This safeguards existing users. It adds the columns if they are missing.
   const addColumn = async (table: string, col: string, type: string) => {
     try { await database.execAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${type};`); } 
     catch (e: any) { if (!e.message?.includes('duplicate column')) console.log(`Migration Note (${table}.${col}):`, e.message); }
   };
   
+  // FIX: Explicitly add retry_count to sync_queue for existing databases
+  await addColumn('sync_queue', 'retry_count', 'INTEGER DEFAULT 0');
+
   await addColumn('profiles', 'middle_name', 'TEXT');
   await addColumn('profiles', 'professional_suffix', 'TEXT');
   await addColumn('profiles', 'full_name', 'TEXT'); 
   await addColumn('profiles', 'avatar_url', 'TEXT');
-  // NEW: Add local path column for offline image caching
   await addColumn('profiles', 'local_avatar_path', 'TEXT');
 
   await addColumn('job_positions', 'company', 'TEXT');
@@ -54,8 +61,9 @@ export const queueSyncItem = async (tableName: string, rowId: string, action: st
   const db = await getDB();
   if (!rowId) return;
   try {
+    // We now rely on the default value (0) for retry_count if not provided, or explicit update
     await db.runAsync(
-      `INSERT INTO sync_queue (table_name, row_id, action, data, status) VALUES (?, ?, ?, ?, 'PENDING')`,
+      `INSERT INTO sync_queue (table_name, row_id, action, data, status, retry_count) VALUES (?, ?, ?, ?, 'PENDING', 0)`,
       [tableName, rowId, action, data ? JSON.stringify(data) : null]
     );
   } catch (error) {
@@ -63,11 +71,16 @@ export const queueSyncItem = async (tableName: string, rowId: string, action: st
   }
 };
 
+export const getPendingSyncCount = async () => {
+    const db = await getDB();
+    const res: any = await db.getFirstAsync('SELECT COUNT(*) as count FROM sync_queue WHERE status = "PENDING"');
+    return res?.count || 0;
+};
+
 // --- LOCAL DATA FUNCTIONS ---
 
 export const saveProfileLocal = async (profile: any) => {
     const db = await getDB();
-    
     await db.runAsync(
         `INSERT OR REPLACE INTO profiles (
             id, email, first_name, last_name, middle_name, title, professional_suffix, current_job_id, full_name, avatar_url, local_avatar_path, updated_at
@@ -83,7 +96,7 @@ export const saveProfileLocal = async (profile: any) => {
             profile.current_job_id, 
             profile.full_name || '',
             profile.avatar_url || null,
-            profile.local_avatar_path || null, // SAVING LOCAL PATH
+            profile.local_avatar_path || null, 
             profile.updated_at || new Date().toISOString()
         ]
     );

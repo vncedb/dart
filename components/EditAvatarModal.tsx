@@ -4,22 +4,30 @@ import {
     Delete02Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import {
-    Animated,
-    Dimensions,
-    Easing,
     Modal,
     Platform,
-    Pressable,
     StyleSheet,
     Text,
     TouchableOpacity,
     View
 } from 'react-native';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, {
+    Easing,
+    FadeIn,
+    FadeOut,
+    runOnJS,
+    SlideInDown,
+    SlideOutDown,
+    useAnimatedStyle,
+    useSharedValue,
+    withTiming
+} from 'react-native-reanimated';
 import { useAppTheme } from '../constants/theme';
-
-const { height } = Dimensions.get('window');
+import Button from './Button';
+import ListButton from './ListButton';
 
 interface EditAvatarModalProps {
     visible: boolean;
@@ -35,91 +43,103 @@ export default function EditAvatarModal({
     onRemoveImage
 }: EditAvatarModalProps) {
     const theme = useAppTheme();
-    const fadeAnim = useRef(new Animated.Value(0)).current;
-    const slideAnim = useRef(new Animated.Value(height)).current;
+    const translateY = useSharedValue(0);
 
     useEffect(() => {
-        if (visible) {
-            Animated.parallel([
-                Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
-                Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 90 })
-            ]).start();
-        } else {
-            fadeAnim.setValue(0);
-            slideAnim.setValue(height);
-        }
+        if (visible) translateY.value = 0;
     }, [visible]);
 
-    const closeModal = (callback?: () => void) => {
-        Animated.parallel([
-            Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-            Animated.timing(slideAnim, { 
-                toValue: height, 
-                duration: 250, 
-                easing: Easing.out(Easing.cubic), 
-                useNativeDriver: true 
-            })
-        ]).start(() => {
-            if (callback) callback();
-            onClose();
-        });
+    const close = () => {
+        onClose();
     };
+
+    // Drag-to-dismiss gesture
+    const pan = Gesture.Pan()
+        .onChange((event) => {
+            if (event.translationY > 0) {
+                translateY.value = event.translationY;
+            }
+        })
+        .onEnd((event) => {
+            if (event.translationY > 100 || event.velocityY > 500) {
+                runOnJS(close)();
+            } else {
+                translateY.value = withTiming(0, { duration: 300, easing: Easing.out(Easing.quad) });
+            }
+        });
+
+    const animatedSheetStyle = useAnimatedStyle(() => ({
+        transform: [{ translateY: translateY.value }]
+    }));
 
     if (!visible) return null;
 
     return (
-        <Modal visible={true} transparent animationType="none" onRequestClose={() => closeModal()}>
-            <View style={styles.overlay}>
-                <Animated.View style={[styles.backdrop, { opacity: fadeAnim }]}>
-                    <Pressable style={StyleSheet.absoluteFill} onPress={() => closeModal()} />
+        <Modal transparent visible={visible} onRequestClose={close} animationType="none" statusBarTranslucent>
+            <GestureHandlerRootView style={styles.overlay}>
+                {/* Backdrop Fade */}
+                <Animated.View 
+                    entering={FadeIn.duration(300)} 
+                    exiting={FadeOut.duration(300)} 
+                    style={styles.backdrop}
+                >
+                    <TouchableOpacity style={StyleSheet.absoluteFill} onPress={close} activeOpacity={1} />
                 </Animated.View>
 
-                <Animated.View style={[styles.modalContainerWrapper, { transform: [{ translateY: slideAnim }] }]}>
-                    <View style={[styles.modalContainer, { backgroundColor: theme.colors.card }]}>
-                        <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-                            <View>
-                                <Text style={[styles.title, { color: theme.colors.text }]}>Profile Picture</Text>
-                                <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
-                                    Update your photo or remove it
-                                </Text>
+                {/* Draggable Sheet - Simple Slide Up */}
+                <GestureDetector gesture={pan}>
+                    <Animated.View 
+                        entering={SlideInDown.duration(400).easing(Easing.out(Easing.quad))} 
+                        exiting={SlideOutDown.duration(300)}
+                        style={[styles.modalContainerWrapper]}
+                    >
+                        <Animated.View style={[
+                            styles.modalContainer, 
+                            { backgroundColor: theme.colors.card },
+                            animatedSheetStyle
+                        ]}>
+                            <View style={styles.header}>
+                                <View>
+                                    <Text style={[styles.title, { color: theme.colors.text }]}>Edit Profile Picture</Text>
+                                    <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Change your look</Text>
+                                </View>
+                                <TouchableOpacity 
+                                    onPress={close} 
+                                    style={[styles.closeBtn, { backgroundColor: theme.colors.background }]}
+                                >
+                                    <HugeiconsIcon icon={Cancel01Icon} size={20} color={theme.colors.text} />
+                                </TouchableOpacity>
                             </View>
-                            <TouchableOpacity onPress={() => closeModal()} style={[styles.closeBtn, { backgroundColor: theme.colors.background }]}>
-                                <HugeiconsIcon icon={Cancel01Icon} size={18} color={theme.colors.text} />
-                            </TouchableOpacity>
-                        </View>
 
-                        <View style={styles.content}>
-                            <TouchableOpacity 
-                                onPress={() => closeModal(onPickImage)} 
-                                style={[styles.actionButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
-                                activeOpacity={0.7}
-                            >
-                                <View style={[styles.iconBox, { backgroundColor: theme.colors.primary + '15' }]}>
-                                    <HugeiconsIcon icon={Camera01Icon} size={22} color={theme.colors.primary} />
-                                </View>
-                                <View>
-                                    <Text style={[styles.actionTitle, { color: theme.colors.text }]}>Upload New Photo</Text>
-                                    <Text style={[styles.actionDesc, { color: theme.colors.textSecondary }]}>Select from gallery</Text>
-                                </View>
-                            </TouchableOpacity>
+                            <View style={styles.content}>
+                                <ListButton 
+                                    title="Choose from Library"
+                                    subtitle="Select a photo from your gallery"
+                                    icon={Camera01Icon}
+                                    onPress={onPickImage}
+                                />
+                                
+                                <ListButton 
+                                    title="Remove Current Photo"
+                                    subtitle="Revert to default avatar"
+                                    icon={Delete02Icon}
+                                    iconColor="#ef4444"
+                                    onPress={onRemoveImage}
+                                />
 
-                            <TouchableOpacity 
-                                onPress={() => closeModal(onRemoveImage)} 
-                                style={[styles.actionButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
-                                activeOpacity={0.7}
-                            >
-                                <View style={[styles.iconBox, { backgroundColor: theme.colors.danger + '15' }]}>
-                                    <HugeiconsIcon icon={Delete02Icon} size={22} color={theme.colors.danger} />
+                                <View style={{ marginTop: 8 }}>
+                                    <Button 
+                                        title="Cancel" 
+                                        variant="secondary" 
+                                        onPress={close} 
+                                        fullWidth
+                                    />
                                 </View>
-                                <View>
-                                    <Text style={[styles.actionTitle, { color: theme.colors.danger }]}>Remove Current Photo</Text>
-                                    <Text style={[styles.actionDesc, { color: theme.colors.textSecondary }]}>Use default initials</Text>
-                                </View>
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-                </Animated.View>
-            </View>
+                            </View>
+                        </Animated.View>
+                    </Animated.View>
+                </GestureDetector>
+            </GestureHandlerRootView>
         </Modal>
     );
 }
@@ -146,13 +166,10 @@ const styles = StyleSheet.create({
         paddingHorizontal: 24,
         paddingVertical: 20,
         borderBottomWidth: 1,
+        borderBottomColor: 'rgba(0,0,0,0.05)'
     },
     title: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
     subtitle: { fontSize: 13, fontWeight: '500', marginTop: 2 },
     closeBtn: { padding: 8, borderRadius: 50 },
-    content: { padding: 24, gap: 12 },
-    actionButton: { flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 16, borderWidth: 1 },
-    iconBox: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 16 },
-    actionTitle: { fontSize: 15, fontWeight: '700', marginBottom: 2 },
-    actionDesc: { fontSize: 12, fontWeight: '500' }
+    content: { padding: 24, paddingTop: 16 },
 });

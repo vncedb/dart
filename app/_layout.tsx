@@ -122,12 +122,12 @@ function RootLayoutNav() {
 
           {/* Job */}
           <Stack.Screen name="job/job" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="job/form" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
+          <Stack.Screen name="job/form" options={{ animation: 'slide_from_right', presentation: 'modal' }} />
           
           {/* Reports */}
-          <Stack.Screen name="reports/details" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
+          <Stack.Screen name="reports/details" options={{ animation: 'slide_from_right', presentation: 'modal' }} />
           <Stack.Screen name="reports/history" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="reports/print" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
+          <Stack.Screen name="reports/print" options={{ animation: 'slide_from_right', presentation: 'modal' }} />
         </Stack>
 
         {!isAppReady && (

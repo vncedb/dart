@@ -5,14 +5,10 @@ import {
   Tick02Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  Animated,
-  Dimensions,
-  Easing,
   Modal,
   Platform,
-  Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -22,267 +18,257 @@ import DraggableFlatList, {
   RenderItemParams,
   ScaleDecorator
 } from 'react-native-draggable-flatlist';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, {
+  Easing,
+  FadeIn,
+  FadeOut,
+  runOnJS,
+  SlideInDown,
+  SlideOutDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming
+} from 'react-native-reanimated';
 import { useAppTheme } from '../constants/theme';
-
-const { height } = Dimensions.get('window');
+import Button from './Button';
 
 export const AVAILABLE_JOB_FIELDS = [
-  { key: 'employment_status', label: 'Employment Status' },
-  { key: 'shift', label: 'Shift Schedule' },
-  { key: 'rate', label: 'Pay Rate' },
-  { key: 'rate_type', label: 'Pay Type' },
-  { key: 'payroll', label: 'Payroll Schedule' },
-  { key: 'breaks', label: 'Unpaid Breaks' },
+    { key: 'employment_status', label: 'Employment Status' },
+    { key: 'shift', label: 'Shift Schedule' },
+    { key: 'rate', label: 'Pay Rate' },
+    { key: 'rate_type', label: 'Pay Type' },
+    { key: 'payroll', label: 'Payroll Schedule' },
+    { key: 'breaks', label: 'Unpaid Breaks' },
 ];
 
 interface JobField {
-  key: string;
-  label: string;
-  isActive: boolean;
+    key: string;
+    label: string;
+    isActive: boolean;
 }
 
 interface EditDisplayModalProps {
-  visible: boolean;
-  onClose: () => void;
-  selectedKeys: string[];
-  onSave: (keys: string[]) => void;
+    visible: boolean;
+    onClose: () => void;
+    selectedKeys: string[];
+    onSave: (keys: string[]) => void;
 }
 
 export default function EditDisplayModal({
-  visible,
-  onClose,
-  selectedKeys,
-  onSave,
+    visible,
+    onClose,
+    selectedKeys,
+    onSave
 }: EditDisplayModalProps) {
-  const theme = useAppTheme();
-  const [data, setData] = useState<JobField[]>([]);
-  
-  // Animations
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(height)).current; 
+    const theme = useAppTheme();
+    const [items, setItems] = useState<JobField[]>([]);
+    const translateY = useSharedValue(0);
 
-  useEffect(() => {
-    if (visible) {
-      const selectedSet = new Set(selectedKeys);
-      const activeItems = selectedKeys
-        .map(key => AVAILABLE_JOB_FIELDS.find(f => f.key === key))
-        .filter(Boolean)
-        .map(item => ({ ...item!, isActive: true }));
-      const inactiveItems = AVAILABLE_JOB_FIELDS
-        .filter(item => !selectedSet.has(item.key))
-        .map(item => ({ ...item, isActive: false }));
-      setData([...activeItems, ...inactiveItems]);
+    useEffect(() => {
+        if (visible) {
+            translateY.value = 0;
+            const activeItems = selectedKeys
+                .map(key => AVAILABLE_JOB_FIELDS.find(f => f.key === key))
+                .filter(Boolean)
+                .map(f => ({ ...f!, isActive: true }));
 
-      // Enter Animation
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.spring(slideAnim, {
-          toValue: 0,
-          useNativeDriver: true,
-          damping: 20,
-          stiffness: 90,
+            const inactiveItems = AVAILABLE_JOB_FIELDS
+                .filter(f => !selectedKeys.includes(f.key))
+                .map(f => ({ ...f, isActive: false }));
+
+            setItems([...activeItems, ...inactiveItems]);
+        }
+    }, [visible, selectedKeys]);
+
+    const toggleItem = (key: string) => {
+        setItems(prev => prev.map(item =>
+            item.key === key ? { ...item, isActive: !item.isActive } : item
+        ));
+    };
+
+    const handleSave = () => {
+        const activeKeys = items.filter(i => i.isActive).map(i => i.key);
+        onSave(activeKeys);
+        onClose();
+    };
+
+    const close = () => {
+        onClose();
+    };
+
+    const pan = Gesture.Pan()
+        .onChange((event) => {
+            if (event.translationY > 0) {
+                translateY.value = event.translationY;
+            }
         })
-      ]).start();
-    } else {
-        // Reset when invisible
-        fadeAnim.setValue(0);
-        slideAnim.setValue(height);
-    }
-  }, [visible, selectedKeys]);
+        .onEnd((event) => {
+            if (event.translationY > 100 || event.velocityY > 500) {
+                runOnJS(close)();
+            } else {
+                translateY.value = withTiming(0, { duration: 300, easing: Easing.out(Easing.quad) });
+            }
+        });
 
-  const closeModal = (callback?: () => void) => {
-    // Smooth Exit Animation
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideAnim, {
-        toValue: height,
-        duration: 250,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      })
-    ]).start(() => {
-      if (callback) callback();
-      onClose();
-    });
-  };
+    const animatedSheetStyle = useAnimatedStyle(() => ({
+        transform: [{ translateY: translateY.value }]
+    }));
 
-  const toggleItem = (key: string) => {
-    setData(prev => prev.map(item => 
-      item.key === key ? { ...item, isActive: !item.isActive } : item
-    ));
-  };
+    const renderItem = ({ item, drag, isActive }: RenderItemParams<JobField>) => {
+        return (
+            <ScaleDecorator>
+                <TouchableOpacity
+                    onPress={() => toggleItem(item.key)}
+                    onLongPress={drag}
+                    disabled={isActive}
+                    activeOpacity={0.7}
+                    style={[
+                        styles.itemRow,
+                        {
+                            backgroundColor: item.isActive ? theme.colors.primary + '10' : theme.colors.background,
+                            borderColor: item.isActive ? theme.colors.primary : theme.colors.border,
+                            marginBottom: 10,
+                            borderWidth: 1,
+                        }
+                    ]}
+                >
+                    <TouchableOpacity onPressIn={drag} style={styles.dragHandle}>
+                        <HugeiconsIcon icon={Menu01Icon} size={20} color={theme.colors.textSecondary} />
+                    </TouchableOpacity>
 
-  const handleSave = () => {
-    const newOrder = data
-      .filter(item => item.isActive)
-      .map(item => item.key);
-    
-    // Animate out THEN save to prevent visual jump
-    closeModal(() => onSave(newOrder));
-  };
+                    <View style={styles.contentContainer}>
+                        <Text style={[
+                            styles.itemLabel,
+                            { color: item.isActive ? theme.colors.primary : theme.colors.text }
+                        ]}>
+                            {item.label}
+                        </Text>
 
-  const renderItem = useCallback(({ item, drag, isActive }: RenderItemParams<JobField>) => {
+                        <HugeiconsIcon
+                            icon={item.isActive ? CheckmarkCircle02Icon : Tick02Icon}
+                            size={22}
+                            color={item.isActive ? theme.colors.primary : theme.colors.border}
+                            variant={item.isActive ? 'solid' : 'stroke'}
+                        />
+                    </View>
+                </TouchableOpacity>
+            </ScaleDecorator>
+        );
+    };
+
+    if (!visible) return null;
+
     return (
-      <ScaleDecorator activeScale={1.02}>
-        <View style={{ paddingHorizontal: 24, marginBottom: 10 }}>
-          <View
-            style={[
-              styles.itemRow,
-              { 
-                backgroundColor: isActive ? theme.colors.card : theme.colors.background,
-                borderColor: isActive ? theme.colors.primary : theme.colors.border,
-                borderWidth: 1,
-                elevation: isActive ? 4 : 0,
-                shadowColor: "#000",
-                shadowOpacity: isActive ? 0.1 : 0,
-                shadowRadius: 8,
-                shadowOffset: { width: 0, height: 4 },
-              }
-            ]}
-          >
-            <TouchableOpacity
-              onPressIn={drag}
-              hitSlop={{ top: 15, bottom: 15, left: 20, right: 20 }}
-              style={styles.dragHandle}
-            >
-              <HugeiconsIcon icon={Menu01Icon} size={20} color={theme.colors.textSecondary} />
-            </TouchableOpacity>
+        <Modal transparent visible={visible} onRequestClose={close} animationType="none" statusBarTranslucent>
+            <GestureHandlerRootView style={styles.overlay}>
+                <Animated.View
+                    entering={FadeIn.duration(300)}
+                    exiting={FadeOut.duration(300)}
+                    style={styles.backdrop}
+                >
+                    <TouchableOpacity style={StyleSheet.absoluteFill} onPress={close} activeOpacity={1} />
+                </Animated.View>
 
-            <TouchableOpacity 
-              style={styles.contentContainer}
-              onPress={() => toggleItem(item.key)}
-              activeOpacity={0.8}
-            >
-              <Text style={[
-                styles.itemLabel, 
-                { 
-                  color: theme.colors.text,
-                  opacity: item.isActive ? 1 : 0.5,
-                  fontWeight: item.isActive ? '600' : '500'
-                }
-              ]}>
-                {item.label}
-              </Text>
+                {/* Simple Slide Up Animation */}
+                <Animated.View
+                    entering={SlideInDown.duration(400).easing(Easing.out(Easing.quad))}
+                    exiting={SlideOutDown.duration(300)}
+                    style={styles.modalContainerWrapper}
+                >
+                    <Animated.View style={[
+                        styles.modalContainer,
+                        { backgroundColor: theme.colors.card },
+                        animatedSheetStyle
+                    ]}>
+                        <GestureDetector gesture={pan}>
+                            <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
+                                <View>
+                                    <Text style={[styles.title, { color: theme.colors.text }]}>Customize Job Card</Text>
+                                    <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Drag to reorder • Tap to toggle</Text>
+                                </View>
+                                <TouchableOpacity
+                                    onPress={close}
+                                    style={[styles.closeBtn, { backgroundColor: theme.colors.background }]}
+                                >
+                                    <HugeiconsIcon icon={Cancel01Icon} size={20} color={theme.colors.text} />
+                                </TouchableOpacity>
+                            </View>
+                        </GestureDetector>
 
-              <View style={[
-                styles.checkBox, 
-                { 
-                  borderColor: item.isActive ? theme.colors.primary : theme.colors.border,
-                  backgroundColor: item.isActive ? theme.colors.primary : 'transparent'
-                }
-              ]}>
-                {item.isActive && (
-                  <HugeiconsIcon icon={Tick02Icon} size={12} color="#FFF" strokeWidth={4} />
-                )}
-              </View>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </ScaleDecorator>
+                        <View style={{ flex: 1, paddingHorizontal: 24, paddingTop: 16 }}>
+                            <DraggableFlatList
+                                data={items}
+                                onDragEnd={({ data }) => setItems(data)}
+                                keyExtractor={(item) => item.key}
+                                renderItem={renderItem}
+                                showsVerticalScrollIndicator={false}
+                                contentContainerStyle={{ paddingBottom: 100 }}
+                            />
+                        </View>
+
+                        <View style={[
+                            styles.footer,
+                            { backgroundColor: theme.colors.card, borderTopColor: theme.colors.border }
+                        ]}>
+                            <Button 
+                                title="Save Changes" 
+                                variant="primary" 
+                                size="lg" 
+                                onPress={handleSave} 
+                                fullWidth
+                            />
+                        </View>
+                    </Animated.View>
+                </Animated.View>
+            </GestureHandlerRootView>
+        </Modal>
     );
-  }, [theme, data]);
-
-  // Don't render if not visible (helps with animation reset)
-  if (!visible) return null;
-
-  return (
-    <Modal visible={true} transparent animationType="none" onRequestClose={() => closeModal()}>
-      <GestureHandlerRootView style={styles.overlay}>
-        <Animated.View style={[styles.backdrop, { opacity: fadeAnim }]}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => closeModal()} />
-        </Animated.View>
-        
-        <Animated.View 
-          style={[
-            styles.modalContainerWrapper, 
-            { transform: [{ translateY: slideAnim }] }
-          ]}
-        >
-          <View style={[styles.modalContainer, { backgroundColor: theme.colors.card }]}>
-            <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-              <View>
-                <Text style={[styles.title, { color: theme.colors.text }]}>Customize Details</Text>
-                <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Drag handle to reorder</Text>
-              </View>
-              <TouchableOpacity onPress={() => closeModal()} style={[styles.closeBtn, { backgroundColor: theme.colors.background }]}>
-                <HugeiconsIcon icon={Cancel01Icon} size={18} color={theme.colors.text} />
-              </TouchableOpacity>
-            </View>
-
-            <DraggableFlatList
-              data={data}
-              onDragEnd={({ data }) => setData(data)}
-              keyExtractor={(item) => item.key}
-              renderItem={renderItem}
-              containerStyle={{ flex: 1 }} 
-              contentContainerStyle={{ paddingVertical: 20 }}
-              showsVerticalScrollIndicator={false}
-              activationDistance={5}
-            />
-
-            <View style={[styles.footer, { borderTopColor: theme.colors.border, backgroundColor: theme.colors.card }]}>
-              <TouchableOpacity onPress={handleSave} style={[styles.saveButton, { backgroundColor: theme.colors.primary }]}>
-                <HugeiconsIcon icon={CheckmarkCircle02Icon} size={18} color="#FFF" />
-                <Text style={styles.saveButtonText}>Save Changes</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Animated.View>
-      </GestureHandlerRootView>
-    </Modal>
-  );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-  },
-  modalContainerWrapper: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  modalContainer: {
-    height: '70%', 
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    overflow: 'hidden',
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 10,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-    borderBottomWidth: 1,
-  },
-  title: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
-  subtitle: { fontSize: 13, fontWeight: '500', marginTop: 2 },
-  closeBtn: { padding: 8, borderRadius: 50 },
-  itemRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 14, height: 58 },
-  dragHandle: { height: '100%', paddingLeft: 16, paddingRight: 12, justifyContent: 'center', alignItems: 'center' },
-  contentContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', height: '100%', paddingRight: 16 },
-  itemLabel: { flex: 1, fontSize: 15 },
-  checkBox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
-  footer: { padding: 24, paddingBottom: Platform.OS === 'ios' ? 34 : 24, borderTopWidth: 1 },
-  saveButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 16, gap: 8 },
-  saveButtonText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
+    overlay: { flex: 1, justifyContent: 'flex-end' },
+    backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)' },
+    modalContainerWrapper: {
+        flex: 1,
+        justifyContent: 'flex-end',
+    },
+    modalContainer: {
+        height: '75%',
+        borderTopLeftRadius: 28,
+        borderTopRightRadius: 28,
+        overflow: 'hidden',
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: -4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 12,
+        elevation: 10,
+    },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 24,
+        paddingVertical: 20,
+        borderBottomWidth: 1,
+        zIndex: 10,
+    },
+    title: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
+    subtitle: { fontSize: 13, fontWeight: '500', marginTop: 2 },
+    closeBtn: { padding: 8, borderRadius: 50 },
+
+    itemRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 14, height: 58 },
+    dragHandle: { height: '100%', paddingLeft: 16, paddingRight: 12, justifyContent: 'center', alignItems: 'center' },
+    contentContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', height: '100%', paddingRight: 16, justifyContent: 'space-between' },
+    itemLabel: { fontSize: 15, fontWeight: '600' },
+
+    footer: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        padding: 24,
+        paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+        borderTopWidth: 1,
+    }
 });
