@@ -33,7 +33,7 @@ import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
 import SearchableSelectionModal from '../../components/SearchableSelectionModal';
-import TimePicker from '../../components/TimePicker'; // Global Time Picker
+import TimePickerModal from '../../components/TimePickerModal'; // Updated Import
 
 import { JOBS_LIST } from '../../constants/Jobs';
 import { useAppTheme } from '../../constants/theme';
@@ -303,8 +303,8 @@ export default function JobForm() {
             <LoadingOverlay visible={saving} message="Saving Job..." />
             <ModernAlert {...alertConfig} />
             
-            {/* Replaced AnalogTimePicker with Global TimePicker */}
-            <TimePicker 
+            {/* Replaced TimePicker with TimePickerModal */}
+            <TimePickerModal 
                 visible={pickerVisible} 
                 mode="time"
                 onClose={() => setPickerVisible(false)} 

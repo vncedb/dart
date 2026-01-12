@@ -1,6 +1,5 @@
 import {
     Briefcase01Icon,
-    Clock01Icon,
     Delete02Icon,
     HourglassIcon,
     Image02Icon,
@@ -22,7 +21,6 @@ import {
     ActivityIndicator,
     Alert,
     Image,
-    Modal,
     RefreshControl,
     ScrollView,
     StatusBar,
@@ -48,7 +46,7 @@ import DailySummaryCard from '../../components/DailySummaryCard';
 import DynamicBar from '../../components/DynamicBar';
 import DynamicDateHeader from '../../components/DynamicDateHeader';
 import ModernAlert from '../../components/ModernAlert';
-import TimePicker from '../../components/TimePicker'; // Updated Import
+import OvertimeModal from '../../components/OvertimeModal'; // Imported new component
 import { useAppTheme } from '../../constants/theme';
 import { useSync } from '../../context/SyncContext';
 import { generateUUID } from '../../lib/database';
@@ -58,7 +56,7 @@ import { registerForPushNotificationsAsync, setupNotificationCategories } from '
 
 configureReanimatedLogger({ level: ReanimatedLogLevel.warn, strict: false });
 
-// ... [Helper Functions remain unchanged] ...
+// ... [Helper Functions match previous version] ...
 const timeToMinutes = (timeStr: string) => {
     if (!timeStr) return 0;
     const [h, m] = timeStr.split(':').map(Number);
@@ -103,7 +101,6 @@ const getLocalDate = (d = new Date()) => {
     return new Date(d.getTime() - offsetMs).toISOString().split('T')[0];
 };
 
-// ... [ActivityImage and SkeletonItem components remain unchanged] ...
 const ActivityImage = ({ uri, theme }: { uri: string, theme: any }) => {
     const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
     const [key, setKey] = useState(0); 
@@ -156,142 +153,6 @@ const HomeSkeleton = () => {
     );
 };
 
-// --- Updated Overtime Modal ---
-const OvertimeModal = ({ visible, onClose, onConfirm, theme }: any) => {
-    const [mode, setMode] = useState<'duration' | 'time'>('duration');
-    const [hours, setHours] = useState(0);
-    const [minutes, setMinutes] = useState(0);
-    
-    // For End Time mode
-    const [endH, setEndH] = useState(new Date().getHours());
-    const [endM, setEndM] = useState(new Date().getMinutes());
-    const [endPeriod, setEndPeriod] = useState<'AM'|'PM'>(new Date().getHours() >= 12 ? 'PM' : 'AM');
-    
-    const [showPicker, setShowPicker] = useState(false);
-
-    // Calculate Duration
-    const calculateDuration = () => {
-        if (mode === 'duration') return { h: hours, m: minutes };
-        
-        const now = new Date();
-        const startMins = now.getHours() * 60 + now.getMinutes();
-        
-        let targetH = endH;
-        if (endPeriod === 'PM' && targetH !== 12) targetH += 12;
-        if (endPeriod === 'AM' && targetH === 12) targetH = 0;
-        
-        const targetTotalMins = targetH * 60 + endM;
-        let diff = targetTotalMins - startMins;
-        
-        if (diff < 0) diff += 24 * 60; // Next day
-        
-        return { h: Math.floor(diff / 60), m: diff % 60 };
-    };
-
-    const finalDuration = calculateDuration();
-    const isValid = finalDuration.h > 0 || finalDuration.m > 0;
-
-    return (
-        <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
-            <View style={styles.modalOverlay}>
-                <View style={[styles.modalContent, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                    <View style={[styles.modalIcon, { backgroundColor: theme.colors.warning + '15' }]}>
-                        <HugeiconsIcon icon={Briefcase01Icon} size={32} color={theme.colors.warning} />
-                    </View>
-                    <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Overtime Detected</Text>
-                    <Text style={[styles.modalDesc, { color: theme.colors.textSecondary }]}>
-                        You are checking in outside your standard shift. Please specify the duration.
-                    </Text>
-                    
-                    {/* Toggle Mode */}
-                    <View style={{ flexDirection: 'row', backgroundColor: theme.colors.background, borderRadius: 12, padding: 4, marginBottom: 20, width: '100%' }}>
-                         <TouchableOpacity 
-                            onPress={() => setMode('duration')}
-                            style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 10, backgroundColor: mode === 'duration' ? theme.colors.card : 'transparent', shadowColor: mode === 'duration' ? '#000' : 'transparent', shadowOpacity: 0.1, shadowRadius: 2, elevation: mode === 'duration' ? 2 : 0 }}
-                         >
-                             <Text style={{ fontWeight: '600', color: mode === 'duration' ? theme.colors.primary : theme.colors.textSecondary }}>Duration</Text>
-                         </TouchableOpacity>
-                         <TouchableOpacity 
-                            onPress={() => setMode('time')}
-                            style={{ flex: 1, paddingVertical: 8, alignItems: 'center', borderRadius: 10, backgroundColor: mode === 'time' ? theme.colors.card : 'transparent', shadowColor: mode === 'time' ? '#000' : 'transparent', shadowOpacity: 0.1, shadowRadius: 2, elevation: mode === 'time' ? 2 : 0 }}
-                         >
-                             <Text style={{ fontWeight: '600', color: mode === 'time' ? theme.colors.primary : theme.colors.textSecondary }}>End Time</Text>
-                         </TouchableOpacity>
-                    </View>
-
-                    {/* Input Display */}
-                    <TouchableOpacity 
-                        onPress={() => setShowPicker(true)}
-                        style={[styles.modalInputBtn, { backgroundColor: theme.colors.background, borderColor: isValid ? theme.colors.border : theme.colors.danger }]}
-                    >
-                        {mode === 'duration' ? (
-                            <>
-                                <HugeiconsIcon icon={HourglassIcon} size={20} color={theme.colors.text} />
-                                <Text style={{ fontSize: 18, fontWeight: '700', color: theme.colors.text }}>
-                                    {hours} hrs {minutes} mins
-                                </Text>
-                            </>
-                        ) : (
-                            <>
-                                <HugeiconsIcon icon={Clock01Icon} size={20} color={theme.colors.text} />
-                                <Text style={{ fontSize: 18, fontWeight: '700', color: theme.colors.text }}>
-                                    {endH}:{endM.toString().padStart(2, '0')} {endPeriod}
-                                </Text>
-                            </>
-                        )}
-                    </TouchableOpacity>
-
-                    {/* Validation Message */}
-                    {!isValid && (
-                         <Text style={{ color: theme.colors.danger, fontSize: 12, marginBottom: 16 }}>
-                             * Duration cannot be zero
-                         </Text>
-                    )}
-
-                    <View style={{ flexDirection: 'row', gap: 12, width: '100%' }}>
-                        <TouchableOpacity onPress={onClose} style={[styles.modalButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}><Text style={{ color: theme.colors.text, fontWeight: '700' }}>Cancel</Text></TouchableOpacity>
-                        <TouchableOpacity 
-                            disabled={!isValid}
-                            onPress={() => onConfirm(finalDuration.h + (finalDuration.m / 60))} 
-                            style={[
-                                styles.modalButton, 
-                                { 
-                                    backgroundColor: isValid ? theme.colors.primary : theme.colors.border, 
-                                    borderColor: isValid ? theme.colors.primary : theme.colors.border 
-                                }
-                            ]}
-                        >
-                            <Text style={{ color: isValid ? '#fff' : theme.colors.textSecondary, fontWeight: '800' }}>Confirm</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </View>
-
-            <TimePicker 
-                visible={showPicker}
-                mode={mode}
-                onClose={() => setShowPicker(false)}
-                onConfirm={(h, m, p) => {
-                    if (mode === 'duration') {
-                        setHours(h);
-                        setMinutes(m);
-                    } else {
-                        setEndH(h);
-                        setEndM(m);
-                        if (p) setEndPeriod(p);
-                    }
-                }}
-                initialHours={mode === 'duration' ? hours : endH}
-                initialMinutes={mode === 'duration' ? minutes : endM}
-                initialPeriod={endPeriod}
-                title={mode === 'duration' ? "Set Duration" : "Set End Time"}
-            />
-        </Modal>
-    );
-};
-
-// ... [JobSetupCard and main Home component remain largely same, just with updated TimePicker usage] ...
-
 const JobSetupCard = ({ theme, router, isOffline }: any) => {
     return (
         <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, padding: 24, borderRadius: 24, flexDirection: 'row', alignItems: 'center' }}>
@@ -315,7 +176,6 @@ const JobSetupCard = ({ theme, router, isOffline }: any) => {
 };
 
 export default function Home() {
-    // ... [Original Home logic preserved] ...
     const insets = useSafeAreaInsets();
     const router = useRouter();
     const theme = useAppTheme();
@@ -382,28 +242,21 @@ export default function Home() {
         return () => clearInterval(timer);
     }, [todaysRecords, jobSettings]);
 
-    // --- AUTO CHECKOUT LOGIC ---
     const checkAutoCheckout = async (currentJob: any, lastRecord: any) => {
         if (!lastRecord || lastRecord.status !== 'pending' || !currentJob?.work_schedule?.end) return;
-    
         const now = new Date();
         const [endH, endM] = currentJob.work_schedule.end.split(':').map(Number);
         const shiftEnd = new Date();
         shiftEnd.setHours(endH, endM, 0, 0);
-    
-        // If current time is more than 30 mins past shift end, auto checkout
         if (isAfter(now, addMinutes(shiftEnd, 30)) && isToday(new Date(lastRecord.clock_in))) {
             const db = await getDB();
             const endIso = shiftEnd.toISOString();
-            
             await db.runAsync('UPDATE attendance SET clock_out = ?, status = ?, remarks = ? WHERE id = ?', 
                 [endIso, 'completed', 'Auto-checkout: Shift End', lastRecord.id]
             );
-            
             await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', 
                 ['attendance', lastRecord.id, 'UPDATE', JSON.stringify({ clock_out: endIso, status: 'completed', remarks: 'Auto-checkout: Shift End' })]
             );
-            
             setModernAlertConfig({
                 visible: true,
                 type: 'info',
@@ -412,7 +265,6 @@ export default function Home() {
                 confirmText: 'Okay',
                 onConfirm: () => setModernAlertConfig((prev:any) => ({...prev, visible: false}))
             });
-            
             await loadData();
             triggerSync();
         }
@@ -461,7 +313,6 @@ export default function Home() {
                     }
                  }
             }
-
         } catch (e: any) { 
             console.log("Load Data Error:", e);
         } finally { 
@@ -540,7 +391,6 @@ export default function Home() {
             return;
         }
         
-        // --- OVERTIME CHECK-IN LOGIC ---
         if (!isClockedIn) {
             if (jobSettings?.work_schedule?.start && jobSettings?.work_schedule?.end) {
                 const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
@@ -612,23 +462,3 @@ export default function Home() {
         </View>
     );
 }
-
-const styles = StyleSheet.create({
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 },
-    modalContent: { width: '100%', borderRadius: 28, padding: 24, alignItems: 'center', borderWidth: 1 },
-    modalIcon: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
-    modalTitle: { fontSize: 22, fontWeight: '800', marginBottom: 8, textAlign: 'center' },
-    modalDesc: { textAlign: 'center', marginBottom: 24, lineHeight: 22 },
-    modalInputBtn: {
-        width: '100%',
-        marginBottom: 20,
-        borderRadius: 16,
-        padding: 18,
-        borderWidth: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 12
-    },
-    modalButton: { flex: 1, padding: 16, borderRadius: 16, alignItems: 'center', borderWidth: 1 }
-});
