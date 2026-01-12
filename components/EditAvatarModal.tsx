@@ -26,7 +26,6 @@ import Animated, {
     withTiming
 } from 'react-native-reanimated';
 import { useAppTheme } from '../constants/theme';
-import Button from './Button';
 import ListButton from './ListButton';
 
 interface EditAvatarModalProps {
@@ -86,19 +85,20 @@ export default function EditAvatarModal({
                     <TouchableOpacity style={StyleSheet.absoluteFill} onPress={close} activeOpacity={1} />
                 </Animated.View>
 
-                {/* Draggable Sheet - Simple Slide Up */}
-                <GestureDetector gesture={pan}>
-                    <Animated.View 
-                        entering={SlideInDown.duration(400).easing(Easing.out(Easing.quad))} 
-                        exiting={SlideOutDown.duration(300)}
-                        style={[styles.modalContainerWrapper]}
-                    >
+                {/* Draggable Sheet - Slide Up */}
+                <Animated.View 
+                    entering={SlideInDown.duration(400).easing(Easing.out(Easing.quad))} 
+                    exiting={SlideOutDown.duration(300)}
+                    style={styles.modalContainerWrapper}
+                >
+                    <GestureDetector gesture={pan}>
                         <Animated.View style={[
                             styles.modalContainer, 
                             { backgroundColor: theme.colors.card },
                             animatedSheetStyle
                         ]}>
-                            <View style={styles.header}>
+                            {/* Header */}
+                            <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
                                 <View>
                                     <Text style={[styles.title, { color: theme.colors.text }]}>Edit Profile Picture</Text>
                                     <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Change your look</Text>
@@ -111,6 +111,7 @@ export default function EditAvatarModal({
                                 </TouchableOpacity>
                             </View>
 
+                            {/* Content */}
                             <View style={styles.content}>
                                 <ListButton 
                                     title="Choose from Library"
@@ -126,19 +127,10 @@ export default function EditAvatarModal({
                                     iconColor="#ef4444"
                                     onPress={onRemoveImage}
                                 />
-
-                                <View style={{ marginTop: 8 }}>
-                                    <Button 
-                                        title="Cancel" 
-                                        variant="secondary" 
-                                        onPress={close} 
-                                        fullWidth
-                                    />
-                                </View>
                             </View>
                         </Animated.View>
-                    </Animated.View>
-                </GestureDetector>
+                    </GestureDetector>
+                </Animated.View>
             </GestureHandlerRootView>
         </Modal>
     );
@@ -147,8 +139,12 @@ export default function EditAvatarModal({
 const styles = StyleSheet.create({
     overlay: { flex: 1, justifyContent: 'flex-end' },
     backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)' },
-    modalContainerWrapper: { width: '100%' },
+    modalContainerWrapper: { 
+        flex: 1, 
+        justifyContent: 'flex-end' 
+    },
     modalContainer: {
+        width: '100%',
         borderTopLeftRadius: 28,
         borderTopRightRadius: 28,
         paddingBottom: Platform.OS === 'ios' ? 40 : 24,
@@ -166,7 +162,6 @@ const styles = StyleSheet.create({
         paddingHorizontal: 24,
         paddingVertical: 20,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(0,0,0,0.05)'
     },
     title: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
     subtitle: { fontSize: 13, fontWeight: '500', marginTop: 2 },

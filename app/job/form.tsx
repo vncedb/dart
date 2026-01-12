@@ -28,12 +28,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import AnalogTimePicker from '../../components/AnalogTimePicker';
 import CalendarPickerModal from '../../components/CalendarPickerModal';
 import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
 import SearchableSelectionModal from '../../components/SearchableSelectionModal';
+import TimePicker from '../../components/TimePicker'; // Global Time Picker
 
 import { JOBS_LIST } from '../../constants/Jobs';
 import { useAppTheme } from '../../constants/theme';
@@ -137,7 +137,6 @@ export default function JobForm() {
         if (!jobId) { setInitialLoading(false); return; }
         try {
             const db = await getDB();
-            // Try local first
             const localJob = await db.getFirstAsync('SELECT * FROM job_positions WHERE id = ?', [jobId]);
             let data: any = localJob;
 
@@ -176,7 +175,7 @@ export default function JobForm() {
         finally { setInitialLoading(false); setTimeout(() => setIsDirty(false), 100); }
     };
 
-    // ... Helper functions for picker ...
+    // Helper to open the new TimePicker
     const openPicker = (mode: string, breakId?: string) => {
         let currentValue = new Date();
         if (mode === 'workStart') currentValue = workStart;
@@ -191,8 +190,17 @@ export default function JobForm() {
         setPickerVisible(true);
     };
 
-    const handleTimeSelect = (timeStr: string) => {
-        const newDate = parseTimeStringToDate(timeStr, pickerConfig.currentValue || new Date());
+    // Handle selection from TimePicker (h, m, p)
+    const handleTimeConfirm = (h: number, m: number, p?: 'AM' | 'PM') => {
+        let hours = h;
+        if (p === 'PM' && hours !== 12) hours += 12;
+        if (p === 'AM' && hours === 12) hours = 0;
+
+        const newDate = new Date(pickerConfig.currentValue || new Date());
+        newDate.setHours(hours);
+        newDate.setMinutes(m);
+        newDate.setSeconds(0);
+
         setIsDirty(true);
         if (pickerConfig.mode === 'workStart') setWorkStart(newDate);
         else if (pickerConfig.mode === 'workEnd') setWorkEnd(newDate);
@@ -266,14 +274,9 @@ export default function JobForm() {
             };
 
             if (!jobId) (payload as any).created_at = now;
-            
-            // 1. Save Local (Instant)
             await saveJobLocal(payload);
-
-            // 2. Queue Sync
             await queueSyncItem('job_positions', finalJobId, jobId ? 'UPDATE' : 'INSERT', payload);
             
-            // 3. Update Profile Link (If new)
             if (!jobId) {
                 const db = await getDB();
                 await db.runAsync('UPDATE profiles SET current_job_id = ? WHERE id = ?', [finalJobId, user.id]);
@@ -282,7 +285,6 @@ export default function JobForm() {
             }
 
             supabase.from('job_positions').upsert(payload).then();
-
             setIsDirty(false);
             router.back();
 
@@ -301,7 +303,18 @@ export default function JobForm() {
             <LoadingOverlay visible={saving} message="Saving Job..." />
             <ModernAlert {...alertConfig} />
             
-            <AnalogTimePicker visible={pickerVisible} onClose={() => setPickerVisible(false)} onSelect={handleTimeSelect} value={pickerConfig.currentValue} title={pickerConfig.mode.includes('Start') ? "Start Time" : "End Time"} />
+            {/* Replaced AnalogTimePicker with Global TimePicker */}
+            <TimePicker 
+                visible={pickerVisible} 
+                mode="time"
+                onClose={() => setPickerVisible(false)} 
+                onConfirm={handleTimeConfirm} 
+                initialHours={pickerConfig.currentValue?.getHours()}
+                initialMinutes={pickerConfig.currentValue?.getMinutes()}
+                initialPeriod={pickerConfig.currentValue && pickerConfig.currentValue.getHours() >= 12 ? 'PM' : 'AM'}
+                title={pickerConfig.mode.includes('Start') ? "Start Time" : "End Time"} 
+            />
+
             <SearchableSelectionModal visible={jobSelectorVisible} onClose={() => setJobSelectorVisible(false)} onSelect={(val) => markDirty(setPosition, val)} title="Select Job Title" options={JOBS_LIST} placeholder="Search job title..." />
             <SearchableSelectionModal visible={statusSelectorVisible} onClose={() => setStatusSelectorVisible(false)} onSelect={(val) => markDirty(setEmploymentStatus, val)} title="Employment Status" options={EMPLOYMENT_STATUS_OPTIONS} placeholder="Select Status" />
             <CalendarPickerModal visible={calendarVisible} onClose={() => setCalendarVisible(false)} onSelect={(date) => { markDirty(setStartDate, date); setCalendarVisible(false); }} selectedDate={startDate} />
@@ -325,6 +338,7 @@ export default function JobForm() {
 
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
                 <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
+                    {/* ... (Rest of the JSX remains exactly the same) ... */}
                     <View className="mb-8">
                         <Text style={{ color: theme.colors.textSecondary }} className="mb-4 text-xs font-bold tracking-wider uppercase">Job Information</Text>
                         <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }} className="p-6 border shadow-sm rounded-3xl">

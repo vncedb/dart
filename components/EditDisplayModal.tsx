@@ -1,8 +1,8 @@
 import {
+  Add01Icon,
   Cancel01Icon,
-  CheckmarkCircle02Icon,
-  Menu01Icon,
-  Tick02Icon
+  Delete02Icon,
+  Menu01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import React, { useEffect, useState } from 'react';
@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import DraggableFlatList, {
   RenderItemParams,
-  ScaleDecorator
+  ShadowDecorator
 } from 'react-native-draggable-flatlist';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
@@ -42,12 +42,6 @@ export const AVAILABLE_JOB_FIELDS = [
     { key: 'breaks', label: 'Unpaid Breaks' },
 ];
 
-interface JobField {
-    key: string;
-    label: string;
-    isActive: boolean;
-}
-
 interface EditDisplayModalProps {
     visible: boolean;
     onClose: () => void;
@@ -62,33 +56,37 @@ export default function EditDisplayModal({
     onSave
 }: EditDisplayModalProps) {
     const theme = useAppTheme();
-    const [items, setItems] = useState<JobField[]>([]);
+    // activeKeys maintains the order of selected items
+    const [activeKeys, setActiveKeys] = useState<string[]>([]);
     const translateY = useSharedValue(0);
 
     useEffect(() => {
         if (visible) {
             translateY.value = 0;
-            const activeItems = selectedKeys
-                .map(key => AVAILABLE_JOB_FIELDS.find(f => f.key === key))
-                .filter(Boolean)
-                .map(f => ({ ...f!, isActive: true }));
-
-            const inactiveItems = AVAILABLE_JOB_FIELDS
-                .filter(f => !selectedKeys.includes(f.key))
-                .map(f => ({ ...f, isActive: false }));
-
-            setItems([...activeItems, ...inactiveItems]);
+            setActiveKeys(selectedKeys);
         }
     }, [visible, selectedKeys]);
 
-    const toggleItem = (key: string) => {
-        setItems(prev => prev.map(item =>
-            item.key === key ? { ...item, isActive: !item.isActive } : item
-        ));
+    // Helpers to derive data
+    const activeItems = activeKeys
+        .map(key => AVAILABLE_JOB_FIELDS.find(f => f.key === key))
+        .filter(Boolean) as typeof AVAILABLE_JOB_FIELDS;
+
+    const inactiveItems = AVAILABLE_JOB_FIELDS.filter(
+        f => !activeKeys.includes(f.key)
+    );
+
+    const toggleItem = (key: string, isActive: boolean) => {
+        if (isActive) {
+            // Remove: Filter out the key
+            setActiveKeys(prev => prev.filter(k => k !== key));
+        } else {
+            // Add: Append to the end
+            setActiveKeys(prev => [...prev, key]);
+        }
     };
 
     const handleSave = () => {
-        const activeKeys = items.filter(i => i.isActive).map(i => i.key);
         onSave(activeKeys);
         onClose();
     };
@@ -97,6 +95,7 @@ export default function EditDisplayModal({
         onClose();
     };
 
+    // Modal drag-down gesture
     const pan = Gesture.Pan()
         .onChange((event) => {
             if (event.translationY > 0) {
@@ -115,45 +114,46 @@ export default function EditDisplayModal({
         transform: [{ translateY: translateY.value }]
     }));
 
-    const renderItem = ({ item, drag, isActive }: RenderItemParams<JobField>) => {
+    const renderActiveItem = ({ item, drag, isActive }: RenderItemParams<typeof AVAILABLE_JOB_FIELDS[0]>) => {
         return (
-            <ScaleDecorator>
+            <ShadowDecorator>
                 <TouchableOpacity
-                    onPress={() => toggleItem(item.key)}
                     onLongPress={drag}
-                    disabled={isActive}
-                    activeOpacity={0.7}
+                    activeOpacity={1}
                     style={[
                         styles.itemRow,
                         {
-                            backgroundColor: item.isActive ? theme.colors.primary + '10' : theme.colors.background,
-                            borderColor: item.isActive ? theme.colors.primary : theme.colors.border,
-                            marginBottom: 10,
+                            backgroundColor: theme.colors.card,
+                            borderColor: isActive ? theme.colors.primary : theme.colors.border,
                             borderWidth: 1,
+                            elevation: isActive ? 5 : 0,
+                            shadowColor: "#000",
+                            shadowOpacity: isActive ? 0.1 : 0,
+                            shadowRadius: 10,
                         }
                     ]}
                 >
+                    {/* Hold hamburger to drag */}
                     <TouchableOpacity onPressIn={drag} style={styles.dragHandle}>
                         <HugeiconsIcon icon={Menu01Icon} size={20} color={theme.colors.textSecondary} />
                     </TouchableOpacity>
 
                     <View style={styles.contentContainer}>
-                        <Text style={[
-                            styles.itemLabel,
-                            { color: item.isActive ? theme.colors.primary : theme.colors.text }
-                        ]}>
+                        <Text style={[styles.itemLabel, { color: theme.colors.text }]}>
                             {item.label}
                         </Text>
 
-                        <HugeiconsIcon
-                            icon={item.isActive ? CheckmarkCircle02Icon : Tick02Icon}
-                            size={22}
-                            color={item.isActive ? theme.colors.primary : theme.colors.border}
-                            variant={item.isActive ? 'solid' : 'stroke'}
-                        />
+                        {/* Remove Button (Using Delete02Icon as it is safe/imported) */}
+                        <TouchableOpacity onPress={() => toggleItem(item.key, true)}>
+                            <HugeiconsIcon
+                                icon={Delete02Icon}
+                                size={22}
+                                color={theme.colors.textSecondary}
+                            />
+                        </TouchableOpacity>
                     </View>
                 </TouchableOpacity>
-            </ScaleDecorator>
+            </ShadowDecorator>
         );
     };
 
@@ -170,7 +170,7 @@ export default function EditDisplayModal({
                     <TouchableOpacity style={StyleSheet.absoluteFill} onPress={close} activeOpacity={1} />
                 </Animated.View>
 
-                {/* Simple Slide Up Animation */}
+                {/* Main Sheet */}
                 <Animated.View
                     entering={SlideInDown.duration(400).easing(Easing.out(Easing.quad))}
                     exiting={SlideOutDown.duration(300)}
@@ -185,7 +185,7 @@ export default function EditDisplayModal({
                             <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
                                 <View>
                                     <Text style={[styles.title, { color: theme.colors.text }]}>Customize Job Card</Text>
-                                    <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Drag to reorder • Tap to toggle</Text>
+                                    <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Drag to reorder active details</Text>
                                 </View>
                                 <TouchableOpacity
                                     onPress={close}
@@ -196,14 +196,58 @@ export default function EditDisplayModal({
                             </View>
                         </GestureDetector>
 
-                        <View style={{ flex: 1, paddingHorizontal: 24, paddingTop: 16 }}>
+                        <View style={{ flex: 1 }}>
                             <DraggableFlatList
-                                data={items}
-                                onDragEnd={({ data }) => setItems(data)}
+                                data={activeItems}
+                                onDragEnd={({ data }) => {
+                                    setActiveKeys(data.map(i => i.key));
+                                }}
                                 keyExtractor={(item) => item.key}
-                                renderItem={renderItem}
+                                renderItem={renderActiveItem}
                                 showsVerticalScrollIndicator={false}
-                                contentContainerStyle={{ paddingBottom: 100 }}
+                                contentContainerStyle={{ padding: 24, paddingBottom: 100 }}
+                                ListFooterComponent={
+                                    inactiveItems.length > 0 ? (
+                                        <View style={{ marginTop: 24 }}>
+                                            <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>
+                                                Unused Details
+                                            </Text>
+                                            {inactiveItems.map((item) => (
+                                                <TouchableOpacity
+                                                    key={item.key}
+                                                    onPress={() => toggleItem(item.key, false)}
+                                                    style={[
+                                                        styles.itemRow,
+                                                        {
+                                                            backgroundColor: theme.colors.background,
+                                                            borderColor: 'transparent',
+                                                            borderWidth: 1,
+                                                        }
+                                                    ]}
+                                                >
+                                                    <View style={[styles.dragHandle, { opacity: 0 }]}>
+                                                        {/* Invisible handle for alignment */}
+                                                        <HugeiconsIcon icon={Menu01Icon} size={20} />
+                                                    </View>
+
+                                                    <View style={styles.contentContainer}>
+                                                        <Text style={[styles.itemLabel, { color: theme.colors.textSecondary }]}>
+                                                            {item.label}
+                                                        </Text>
+                                                        
+                                                        {/* Add Button (Using Add01Icon) */}
+                                                        <HugeiconsIcon
+                                                            icon={Add01Icon}
+                                                            size={22}
+                                                            color={theme.colors.primary}
+                                                            variant="solid"
+                                                        />
+                                                    </View>
+                                                </TouchableOpacity>
+                                            ))}
+                                        </View>
+                                    ) : null
+                                }
                             />
                         </View>
 
@@ -234,7 +278,7 @@ const styles = StyleSheet.create({
         justifyContent: 'flex-end',
     },
     modalContainer: {
-        height: '75%',
+        height: '75%', // Fixed height as requested
         borderTopLeftRadius: 28,
         borderTopRightRadius: 28,
         overflow: 'hidden',
@@ -257,9 +301,35 @@ const styles = StyleSheet.create({
     subtitle: { fontSize: 13, fontWeight: '500', marginTop: 2 },
     closeBtn: { padding: 8, borderRadius: 50 },
 
-    itemRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 14, height: 58 },
-    dragHandle: { height: '100%', paddingLeft: 16, paddingRight: 12, justifyContent: 'center', alignItems: 'center' },
-    contentContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', height: '100%', paddingRight: 16, justifyContent: 'space-between' },
+    sectionTitle: {
+        fontSize: 12,
+        fontWeight: '600',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+        marginBottom: 12,
+    },
+    itemRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        borderRadius: 14,
+        height: 58,
+        marginBottom: 10
+    },
+    dragHandle: {
+        height: '100%',
+        paddingLeft: 16,
+        paddingRight: 12,
+        justifyContent: 'center',
+        alignItems: 'center'
+    },
+    contentContainer: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        height: '100%',
+        paddingRight: 16,
+        justifyContent: 'space-between'
+    },
     itemLabel: { fontSize: 15, fontWeight: '600' },
 
     footer: {
