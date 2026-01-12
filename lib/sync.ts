@@ -17,13 +17,21 @@ export const syncPush = async () => {
 
     for (const item of queueItems) {
       const { id, table_name, row_id, action, data } = item as any;
-      const payload = data ? JSON.parse(data) : {};
+      let payload = {};
+      try {
+         payload = data ? JSON.parse(data) : {};
+      } catch (e) {
+         // Corrupt data in queue? Delete it to unblock.
+         await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [id]);
+         continue;
+      }
 
       let error = null;
 
       try {
         if (action === 'INSERT') {
-          const { error: insertError } = await supabase.from(table_name).insert(payload);
+          // Robustness: Use upsert to prevent PK collisions
+          const { error: insertError } = await supabase.from(table_name).upsert(payload);
           error = insertError;
         } else if (action === 'UPDATE') {
           const { error: updateError } = await supabase.from(table_name).update(payload).eq('id', row_id);
@@ -32,20 +40,17 @@ export const syncPush = async () => {
           const { error: deleteError } = await supabase.from(table_name).delete().eq('id', row_id);
           error = deleteError;
 
-          // --- SELF-HEALING LOGIC FOR FK VIOLATION (23503) ---
+          // --- SELF-HEALING FOR FK VIOLATION (23503) ---
           if (error && error.code === '23503' && table_name === 'job_positions') {
-             console.log(`[Auto-Fix] Unlinking job ${row_id} from profiles to allow deletion...`);
-             
-             // 1. Remove the link in the profiles table
+             // 1. Unlink from profiles
              await supabase.from('profiles').update({ current_job_id: null }).eq('current_job_id', row_id);
-             
-             // 2. Retry the delete
+             // 2. Retry delete
              const { error: retryError } = await supabase.from(table_name).delete().eq('id', row_id);
-             error = retryError; // Update error status based on retry
+             error = retryError;
           }
         }
 
-        // Clean up queue if success OR if error is ignorable (e.g. duplicate key, or row already gone)
+        // Success or Ignore harmless errors
         if (!error || error.code === 'PGRST116' || error.code === '23505') {
           await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [id]);
           successCount++;
@@ -73,9 +78,14 @@ export const syncPull = async (userId: string) => {
     const lastSyncedAt = result?.value || '1970-01-01T00:00:00.000Z';
     const newSyncTime = new Date().toISOString();
 
+    // --- CRITICAL FIX: Get list of items currently pending in queue ---
+    // We must NOT overwrite local data if there is a pending DELETE or UPDATE for it.
+    const pendingRows = await db.getAllAsync('SELECT table_name, row_id FROM sync_queue');
+    const pendingMap = new Set(pendingRows.map((r: any) => `${r.table_name}:${r.row_id}`));
+
     // 1. Pull Profile
     const { data: profileData } = await supabase.from('profiles').select('*').eq('id', userId).single();
-    if (profileData) {
+    if (profileData && !pendingMap.has(`profiles:${profileData.id}`)) {
       await db.runAsync(
         `INSERT OR REPLACE INTO profiles (id, email, first_name, last_name, middle_name, title, professional_suffix, current_job_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
@@ -95,12 +105,10 @@ export const syncPull = async (userId: string) => {
     // 2. Pull Jobs
     const { data: jobData } = await supabase.from('job_positions').select('*').eq('user_id', userId);
     if (jobData) {
-      // First, find jobs in local that are NOT in remote (meaning they were deleted on another device)
-      // For simplicity in this robust version, we rely on the upsert to update. 
-      // Handling remote deletions requires a "deleted_at" soft delete column or a full diff, 
-      // but for now, let's ensure we update what we have.
-      
       for (const job of jobData) {
+        // SKIP if we have pending changes for this job locally
+        if (pendingMap.has(`job_positions:${job.id}`)) continue;
+
         await db.runAsync(
           `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, work_schedule, break_schedule, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
@@ -125,6 +133,8 @@ export const syncPull = async (userId: string) => {
     const { data: attendanceData } = await supabase.from('attendance').select('*').eq('user_id', userId).gt('updated_at', lastSyncedAt);
     if (attendanceData) {
       for (const row of attendanceData) {
+        if (pendingMap.has(`attendance:${row.id}`)) continue;
+        
         await db.runAsync(
           `INSERT OR REPLACE INTO attendance (id, user_id, date, clock_in, clock_out, status, remarks, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           [row.id, row.user_id, row.date, row.clock_in, row.clock_out, row.status, row.remarks, row.updated_at || newSyncTime]
@@ -136,6 +146,8 @@ export const syncPull = async (userId: string) => {
     const { data: taskData } = await supabase.from('accomplishments').select('*').eq('user_id', userId).gt('created_at', lastSyncedAt);
     if (taskData) {
       for (const row of taskData) {
+        if (pendingMap.has(`accomplishments:${row.id}`)) continue;
+
         await db.runAsync(
           `INSERT OR REPLACE INTO accomplishments (id, user_id, date, description, remarks, image_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
           [row.id, row.user_id, row.date, row.description, row.remarks, row.image_url, row.created_at]

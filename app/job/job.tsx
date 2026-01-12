@@ -26,7 +26,7 @@ import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
 import { useAppTheme } from '../../constants/theme';
 import { useSync } from '../../context/SyncContext';
-import { deleteJobLocal, queueSyncItem, saveJobLocal } from '../../lib/database';
+import { deleteJobLocal, queueSyncItem } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 
@@ -86,6 +86,7 @@ export default function MyJobsScreen() {
             if (!user) return;
             const db = await getDB();
 
+            // 1. Fetch Local Jobs (Single Source of Truth)
             const localJobs = await db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ? ORDER BY created_at DESC', [user.id]);
             const parsedLocalJobs = (localJobs as any[]).map(j => ({
                 ...j,
@@ -95,16 +96,15 @@ export default function MyJobsScreen() {
             setJobs(parsedLocalJobs);
 
             const netInfo = await NetInfo.fetch();
-            if (!netInfo.isConnected) { setIsOffline(true); return; }
-            setIsOffline(false);
-
-            const { data: remoteJobs } = await supabase.from('job_positions').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
-            if (remoteJobs) {
-                setJobs(remoteJobs); 
-                for (const job of remoteJobs) { await saveJobLocal(job); }
-            }
-        } catch (error) { console.log('Error fetching jobs:', error); } 
-        finally { setLoading(false); setRefreshing(false); }
+            setIsOffline(!netInfo.isConnected);
+            
+            // REMOVED: Direct Supabase fetch and overwrite. 
+            // We rely on triggerSync/useSync to update the local DB.
+        } catch (error) { 
+            console.log('Error fetching jobs:', error); 
+        } finally { 
+            setLoading(false); 
+        }
     };
 
     useFocusEffect(useCallback(() => { fetchJobs(); }, []));
@@ -124,9 +124,7 @@ export default function MyJobsScreen() {
                     const profile: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
                     
                     if (profile && profile.current_job_id === id) {
-                        // UNLINK LOCALLY FIRST
                         await db.runAsync('UPDATE profiles SET current_job_id = NULL WHERE id = ?', [user.id]);
-                        // QUEUE UNLINK SYNC
                         await queueSyncItem('profiles', user.id, 'UPDATE', { current_job_id: null });
                     }
 
@@ -134,12 +132,14 @@ export default function MyJobsScreen() {
                     await deleteJobLocal(id);
 
                     // 3. QUEUE DELETE SYNC
+                    // Note: deleteJobLocal (if updated per previous instructions) might already do this,
+                    // but calling it here ensures it is queued.
                     await queueSyncItem('job_positions', id, 'DELETE');
                     
-                    // 4. SYNC
+                    // 4. SYNC (Push change immediately)
                     triggerSync();
                     
-                    // 5. UPDATE UI
+                    // 5. UPDATE UI (Reload from local DB)
                     await fetchJobs();
 
                 } catch (e) { 
@@ -150,6 +150,15 @@ export default function MyJobsScreen() {
             },
             onCancel: () => setAlertConfig((prev: any) => ({ ...prev, visible: false }))
         });
+    };
+
+    const handleRefresh = async () => {
+        setRefreshing(true);
+        // 1. Run Sync (Push pending deletes, then Pull updates)
+        await triggerSync();
+        // 2. Reload UI from the updated Local DB
+        await fetchJobs();
+        setRefreshing(false);
     };
 
     const renderJobItem = ({ item }: any) => {
@@ -183,7 +192,21 @@ export default function MyJobsScreen() {
             <LoadingOverlay visible={deleting} message="Deleting job..." />
             <ModernAlert {...alertConfig} />
             <Header title="My Jobs" rightElement={!isOffline ? (<TouchableOpacity onPress={() => router.push('/job/form')} style={{ backgroundColor: theme.colors.primaryLight, padding: 8, borderRadius: 20 }}><HugeiconsIcon icon={PlusSignIcon} size={24} color={theme.colors.primary} /></TouchableOpacity>) : null} />
-            <FlatList data={jobs} keyExtractor={(item) => item.id} renderItem={renderJobItem} contentContainerStyle={{ padding: 24, paddingBottom: 100, flexGrow: 1 }} showsVerticalScrollIndicator={false} ListEmptyComponent={<EmptyJobCard theme={theme} router={router} isOffline={isOffline} />} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchJobs(); }} tintColor={theme.colors.primary} />} />
+            <FlatList 
+                data={jobs} 
+                keyExtractor={(item) => item.id} 
+                renderItem={renderJobItem} 
+                contentContainerStyle={{ padding: 24, paddingBottom: 100, flexGrow: 1 }} 
+                showsVerticalScrollIndicator={false} 
+                ListEmptyComponent={<EmptyJobCard theme={theme} router={router} isOffline={isOffline} />} 
+                refreshControl={
+                    <RefreshControl 
+                        refreshing={refreshing} 
+                        onRefresh={handleRefresh} 
+                        tintColor={theme.colors.primary} 
+                    />
+                } 
+            />
         </SafeAreaView>
     );
 }

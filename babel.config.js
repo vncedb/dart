@@ -5,8 +5,8 @@ module.exports = function (api) {
       ["babel-preset-expo", { jsxImportSource: "nativewind" }],
       "nativewind/babel",
     ],
-    // Add this plugins array:
     plugins: [
+      ["@babel/plugin-proposal-decorators", { "legacy": true }], // <--- CRITICAL: MUST BE FIRST
       "react-native-reanimated/plugin",
     ],
   };

@@ -1,5 +1,5 @@
 import {
-    ArrowRight02Icon, // Changed from ArrowRight01Icon to ArrowRight02Icon
+    ArrowRight02Icon,
     Briefcase01Icon,
     Camera01Icon,
     InformationCircleIcon,
@@ -169,6 +169,9 @@ export default function InfoScreen() {
   };
 
   const uploadAvatar = async (uri: string, userId: string) => {
+    // Optimization: If it's already a remote URL, skip upload
+    if (uri.startsWith('http')) return uri;
+
     try {
         const response = await fetch(uri);
         const blob = await response.blob();
@@ -182,8 +185,8 @@ export default function InfoScreen() {
         const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
         return data.publicUrl;
     } catch (error) {
-        console.warn("Avatar upload failed:", error);
-        return uri; 
+        console.error("Avatar upload failed:", error);
+        throw error; // Propagate error so handleNext catches it
     }
   };
 
@@ -219,11 +222,8 @@ export default function InfoScreen() {
               let finalAvatarUrl = avatarUrl;
               
               if (avatarUrl && !avatarUrl.startsWith('http')) {
-                  try {
-                    finalAvatarUrl = await uploadAvatar(avatarUrl, user.id);
-                  } catch (e) {
-                    console.log("Avatar upload error");
-                  }
+                 // Trigger upload and let it throw if it fails
+                 finalAvatarUrl = await uploadAvatar(avatarUrl, user.id);
               }
 
               const profileData = {

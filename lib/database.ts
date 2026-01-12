@@ -24,7 +24,6 @@ export const initDatabase = async () => {
     catch (e: any) { if (!e.message?.includes('duplicate column')) console.log(`Migration Note (${table}.${col}):`, e.message); }
   };
   
-  // Ensure columns exist for older installs
   await addColumn('profiles', 'middle_name', 'TEXT');
   await addColumn('profiles', 'professional_suffix', 'TEXT');
   await addColumn('job_positions', 'company', 'TEXT');
@@ -57,7 +56,7 @@ export const queueSyncItem = async (tableName: string, rowId: string, action: st
   }
 };
 
-// --- LOCAL DATA FUNCTIONS (CRITICAL FIX) ---
+// --- LOCAL DATA FUNCTIONS ---
 
 export const saveProfileLocal = async (profile: any) => {
     const db = await getDB();
@@ -98,7 +97,24 @@ export const saveJobLocal = async (job: any) => {
     );
 };
 
+// --- FIX: UPDATED DELETE LOGIC ---
 export const deleteJobLocal = async (id: string) => {
     const db = await getDB();
+
+    // 1. Unlink from local profiles
+    // We search for any profile using this job and set it to null
+    await db.runAsync(`UPDATE profiles SET current_job_id = NULL WHERE current_job_id = ?`, [id]);
+    
+    // 2. Queue the profile update so Supabase knows we unlinked it
+    // Note: We need the user_id to queue a profile update. We can fetch it first.
+    const job: any = await db.getFirstAsync('SELECT user_id FROM job_positions WHERE id = ?', [id]);
+    if (job && job.user_id) {
+        await queueSyncItem('profiles', job.user_id, 'UPDATE', { current_job_id: null });
+    }
+
+    // 3. Delete the job locally
     await db.runAsync('DELETE FROM job_positions WHERE id = ?', [id]);
+
+    // 4. Queue the job deletion
+    await queueSyncItem('job_positions', id, 'DELETE');
 };
