@@ -14,6 +14,7 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import NetInfo from '@react-native-community/netinfo';
+import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -125,13 +126,6 @@ const EmptyJobCard = ({ theme, router }: any) => (
     </View>
 );
 
-const JobLoadingCard = ({ theme }: any) => (
-    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, height: 180, justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="small" color={theme.colors.primary} />
-        <Text style={{ marginTop: 12, color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600' }}>Loading job details...</Text>
-    </View>
-);
-
 export default function ProfileScreen() {
     const router = useRouter();
     const theme = useAppTheme();
@@ -190,13 +184,41 @@ export default function ProfileScreen() {
             if (tempProfile) {
                 setViewData({ profile: tempProfile, job: tempJob });
             } else {
-                // Only show big loader if we have absolutely nothing
                 setIsLoading(true); 
             }
 
             // 2. Fetch Remote Data (Always run this to update background)
             const { data: remoteProfile } = await supabase.from('profiles').select('*').eq('id', userId).single();
             if (remoteProfile) {
+                // START: OFFLINE IMAGE CACHING LOGIC
+                if (remoteProfile.avatar_url) {
+                    try {
+                        // Create unique filename based on URL hash or simplified name
+                        // We use the last part of the URL + user ID to ensure uniqueness and freshness check
+                        const fileName = `${userId}_${remoteProfile.avatar_url.split('/').pop()}`;
+                        const localUri = `${FileSystem.documentDirectory}${fileName}`;
+                        
+                        // Check if we already have this specific file
+                        const fileInfo = await FileSystem.getInfoAsync(localUri);
+                        
+                        if (!fileInfo.exists) {
+                            // Download and cache
+                            await FileSystem.downloadAsync(remoteProfile.avatar_url, localUri);
+                        }
+                        
+                        // Save the local path to the profile object
+                        remoteProfile.local_avatar_path = localUri;
+                    } catch (err) {
+                        console.log("Error caching avatar for offline use:", err);
+                        // Fallback: keep existing local path if download fails? 
+                        // For now we just don't update local_avatar_path if download fails
+                        if (tempProfile && (tempProfile as any).local_avatar_path) {
+                             remoteProfile.local_avatar_path = (tempProfile as any).local_avatar_path;
+                        }
+                    }
+                }
+                // END: OFFLINE IMAGE CACHING LOGIC
+
                 await saveProfileLocal(remoteProfile);
                 
                 let remoteJob = null;
@@ -267,6 +289,10 @@ export default function ProfileScreen() {
                  try {
                      const publicUrl = await uploadAvatar(updates.avatar_url, user.id);
                      finalUpdates.avatar_url = publicUrl;
+                     
+                     // We also update local path immediately since we have the file locally
+                     finalUpdates.local_avatar_path = updates.avatar_url; 
+                     
                      if (oldAvatarUrl && oldAvatarUrl !== publicUrl) deleteOldAvatar(oldAvatarUrl);
                  } catch (e: any) {
                      setIsUpdating(false);
@@ -275,6 +301,7 @@ export default function ProfileScreen() {
                  }
             } else if (updates.avatar_url === null) {
                 finalUpdates.avatar_url = null;
+                finalUpdates.local_avatar_path = null;
                 if (oldAvatarUrl) deleteOldAvatar(oldAvatarUrl);
             }
 
@@ -283,7 +310,12 @@ export default function ProfileScreen() {
             setViewData(prev => ({ ...prev, profile: updatedProfile }));
             
             await saveProfileLocal(updatedProfile);
-            await queueSyncItem('profiles', user.id, 'UPDATE', finalUpdates);
+            // We don't sync 'local_avatar_path' to server, so we strip it if needed, 
+            // but sync_queue handles data blob. Be careful not to send local path to server if schema doesn't match.
+            // Assuming your sync worker extracts fields. If it sends raw JSON, ensure backend ignores unknown fields.
+            // For safety, let's strip it for the sync queue.
+            const { local_avatar_path, ...syncData } = finalUpdates;
+            await queueSyncItem('profiles', user.id, 'UPDATE', syncData);
             
             triggerSync();
         } catch (e: any) { 
@@ -319,6 +351,11 @@ export default function ProfileScreen() {
     })();
 
     const displayJobTitle = userProfile?.job_title || null; 
+    
+    // Determine which source to use: Local file > Remote URL
+    const avatarSource = userProfile?.local_avatar_path 
+        ? { uri: userProfile.local_avatar_path } 
+        : (userProfile?.avatar_url ? { uri: userProfile.avatar_url } : null);
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
@@ -359,16 +396,17 @@ export default function ProfileScreen() {
                         <TouchableOpacity onPress={() => setAvatarModalVisible(true)} activeOpacity={0.8}>
                             <View style={styles.avatarMainContainer}>
                                 <View style={[styles.avatarWrapper, { borderColor: theme.colors.primary, backgroundColor: theme.colors.card }]}>
-                                    {userProfile?.avatar_url && !imageError ? (
+                                    {avatarSource && !imageError ? (
                                         <>
                                             <Image 
-                                                key={userProfile.avatar_url}
-                                                source={{ uri: userProfile.avatar_url }} 
+                                                key={avatarSource.uri} // Force re-render if URI changes
+                                                source={avatarSource} 
                                                 style={styles.avatar} 
                                                 resizeMode="cover" 
                                                 onLoadStart={() => setIsAvatarLoading(true)}
                                                 onLoadEnd={() => setIsAvatarLoading(false)}
                                                 onError={() => {
+                                                    // If local fails, maybe retry or just show placeholder
                                                     setImageError(true);
                                                     setIsAvatarLoading(false);
                                                 }}

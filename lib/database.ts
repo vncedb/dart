@@ -15,7 +15,7 @@ export const initDatabase = async () => {
 
     -- CACHE TABLES
     -- FIX: Ensure avatar_url is in the schema
-    CREATE TABLE IF NOT EXISTS profiles (id TEXT PRIMARY KEY NOT NULL, email TEXT, first_name TEXT, last_name TEXT, middle_name TEXT, title TEXT, professional_suffix TEXT, current_job_id TEXT, full_name TEXT, avatar_url TEXT, updated_at TEXT);
+    CREATE TABLE IF NOT EXISTS profiles (id TEXT PRIMARY KEY NOT NULL, email TEXT, first_name TEXT, last_name TEXT, middle_name TEXT, title TEXT, professional_suffix TEXT, current_job_id TEXT, full_name TEXT, avatar_url TEXT, local_avatar_path TEXT, updated_at TEXT);
     CREATE TABLE IF NOT EXISTS job_positions (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, title TEXT, company TEXT, department TEXT, employment_status TEXT, rate REAL, rate_type TEXT, work_schedule TEXT, break_schedule TEXT, created_at TEXT, updated_at TEXT);
   `);
 
@@ -28,9 +28,10 @@ export const initDatabase = async () => {
   
   await addColumn('profiles', 'middle_name', 'TEXT');
   await addColumn('profiles', 'professional_suffix', 'TEXT');
-  // CRITICAL FIX: Add these columns to existing databases
   await addColumn('profiles', 'full_name', 'TEXT'); 
   await addColumn('profiles', 'avatar_url', 'TEXT');
+  // NEW: Add local path column for offline image caching
+  await addColumn('profiles', 'local_avatar_path', 'TEXT');
 
   await addColumn('job_positions', 'company', 'TEXT');
   await addColumn('job_positions', 'department', 'TEXT');
@@ -66,12 +67,11 @@ export const queueSyncItem = async (tableName: string, rowId: string, action: st
 
 export const saveProfileLocal = async (profile: any) => {
     const db = await getDB();
-    // FIX: Added 'avatar_url' to the INSERT statement.
-    // This allows the app to load the image path instantly from offline storage.
+    
     await db.runAsync(
         `INSERT OR REPLACE INTO profiles (
-            id, email, first_name, last_name, middle_name, title, professional_suffix, current_job_id, full_name, avatar_url, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            id, email, first_name, last_name, middle_name, title, professional_suffix, current_job_id, full_name, avatar_url, local_avatar_path, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             profile.id, 
             profile.email || '', 
@@ -82,7 +82,8 @@ export const saveProfileLocal = async (profile: any) => {
             profile.professional_suffix || '',
             profile.current_job_id, 
             profile.full_name || '',
-            profile.avatar_url || null, // SAVING URL HERE
+            profile.avatar_url || null,
+            profile.local_avatar_path || null, // SAVING LOCAL PATH
             profile.updated_at || new Date().toISOString()
         ]
     );
