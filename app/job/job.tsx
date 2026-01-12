@@ -13,6 +13,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
+    ActivityIndicator,
     FlatList,
     RefreshControl,
     Text,
@@ -98,8 +99,6 @@ export default function MyJobsScreen() {
             const netInfo = await NetInfo.fetch();
             setIsOffline(!netInfo.isConnected);
             
-            // REMOVED: Direct Supabase fetch and overwrite. 
-            // We rely on triggerSync/useSync to update the local DB.
         } catch (error) { 
             console.log('Error fetching jobs:', error); 
         } finally { 
@@ -132,8 +131,6 @@ export default function MyJobsScreen() {
                     await deleteJobLocal(id);
 
                     // 3. QUEUE DELETE SYNC
-                    // Note: deleteJobLocal (if updated per previous instructions) might already do this,
-                    // but calling it here ensures it is queued.
                     await queueSyncItem('job_positions', id, 'DELETE');
                     
                     // 4. SYNC (Push change immediately)
@@ -154,9 +151,7 @@ export default function MyJobsScreen() {
 
     const handleRefresh = async () => {
         setRefreshing(true);
-        // 1. Run Sync (Push pending deletes, then Pull updates)
         await triggerSync();
-        // 2. Reload UI from the updated Local DB
         await fetchJobs();
         setRefreshing(false);
     };
@@ -192,21 +187,28 @@ export default function MyJobsScreen() {
             <LoadingOverlay visible={deleting} message="Deleting job..." />
             <ModernAlert {...alertConfig} />
             <Header title="My Jobs" rightElement={!isOffline ? (<TouchableOpacity onPress={() => router.push('/job/form')} style={{ backgroundColor: theme.colors.primaryLight, padding: 8, borderRadius: 20 }}><HugeiconsIcon icon={PlusSignIcon} size={24} color={theme.colors.primary} /></TouchableOpacity>) : null} />
-            <FlatList 
-                data={jobs} 
-                keyExtractor={(item) => item.id} 
-                renderItem={renderJobItem} 
-                contentContainerStyle={{ padding: 24, paddingBottom: 100, flexGrow: 1 }} 
-                showsVerticalScrollIndicator={false} 
-                ListEmptyComponent={<EmptyJobCard theme={theme} router={router} isOffline={isOffline} />} 
-                refreshControl={
-                    <RefreshControl 
-                        refreshing={refreshing} 
-                        onRefresh={handleRefresh} 
-                        tintColor={theme.colors.primary} 
-                    />
-                } 
-            />
+            
+            {loading ? (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                    <ActivityIndicator size="large" color={theme.colors.primary} />
+                </View>
+            ) : (
+                <FlatList 
+                    data={jobs} 
+                    keyExtractor={(item) => item.id} 
+                    renderItem={renderJobItem} 
+                    contentContainerStyle={{ padding: 24, paddingBottom: 100, flexGrow: 1 }} 
+                    showsVerticalScrollIndicator={false} 
+                    ListEmptyComponent={<EmptyJobCard theme={theme} router={router} isOffline={isOffline} />} 
+                    refreshControl={
+                        <RefreshControl 
+                            refreshing={refreshing} 
+                            onRefresh={handleRefresh} 
+                            tintColor={theme.colors.primary} 
+                        />
+                    } 
+                />
+            )}
         </SafeAreaView>
     );
 }

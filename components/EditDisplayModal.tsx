@@ -1,17 +1,31 @@
 import {
+  Cancel01Icon,
+  CheckmarkCircle02Icon,
+  Menu01Icon,
   Tick02Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Animated,
+  Dimensions,
+  Easing,
   Modal,
+  Platform,
   Pressable,
-  ScrollView,
+  StyleSheet,
   Text,
   TouchableOpacity,
   View
 } from 'react-native';
+import DraggableFlatList, {
+  RenderItemParams,
+  ScaleDecorator
+} from 'react-native-draggable-flatlist';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useAppTheme } from '../constants/theme';
+
+const { height } = Dimensions.get('window');
 
 export const AVAILABLE_JOB_FIELDS = [
   { key: 'employment_status', label: 'Employment Status' },
@@ -21,6 +35,12 @@ export const AVAILABLE_JOB_FIELDS = [
   { key: 'payroll', label: 'Payroll Schedule' },
   { key: 'breaks', label: 'Unpaid Breaks' },
 ];
+
+interface JobField {
+  key: string;
+  label: string;
+  isActive: boolean;
+}
 
 interface EditDisplayModalProps {
   visible: boolean;
@@ -36,115 +56,233 @@ export default function EditDisplayModal({
   onSave,
 }: EditDisplayModalProps) {
   const theme = useAppTheme();
-  const [currentSelection, setCurrentSelection] = useState<string[]>([]);
+  const [data, setData] = useState<JobField[]>([]);
+  
+  // Animations
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(height)).current; 
 
   useEffect(() => {
     if (visible) {
-      setCurrentSelection(selectedKeys || []);
+      const selectedSet = new Set(selectedKeys);
+      const activeItems = selectedKeys
+        .map(key => AVAILABLE_JOB_FIELDS.find(f => f.key === key))
+        .filter(Boolean)
+        .map(item => ({ ...item!, isActive: true }));
+      const inactiveItems = AVAILABLE_JOB_FIELDS
+        .filter(item => !selectedSet.has(item.key))
+        .map(item => ({ ...item, isActive: false }));
+      setData([...activeItems, ...inactiveItems]);
+
+      // Enter Animation
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          damping: 20,
+          stiffness: 90,
+        })
+      ]).start();
+    } else {
+        // Reset when invisible
+        fadeAnim.setValue(0);
+        slideAnim.setValue(height);
     }
   }, [visible, selectedKeys]);
 
-  const toggleField = (key: string) => {
-    if (currentSelection.includes(key)) {
-      setCurrentSelection(currentSelection.filter(k => k !== key));
-    } else {
-      setCurrentSelection([...currentSelection, key]);
-    }
+  const closeModal = (callback?: () => void) => {
+    // Smooth Exit Animation
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: height,
+        duration: 250,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      })
+    ]).start(() => {
+      if (callback) callback();
+      onClose();
+    });
   };
 
-  const handleDone = () => {
-    // Sort based on the defined order in AVAILABLE_JOB_FIELDS
-    const sortedSelection = AVAILABLE_JOB_FIELDS
-      .filter(field => currentSelection.includes(field.key))
-      .map(field => field.key);
-      
-    onSave(sortedSelection);
-    onClose();
+  const toggleItem = (key: string) => {
+    setData(prev => prev.map(item => 
+      item.key === key ? { ...item, isActive: !item.isActive } : item
+    ));
   };
 
-  return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable
-        style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 }}
-        onPress={onClose}
-      >
-        <Pressable
-          style={{
-            backgroundColor: theme.colors.card,
-            borderRadius: 24,
-            overflow: 'hidden',
-            maxHeight: '80%',
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.1,
-            shadowRadius: 12,
-            elevation: 5,
-          }}
-          onPress={() => {}}
-        >
-          {/* Header */}
-          <View style={{ padding: 20, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.background }}>
-            <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.colors.text, textAlign: 'center' }}>
-              Edit Profile Display
-            </Text>
-          </View>
+  const handleSave = () => {
+    const newOrder = data
+      .filter(item => item.isActive)
+      .map(item => item.key);
+    
+    // Animate out THEN save to prevent visual jump
+    closeModal(() => onSave(newOrder));
+  };
 
-          <ScrollView style={{ paddingVertical: 8 }}>
-            {AVAILABLE_JOB_FIELDS.map((field) => {
-              const isSelected = currentSelection.includes(field.key);
-              return (
-                <TouchableOpacity
-                  key={field.key}
-                  onPress={() => toggleField(field.key)}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: 16,
-                    paddingHorizontal: 24,
-                    borderBottomWidth: 1,
-                    borderBottomColor: theme.colors.border + '30'
-                  }}
-                >
-                  {/* Label (Left) */}
-                  <Text style={{ fontSize: 16, fontWeight: isSelected ? '700' : '500', color: theme.colors.text }}>
-                    {field.label}
-                  </Text>
-
-                  {/* Checkmark (Right) */}
-                  <View style={{ width: 24, alignItems: 'flex-end' }}>
-                    {isSelected && (
-                      <HugeiconsIcon icon={Tick02Icon} size={20} color={theme.colors.primary} strokeWidth={3} />
-                    )}
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-
-          {/* Footer */}
-          <View style={{ padding: 20, borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.background }}>
-            <TouchableOpacity 
-              onPress={handleDone} 
-              style={{ 
-                width: '100%', 
-                padding: 16, 
-                backgroundColor: theme.colors.primary, 
-                borderRadius: 16, 
-                alignItems: 'center', 
-                justifyContent: 'center',
-                shadowColor: theme.colors.primary,
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.2,
+  const renderItem = useCallback(({ item, drag, isActive }: RenderItemParams<JobField>) => {
+    return (
+      <ScaleDecorator activeScale={1.02}>
+        <View style={{ paddingHorizontal: 24, marginBottom: 10 }}>
+          <View
+            style={[
+              styles.itemRow,
+              { 
+                backgroundColor: isActive ? theme.colors.card : theme.colors.background,
+                borderColor: isActive ? theme.colors.primary : theme.colors.border,
+                borderWidth: 1,
+                elevation: isActive ? 4 : 0,
+                shadowColor: "#000",
+                shadowOpacity: isActive ? 0.1 : 0,
                 shadowRadius: 8,
-                elevation: 4
-              }}
+                shadowOffset: { width: 0, height: 4 },
+              }
+            ]}
+          >
+            <TouchableOpacity
+              onPressIn={drag}
+              hitSlop={{ top: 15, bottom: 15, left: 20, right: 20 }}
+              style={styles.dragHandle}
             >
-              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>Done</Text>
+              <HugeiconsIcon icon={Menu01Icon} size={20} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.contentContainer}
+              onPress={() => toggleItem(item.key)}
+              activeOpacity={0.8}
+            >
+              <Text style={[
+                styles.itemLabel, 
+                { 
+                  color: theme.colors.text,
+                  opacity: item.isActive ? 1 : 0.5,
+                  fontWeight: item.isActive ? '600' : '500'
+                }
+              ]}>
+                {item.label}
+              </Text>
+
+              <View style={[
+                styles.checkBox, 
+                { 
+                  borderColor: item.isActive ? theme.colors.primary : theme.colors.border,
+                  backgroundColor: item.isActive ? theme.colors.primary : 'transparent'
+                }
+              ]}>
+                {item.isActive && (
+                  <HugeiconsIcon icon={Tick02Icon} size={12} color="#FFF" strokeWidth={4} />
+                )}
+              </View>
             </TouchableOpacity>
           </View>
-        </Pressable>
-      </Pressable>
+        </View>
+      </ScaleDecorator>
+    );
+  }, [theme, data]);
+
+  // Don't render if not visible (helps with animation reset)
+  if (!visible) return null;
+
+  return (
+    <Modal visible={true} transparent animationType="none" onRequestClose={() => closeModal()}>
+      <GestureHandlerRootView style={styles.overlay}>
+        <Animated.View style={[styles.backdrop, { opacity: fadeAnim }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => closeModal()} />
+        </Animated.View>
+        
+        <Animated.View 
+          style={[
+            styles.modalContainerWrapper, 
+            { transform: [{ translateY: slideAnim }] }
+          ]}
+        >
+          <View style={[styles.modalContainer, { backgroundColor: theme.colors.card }]}>
+            <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
+              <View>
+                <Text style={[styles.title, { color: theme.colors.text }]}>Customize Details</Text>
+                <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Drag handle to reorder</Text>
+              </View>
+              <TouchableOpacity onPress={() => closeModal()} style={[styles.closeBtn, { backgroundColor: theme.colors.background }]}>
+                <HugeiconsIcon icon={Cancel01Icon} size={18} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <DraggableFlatList
+              data={data}
+              onDragEnd={({ data }) => setData(data)}
+              keyExtractor={(item) => item.key}
+              renderItem={renderItem}
+              containerStyle={{ flex: 1 }} 
+              contentContainerStyle={{ paddingVertical: 20 }}
+              showsVerticalScrollIndicator={false}
+              activationDistance={5}
+            />
+
+            <View style={[styles.footer, { borderTopColor: theme.colors.border, backgroundColor: theme.colors.card }]}>
+              <TouchableOpacity onPress={handleSave} style={[styles.saveButton, { backgroundColor: theme.colors.primary }]}>
+                <HugeiconsIcon icon={CheckmarkCircle02Icon} size={18} color="#FFF" />
+                <Text style={styles.saveButtonText}>Save Changes</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Animated.View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }
+
+const styles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  modalContainerWrapper: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalContainer: {
+    height: '70%', 
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: 'hidden',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    borderBottomWidth: 1,
+  },
+  title: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
+  subtitle: { fontSize: 13, fontWeight: '500', marginTop: 2 },
+  closeBtn: { padding: 8, borderRadius: 50 },
+  itemRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 14, height: 58 },
+  dragHandle: { height: '100%', paddingLeft: 16, paddingRight: 12, justifyContent: 'center', alignItems: 'center' },
+  contentContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', height: '100%', paddingRight: 16 },
+  itemLabel: { flex: 1, fontSize: 15 },
+  checkBox: { width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  footer: { padding: 24, paddingBottom: Platform.OS === 'ios' ? 34 : 24, borderTopWidth: 1 },
+  saveButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 16, gap: 8 },
+  saveButtonText: { color: '#FFF', fontSize: 15, fontWeight: '700' },
+});

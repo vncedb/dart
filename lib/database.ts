@@ -14,11 +14,13 @@ export const initDatabase = async () => {
     CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT);
 
     -- CACHE TABLES
-    CREATE TABLE IF NOT EXISTS profiles (id TEXT PRIMARY KEY NOT NULL, email TEXT, first_name TEXT, last_name TEXT, middle_name TEXT, title TEXT, professional_suffix TEXT, current_job_id TEXT, updated_at TEXT);
+    -- FIX: Ensure avatar_url is in the schema
+    CREATE TABLE IF NOT EXISTS profiles (id TEXT PRIMARY KEY NOT NULL, email TEXT, first_name TEXT, last_name TEXT, middle_name TEXT, title TEXT, professional_suffix TEXT, current_job_id TEXT, full_name TEXT, avatar_url TEXT, updated_at TEXT);
     CREATE TABLE IF NOT EXISTS job_positions (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, title TEXT, company TEXT, department TEXT, employment_status TEXT, rate REAL, rate_type TEXT, work_schedule TEXT, break_schedule TEXT, created_at TEXT, updated_at TEXT);
   `);
 
   // --- MIGRATIONS ---
+  // This safeguards existing users. It adds the columns if they are missing.
   const addColumn = async (table: string, col: string, type: string) => {
     try { await database.execAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${type};`); } 
     catch (e: any) { if (!e.message?.includes('duplicate column')) console.log(`Migration Note (${table}.${col}):`, e.message); }
@@ -26,6 +28,10 @@ export const initDatabase = async () => {
   
   await addColumn('profiles', 'middle_name', 'TEXT');
   await addColumn('profiles', 'professional_suffix', 'TEXT');
+  // CRITICAL FIX: Add these columns to existing databases
+  await addColumn('profiles', 'full_name', 'TEXT'); 
+  await addColumn('profiles', 'avatar_url', 'TEXT');
+
   await addColumn('job_positions', 'company', 'TEXT');
   await addColumn('job_positions', 'department', 'TEXT');
   await addColumn('job_positions', 'employment_status', 'TEXT');
@@ -60,8 +66,12 @@ export const queueSyncItem = async (tableName: string, rowId: string, action: st
 
 export const saveProfileLocal = async (profile: any) => {
     const db = await getDB();
+    // FIX: Added 'avatar_url' to the INSERT statement.
+    // This allows the app to load the image path instantly from offline storage.
     await db.runAsync(
-        `INSERT OR REPLACE INTO profiles (id, email, first_name, last_name, middle_name, title, professional_suffix, current_job_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO profiles (
+            id, email, first_name, last_name, middle_name, title, professional_suffix, current_job_id, full_name, avatar_url, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             profile.id, 
             profile.email || '', 
@@ -71,6 +81,8 @@ export const saveProfileLocal = async (profile: any) => {
             profile.title || '', 
             profile.professional_suffix || '',
             profile.current_job_id, 
+            profile.full_name || '',
+            profile.avatar_url || null, // SAVING URL HERE
             profile.updated_at || new Date().toISOString()
         ]
     );
@@ -97,24 +109,15 @@ export const saveJobLocal = async (job: any) => {
     );
 };
 
-// --- FIX: UPDATED DELETE LOGIC ---
 export const deleteJobLocal = async (id: string) => {
     const db = await getDB();
-
-    // 1. Unlink from local profiles
-    // We search for any profile using this job and set it to null
     await db.runAsync(`UPDATE profiles SET current_job_id = NULL WHERE current_job_id = ?`, [id]);
     
-    // 2. Queue the profile update so Supabase knows we unlinked it
-    // Note: We need the user_id to queue a profile update. We can fetch it first.
     const job: any = await db.getFirstAsync('SELECT user_id FROM job_positions WHERE id = ?', [id]);
     if (job && job.user_id) {
         await queueSyncItem('profiles', job.user_id, 'UPDATE', { current_job_id: null });
     }
 
-    // 3. Delete the job locally
     await db.runAsync('DELETE FROM job_positions WHERE id = ?', [id]);
-
-    // 4. Queue the job deletion
     await queueSyncItem('job_positions', id, 'DELETE');
 };

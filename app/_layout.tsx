@@ -6,7 +6,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useColorScheme } from 'nativewind';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, LogBox, StyleSheet, View } from 'react-native';
-import { GestureHandlerRootView } from 'react-native-gesture-handler'; // <--- IMPORT THIS
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import AppSplash from '../components/AppSplash';
@@ -82,7 +82,6 @@ function RootLayoutNav() {
   }, [isAuthLoading, fontsLoaded, session]);
 
   // Splash Screen Hide Logic
-  // Only hide when: Fonts loaded, Auth checked, AND Biometrics checked
   useEffect(() => {
     if (fontsLoaded && !isAuthLoading && !isCheckingBio) {
       setTimeout(() => {
@@ -113,12 +112,19 @@ function RootLayoutNav() {
           <Stack.Screen name="onboarding/welcome" options={{ animation: 'slide_from_right', gestureEnabled: false }} />
           <Stack.Screen name="onboarding/info" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
+          
+          {/* Settings & Profile */}
           <Stack.Screen name="settings" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="settings/account-security" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="settings/notifications" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="settings/privacy-policy" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="edit-profile" options={{ animation: 'slide_from_right' }} /> 
+
+          {/* Job */}
           <Stack.Screen name="job/job" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="job/form" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
+          
+          {/* Reports */}
           <Stack.Screen name="reports/details" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />
           <Stack.Screen name="reports/history" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen name="reports/print" options={{ animation: 'slide_from_bottom', presentation: 'modal' }} />

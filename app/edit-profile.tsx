@@ -1,20 +1,25 @@
 import {
   ArrowDown01Icon,
   Briefcase01Icon,
+  Cancel01Icon,
   CheckmarkCircle02Icon,
   PlusSignIcon,
   Tick02Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  Dimensions,
+  Easing,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
@@ -29,43 +34,116 @@ import SearchableSelectionModal from '../components/SearchableSelectionModal';
 import { PROFESSIONAL_SUFFIXES, PROFESSIONAL_TITLES } from '../constants/profile-options';
 import { useAppTheme } from '../constants/theme';
 import { useSync } from '../context/SyncContext';
-import { supabase } from '../lib/supabase';
-// Import Local Helpers
 import { queueSyncItem, saveProfileLocal } from '../lib/database';
 import { getDB } from '../lib/db-client';
+import { supabase } from '../lib/supabase';
 
-const JobSelectionModal = ({ visible, onClose, onSelect, currentJobId, jobs, onAddJob, theme }: any) => (
-  <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-    <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 }} onPress={onClose}>
-      <View style={{ backgroundColor: theme.colors.card, borderRadius: 24, overflow: 'hidden', borderWidth: 1, borderColor: theme.colors.border, maxHeight: '80%' }}>
-        <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: theme.colors.border, backgroundColor: theme.colors.background }}>
-          <Text style={{ fontSize: 16, fontWeight: 'bold', textAlign: 'center', color: theme.colors.text }}>Select Primary Job</Text>
-        </View>
-        <ScrollView contentContainerStyle={{ padding: 0 }}>
-          {jobs.length === 0 ? (
-             <View style={{ alignItems: 'center', justifyContent: 'center', padding: 32 }}><Text style={{ color: theme.colors.textSecondary }}>No jobs found.</Text></View>
-          ) : (
-            jobs.map((job: any, idx: number) => {
-                const companyDisplay = job.company_name || job.company || '';
-                return (
-                    <TouchableOpacity key={job.id} onPress={() => { onSelect(job); onClose(); }} style={{ padding: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: idx < jobs.length - 1 ? 1 : 0, borderBottomColor: theme.colors.border }}>
-                        <View style={{ flex: 1, paddingRight: 12 }}>
-                            <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '600', color: theme.colors.text, marginBottom: 4 }}>{job.title}</Text>
-                            {companyDisplay ? <Text numberOfLines={1} style={{ fontSize: 13, color: theme.colors.textSecondary }}>{companyDisplay}</Text> : null}
-                        </View>
-                        {currentJobId === job.id && <HugeiconsIcon icon={Tick02Icon} size={20} color={theme.colors.primary} />}
+const { height } = Dimensions.get('window');
+
+// --- Types ---
+interface Job {
+  id: string;
+  title: string;
+  company?: string;
+  company_name?: string;
+  [key: string]: any;
+}
+
+interface JobSelectionModalProps {
+  visible: boolean;
+  onClose: () => void;
+  onSelect: (job: Job) => void;
+  currentJobId: string | null;
+  jobs: Job[];
+  onAddJob: () => void;
+  theme: any;
+}
+
+// --- Animated JobSelectionModal ---
+const JobSelectionModal = ({ visible, onClose, onSelect, currentJobId, jobs, onAddJob, theme }: JobSelectionModalProps) => {
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(height)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true, damping: 20, stiffness: 90 })
+      ]).start();
+    } else {
+        fadeAnim.setValue(0);
+        slideAnim.setValue(height);
+    }
+  }, [visible, fadeAnim, slideAnim]);
+
+  const closeModal = (callback?: () => void) => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+      Animated.timing(slideAnim, { 
+          toValue: height, 
+          duration: 250, 
+          easing: Easing.out(Easing.cubic), 
+          useNativeDriver: true 
+      })
+    ]).start(() => {
+        if (callback) callback();
+        onClose();
+    });
+  };
+
+  if (!visible) return null;
+
+  return (
+    <Modal visible={true} transparent animationType="none" onRequestClose={() => closeModal()}>
+      <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+        {/* Fixed: Explicit Absolute Fill to avoid TS Errors */}
+        <Animated.View 
+            style={{ 
+                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                backgroundColor: 'rgba(0,0,0,0.4)', 
+                opacity: fadeAnim 
+            }}
+        >
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => closeModal()} />
+        </Animated.View>
+
+        <Animated.View style={{ transform: [{ translateY: slideAnim }], width: '100%' }}>
+            <View style={{ backgroundColor: theme.colors.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: 'hidden', height: '80%' }}>
+                {/* Header */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                    <Text style={{ fontSize: 18, fontWeight: '700', color: theme.colors.text }}>Select Primary Job</Text>
+                    <TouchableOpacity onPress={() => closeModal()} style={{ padding: 8, borderRadius: 50, backgroundColor: theme.colors.background }}>
+                        <HugeiconsIcon icon={Cancel01Icon} size={18} color={theme.colors.text} />
                     </TouchableOpacity>
-                );
-            })
-          )}
-        </ScrollView>
-        <TouchableOpacity onPress={() => { onClose(); onAddJob(); }} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16, borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.background }}>
-          <HugeiconsIcon icon={PlusSignIcon} size={20} color={theme.colors.primary} /><Text style={{ fontSize: 16, fontWeight: 'bold', color: theme.colors.primary, marginLeft: 8 }}>Add New Job</Text>
-        </TouchableOpacity>
+                </View>
+
+                <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+                {jobs.length === 0 ? (
+                    <View style={{ alignItems: 'center', justifyContent: 'center', padding: 32 }}><Text style={{ color: theme.colors.textSecondary }}>No jobs found.</Text></View>
+                ) : (
+                    jobs.map((job: Job, idx: number) => {
+                        const companyDisplay = job.company || job.company_name || '';
+                        return (
+                            <TouchableOpacity key={job.id} onPress={() => closeModal(() => onSelect(job))} style={{ padding: 20, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: idx < jobs.length - 1 ? 1 : 0, borderBottomColor: theme.colors.border }}>
+                                <View style={{ flex: 1, paddingRight: 12 }}>
+                                    <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '600', color: theme.colors.text, marginBottom: 4 }}>{job.title}</Text>
+                                    {companyDisplay ? <Text numberOfLines={1} style={{ fontSize: 13, color: theme.colors.textSecondary }}>{companyDisplay}</Text> : null}
+                                </View>
+                                {currentJobId === job.id && <HugeiconsIcon icon={Tick02Icon} size={20} color={theme.colors.primary} />}
+                            </TouchableOpacity>
+                        );
+                    })
+                )}
+                </ScrollView>
+                <TouchableOpacity onPress={() => closeModal(onAddJob)} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16, borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.background, paddingBottom: 34 }}>
+                    <HugeiconsIcon icon={PlusSignIcon} size={20} color={theme.colors.primary} /><Text style={{ fontSize: 16, fontWeight: 'bold', color: theme.colors.primary, marginLeft: 8 }}>Add New Job</Text>
+                </TouchableOpacity>
+            </View>
+        </Animated.View>
       </View>
-    </Pressable>
-  </Modal>
-);
+    </Modal>
+  );
+};
 
 export default function EditProfileScreen() {
   const router = useRouter();
@@ -78,7 +156,7 @@ export default function EditProfileScreen() {
   const [suffixModalVisible, setSuffixModalVisible] = useState(false);
   const [jobModalVisible, setJobModalVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
-  const [availableJobs, setAvailableJobs] = useState<any[]>([]);
+  const [availableJobs, setAvailableJobs] = useState<Job[]>([]);
 
   const [profile, setProfile] = useState({
     id: '', 
@@ -103,13 +181,16 @@ export default function EditProfileScreen() {
         const db = await getDB();
         
         let profileData: any = null;
-        let jobsData: any[] = [];
+        let jobsData: Job[] = [];
 
-        // Local First
+        // Fetch Profile & Jobs
         profileData = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
         const localJobs = await db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ?', [user.id]);
-        jobsData = localJobs as any[] || [];
+        
+        // Cast to Job[] to satisfy TS
+        jobsData = (localJobs as Job[]) || [];
 
+        // If no local profile, try fetching remote
         if (!profileData) {
              const { data: remoteProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
              if (remoteProfile) {
@@ -126,9 +207,12 @@ export default function EditProfileScreen() {
 
         if (profileData) {
             currentJobId = profileData.current_job_id;
-            if (currentJobId && jobsData) {
-                const active = jobsData.find((j:any) => j.id === currentJobId);
-                if (active) { currentJobName = active.title; currentCompany = active.company_name || active.company || ''; }
+            if (currentJobId && jobsData.length > 0) {
+                const active = jobsData.find((j) => j.id === currentJobId);
+                if (active) { 
+                    currentJobName = active.title; 
+                    currentCompany = active.company || active.company_name || ''; 
+                }
             }
             setProfile({
                 id: user.id, 
@@ -143,7 +227,12 @@ export default function EditProfileScreen() {
                 display_company: currentCompany
             });
         }
-      } catch (e) { console.log(e); } finally { setLoading(false); }
+      } catch (e) { 
+          console.log(e); 
+      } finally { 
+          // Ensure loading stays true until everything is set
+          setLoading(false); 
+      }
   };
 
   const handleSave = async () => {
@@ -194,11 +283,13 @@ export default function EditProfileScreen() {
 
       <SearchableSelectionModal visible={titleModalVisible} onClose={() => setTitleModalVisible(false)} title="Select Title" options={PROFESSIONAL_TITLES} onSelect={(val: string) => setProfile({...profile, title: val})} placeholder="Search titles..." theme={theme} currentValue={profile.title} />
       <SearchableSelectionModal visible={suffixModalVisible} onClose={() => setSuffixModalVisible(false)} title="Select Professional Suffix" options={PROFESSIONAL_SUFFIXES} onSelect={(val: string) => setProfile({...profile, professional_suffix: val})} placeholder="Search suffixes..." theme={theme} currentValue={profile.professional_suffix} />
-      <JobSelectionModal visible={jobModalVisible} onClose={() => setJobModalVisible(false)} currentJobId={profile.current_job_id} jobs={availableJobs} onSelect={(job: any) => setProfile({ ...profile, current_job_id: job.id, display_job_title: job.title, display_company: job.company_name || job.company || '' })} onAddJob={() => router.push('/job/form')} theme={theme} />
+      <JobSelectionModal visible={jobModalVisible} onClose={() => setJobModalVisible(false)} currentJobId={profile.current_job_id} jobs={availableJobs} onSelect={(job: any) => setProfile({ ...profile, current_job_id: job.id, display_job_title: job.title, display_company: job.company || job.company_name || '' })} onAddJob={() => router.push('/job/form')} theme={theme} />
 
       <Header title="Edit Profile" rightElement={<TouchableOpacity onPress={handleSave} disabled={saving || loading} style={{ padding: 8, backgroundColor: theme.colors.primaryLight, borderRadius: 20 }}><HugeiconsIcon icon={CheckmarkCircle02Icon} size={24} color={theme.colors.primary} /></TouchableOpacity>} />
 
-      {loading ? <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={theme.colors.primary} /></View> : (
+      {loading ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={theme.colors.primary} /></View>
+      ) : (
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
             <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 40 }}>
               <View style={{ marginBottom: 32 }}>
