@@ -1,6 +1,5 @@
 import {
-    Alarm01Icon,
-    CheckmarkCircle02Icon,
+    CheckmarkCircle01Icon, // FIXED: Changed from 02 to 01 (safer for free tier)
     Clock01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
@@ -93,27 +92,28 @@ const DailySummaryCard = ({
     }, [isOvertime, isClockedIn]);
 
     // --- Styling Config ---
-    const SIZE = 100; 
-    const RADIUS = 42; 
-    const STROKE_WIDTH = 8; 
+    const SIZE = 120; 
+    const RADIUS = 50; 
+    const STROKE_WIDTH = 10; 
     const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
     let accentColor = theme.colors.primary;
     let statusText = 'ON TRACK';
     let statusBg = theme.colors.primary + '15';
 
+    // Modern Gradient Colors
     const gradientColors = theme.dark 
-        ? [theme.colors.card, "#1e293b"] 
-        : ["#ffffff", "#f8fafc"];
+        ? [theme.colors.card, "#0f172a"] 
+        : ["#ffffff", "#f1f5f9"];
 
     if (isOvertime) {
         accentColor = '#ef4444'; // Red
         statusText = 'OVERTIME';
         statusBg = '#ef444415';
     } else if (displayPercentage >= 100 && isClockedIn) {
-        accentColor = '#eab308'; // Gold
+        accentColor = '#10b981'; // Emerald
         statusText = 'GOAL MET';
-        statusBg = '#eab30815';
+        statusBg = '#10b98115';
     } else if (!isClockedIn) {
         accentColor = theme.colors.textSecondary;
         statusText = 'OFF DUTY';
@@ -134,62 +134,65 @@ const DailySummaryCard = ({
             <View style={StyleSheet.absoluteFill}>
                 <Svg height="100%" width="100%">
                     <Defs>
-                        <LinearGradient id="cardGrad" x1="0" y1="0" x2="0" y2="1">
+                        <LinearGradient id="cardGrad" x1="0" y1="0" x2="1" y2="1">
                             <Stop offset="0" stopColor={gradientColors[0]} stopOpacity="1" />
                             <Stop offset="1" stopColor={gradientColors[1]} stopOpacity="1" />
                         </LinearGradient>
                     </Defs>
-                    <Rect x="0" y="0" width="100%" height="100%" fill="url(#cardGrad)" />
+                    <Rect x="0" y="0" width="100%" height="100%" rx={24} fill="url(#cardGrad)" />
                 </Svg>
             </View>
 
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
                 
-                {/* LEFT: Stats & Timer */}
-                <View style={{ flex: 1 }}>
-                    {/* Status Pill */}
+                {/* LEFT: Context & Stats */}
+                <View style={{ flex: 1, justifyContent: 'center' }}>
+                    {/* Status Badge */}
                     <AnimatedView style={[styles.statusBadge, animatedPulseStyle, { backgroundColor: statusBg, borderColor: isOvertime ? accentColor : 'transparent' }]}>
                         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: accentColor, marginRight: 6 }} />
-                        <Text style={{ color: accentColor, fontSize: 10, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase' }}>{statusText}</Text>
+                        <Text style={{ color: accentColor, fontSize: 10, fontWeight: '800', letterSpacing: 0.5, textTransform: 'uppercase' }}>{statusText}</Text>
                     </AnimatedView>
 
-                    {/* Main Timer */}
-                    <View style={{ marginTop: 12, marginBottom: 12 }}>
-                        <Text style={{ fontSize: 40, fontWeight: '800', color: theme.colors.text, fontVariant: ['tabular-nums'], letterSpacing: -1.5, lineHeight: 44 }}>
-                            {h}<Text style={{ fontSize: 18, color: theme.colors.textSecondary, fontWeight: '600' }}>h</Text> {m.toString().padStart(2, '0')}<Text style={{ fontSize: 18, color: theme.colors.textSecondary, fontWeight: '600' }}>m</Text>
+                    {/* Main Text Stats */}
+                    <View style={{ marginTop: 16, marginBottom: 16 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '600', color: theme.colors.textSecondary, marginBottom: 2, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                            Total Hours
+                        </Text>
+                        <Text style={{ fontSize: 36, fontWeight: '800', color: theme.colors.text, fontVariant: ['tabular-nums'], letterSpacing: -1, lineHeight: 40 }}>
+                            {h}<Text style={{ fontSize: 16, color: theme.colors.textSecondary, fontWeight: '600' }}>h</Text> {m.toString().padStart(2, '0')}<Text style={{ fontSize: 16, color: theme.colors.textSecondary, fontWeight: '600' }}>m</Text>
                         </Text>
                     </View>
 
-                    {/* Footer Stats */}
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', opacity: 0.7 }}>
-                            <HugeiconsIcon icon={Clock01Icon} size={14} color={theme.colors.text} />
-                            <Text style={{ fontSize: 12, fontWeight: '600', color: theme.colors.text, marginLeft: 5 }}>
+                    {/* Meta Details Row */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                        <View style={styles.metaItem}>
+                            <HugeiconsIcon icon={Clock01Icon} size={14} color={theme.colors.textSecondary} />
+                            <Text style={{ fontSize: 12, fontWeight: '600', color: theme.colors.text, marginLeft: 4 }}>
                                 {isClockedIn && startTime ? format(new Date(startTime), 'h:mm a') : '--:--'}
                             </Text>
                         </View>
                         <View style={{ width: 1, height: 12, backgroundColor: theme.colors.border }} />
-                        <View style={{ flexDirection: 'row', alignItems: 'center', opacity: 0.7 }}>
-                            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} color={theme.colors.text} />
-                            <Text style={{ fontSize: 12, fontWeight: '600', color: theme.colors.text, marginLeft: 5 }}>
-                                {dailyGoal}h
+                        <View style={styles.metaItem}>
+                            <HugeiconsIcon icon={CheckmarkCircle01Icon} size={14} color={theme.colors.textSecondary} />
+                            <Text style={{ fontSize: 12, fontWeight: '600', color: theme.colors.text, marginLeft: 4 }}>
+                                {dailyGoal}h Goal
                             </Text>
                         </View>
                     </View>
                 </View>
 
-                {/* RIGHT: Circular Progress */}
+                {/* RIGHT: Modern Circle Graph */}
                 <View style={{ width: SIZE, height: SIZE, alignItems: 'center', justifyContent: 'center' }}>
                     <Svg width={SIZE} height={SIZE}>
                         <G rotation="-90" origin={`${SIZE/2}, ${SIZE/2}`}>
-                            {/* Background Track */}
+                            {/* Track */}
                             <Circle 
                                 cx={SIZE/2} cy={SIZE/2} r={RADIUS} 
-                                stroke={theme.dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)"} 
+                                stroke={theme.dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.04)"} 
                                 strokeWidth={STROKE_WIDTH} 
                                 fill="none" 
                             />
-                            {/* Animated Progress */}
+                            {/* Progress */}
                             <AnimatedCircle 
                                 cx={SIZE/2} cy={SIZE/2} r={RADIUS} 
                                 stroke={accentColor} 
@@ -206,37 +209,25 @@ const DailySummaryCard = ({
                     <View style={StyleSheet.absoluteFillObject} className="items-center justify-center">
                         {isOvertime ? (
                             <View style={{ alignItems: 'center' }}>
-                                <Text style={{ fontSize: 10, fontWeight: '700', color: accentColor, marginBottom: 1 }}>OVER</Text>
-                                <Text style={{ fontSize: 13, fontWeight: '800', color: theme.colors.text, fontVariant: ['tabular-nums'] }}>
+                                <Text style={{ fontSize: 9, fontWeight: '800', color: accentColor, marginBottom: 0, textTransform: 'uppercase' }}>OVERTIME</Text>
+                                <Text style={{ fontSize: 16, fontWeight: '800', color: theme.colors.text, fontVariant: ['tabular-nums'] }}>
                                     +{otH}:{otM.toString().padStart(2,'0')}
                                 </Text>
                             </View>
                         ) : (
                             <View style={{ alignItems: 'center' }}>
-                                <Text style={{ fontSize: 20, fontWeight: '800', color: theme.colors.text }}>{displayPercentage}<Text style={{ fontSize: 11 }}>%</Text></Text>
+                                <Text style={{ fontSize: 22, fontWeight: '800', color: theme.colors.text }}>
+                                    {displayPercentage}
+                                    <Text style={{ fontSize: 12, color: theme.colors.textSecondary }}>%</Text>
+                                </Text>
                             </View>
                         )}
                     </View>
 
                     {/* Auto-Checkout Badge (Floating) */}
                     {isOvertime && otExpiry && (
-                        <View style={{ 
-                            position: 'absolute', 
-                            bottom: -10, 
-                            backgroundColor: theme.colors.danger, 
-                            paddingHorizontal: 8, 
-                            paddingVertical: 3, 
-                            borderRadius: 12,
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            shadowColor: theme.colors.danger,
-                            shadowOpacity: 0.3,
-                            shadowRadius: 4,
-                            elevation: 4,
-                            borderWidth: 2,
-                            borderColor: theme.colors.card
-                        }}>
-                            <HugeiconsIcon icon={Alarm01Icon} size={10} color="#fff" />
+                        <View style={[styles.timerBadge, { backgroundColor: theme.colors.danger, borderColor: theme.colors.card }]}>
+                            <HugeiconsIcon icon={Clock01Icon} size={10} color="#fff" />
                             <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700', marginLeft: 4, fontVariant: ['tabular-nums'] }}>
                                 -{remH}:{remM.toString().padStart(2,'0')}:{remS.toString().padStart(2,'0')}
                             </Text>
@@ -250,24 +241,43 @@ const DailySummaryCard = ({
 
 const styles = StyleSheet.create({
     card: { 
-        borderRadius: 32, // Refined Edges like Profile
+        borderRadius: 24, 
         padding: 24, 
         borderWidth: 1,
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.04,
-        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.03,
+        shadowRadius: 16,
         elevation: 2,
         overflow: 'visible' 
     },
     statusBadge: {
         flexDirection: 'row', 
         alignItems: 'center', 
-        paddingHorizontal: 12, 
-        paddingVertical: 6, 
-        borderRadius: 100, 
+        paddingHorizontal: 10, 
+        paddingVertical: 5, 
+        borderRadius: 8, 
         borderWidth: 1,
         alignSelf: 'flex-start'
+    },
+    metaItem: {
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        opacity: 0.8
+    },
+    timerBadge: {
+        position: 'absolute', 
+        bottom: -6, 
+        paddingHorizontal: 10, 
+        paddingVertical: 4, 
+        borderRadius: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        shadowColor: "#000",
+        shadowOpacity: 0.2,
+        shadowRadius: 4,
+        elevation: 4,
+        borderWidth: 2,
     }
 });
 

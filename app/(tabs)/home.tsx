@@ -1,5 +1,6 @@
 import {
-    Briefcase01Icon, // FIXED: Added this missing import
+    Briefcase01Icon,
+    Notification01Icon, // FIXED: Changed from 03 to 01
     PlusSignIcon,
     WifiOffIcon
 } from '@hugeicons/core-free-icons';
@@ -499,12 +500,16 @@ export default function Home() {
                 setAlertType('check-in');
             }
             
+            // FIXED: Safer audio playback
             if (appSettings.soundEnabled) {
                 try {
-                    successPlayer.seekTo(0); 
-                    successPlayer.play(); 
+                    // Check if player is still valid/loaded before playing
+                    if (successPlayer) {
+                        successPlayer.seekTo(0); 
+                        successPlayer.play(); 
+                    }
                 } catch (audioErr) {
-                    console.log("Audio play failed:", audioErr);
+                    console.log("Audio play failed (non-fatal):", audioErr);
                 }
             }
             if (appSettings.vibrationEnabled) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -597,14 +602,31 @@ export default function Home() {
 
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                     <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.5 }}>{activityTitle}</Text>
-                    <TouchableOpacity 
-                        disabled={!isClockedIn} 
-                        onPress={() => router.push({ pathname: '/reports/add-entry', params: { jobId: activeJobId } })} 
-                        style={{ backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background, borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}
-                    >
-                        <HugeiconsIcon icon={PlusSignIcon} size={20} color={isClockedIn ? theme.colors.primary : theme.colors.icon} />
-                    </TouchableOpacity>
+                    
+                    {/* UPDATED: Action Buttons Row */}
+                    <View style={{ flexDirection: 'row', gap: 12 }}>
+                         {/* Notification Button */}
+                         <TouchableOpacity 
+                            onPress={() => setNotifModalVisible(true)} 
+                            style={{ backgroundColor: theme.colors.card, borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.colors.border }}
+                        >
+                            <HugeiconsIcon icon={Notification01Icon} size={18} color={theme.colors.text} />
+                            {unreadNotifsCount > 0 && (
+                                <View style={{ position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.danger, borderWidth: 1.5, borderColor: theme.colors.card }} />
+                            )}
+                        </TouchableOpacity>
+
+                        {/* Add Entry Button */}
+                        <TouchableOpacity 
+                            disabled={!isClockedIn} 
+                            onPress={() => router.push({ pathname: '/reports/add-entry', params: { jobId: activeJobId } })} 
+                            style={{ backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background, borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}
+                        >
+                            <HugeiconsIcon icon={PlusSignIcon} size={20} color={isClockedIn ? theme.colors.primary : theme.colors.icon} />
+                        </TouchableOpacity>
+                    </View>
                 </View>
+                
                 <View style={{ backgroundColor: theme.colors.card, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' }} collapsable={false}>
                     <View style={{ padding: 20 }}>
                         <ActivityTimeline 
