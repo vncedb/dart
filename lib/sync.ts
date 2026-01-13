@@ -23,7 +23,6 @@ export const syncPush = async () => {
       try {
          payload = data ? JSON.parse(data) : {};
       } catch (e) {
-         // Bad JSON, delete it so it doesn't block queue
          await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [id]);
          continue;
       }
@@ -41,7 +40,6 @@ export const syncPush = async () => {
           const { error: deleteError } = await supabase.from(table_name).delete().eq('id', row_id);
           error = deleteError;
 
-          // Self-healing: FK violation on job deletion
           if (error && error.code === '23503' && table_name === 'job_positions') {
              await supabase.from('profiles').update({ current_job_id: null }).eq('current_job_id', row_id);
              const { error: retryError } = await supabase.from(table_name).delete().eq('id', row_id);
@@ -50,12 +48,10 @@ export const syncPush = async () => {
         }
 
         if (!error || error.code === 'PGRST116' || error.code === '23505') {
-          // Success or "already exists" (idempotent)
           await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [id]);
           successCount++;
         } else {
           console.error(`Sync error for item ${id}:`, error);
-          // Increment retry count
           await db.runAsync('UPDATE sync_queue SET retry_count = retry_count + 1 WHERE id = ?', [id]);
         }
       } catch (innerError) {
@@ -80,14 +76,12 @@ export const syncPull = async (userId: string) => {
     const lastSyncedAt = result?.value || '1970-01-01T00:00:00.000Z';
     const newSyncTime = new Date().toISOString();
 
-    // 1. CONFLICT PROTECTION: Get IDs of rows we have modified locally but not pushed yet
     const pendingRows = await db.getAllAsync('SELECT table_name, row_id FROM sync_queue');
     const pendingMap = new Set(pendingRows.map((r: any) => `${r.table_name}:${r.row_id}`));
 
     // 2. Pull Profile
     const { data: profileData } = await supabase.from('profiles').select('*').eq('id', userId).single();
     if (profileData && !pendingMap.has(`profiles:${profileData.id}`)) {
-      // Preserve local_avatar_path if it exists locally but not on server
       const localProf: any = await db.getFirstAsync('SELECT local_avatar_path FROM profiles WHERE id = ?', [userId]);
       const currentLocalPath = localProf?.local_avatar_path || null;
 
@@ -119,26 +113,26 @@ export const syncPull = async (userId: string) => {
       }
     }
 
-    // 4. Pull Attendance
+    // 4. Pull Attendance (ADDED job_id)
     const { data: attendanceData } = await supabase.from('attendance').select('*').eq('user_id', userId).gt('updated_at', lastSyncedAt);
     if (attendanceData) {
       for (const row of attendanceData) {
         if (pendingMap.has(`attendance:${row.id}`)) continue;
         await db.runAsync(
-          `INSERT OR REPLACE INTO attendance (id, user_id, date, clock_in, clock_out, status, remarks, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [row.id, row.user_id, row.date, row.clock_in, row.clock_out, row.status, row.remarks, row.updated_at || newSyncTime]
+          `INSERT OR REPLACE INTO attendance (id, user_id, job_id, date, clock_in, clock_out, status, remarks, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [row.id, row.user_id, row.job_id, row.date, row.clock_in, row.clock_out, row.status, row.remarks, row.updated_at || newSyncTime]
         );
       }
     }
 
-    // 5. Pull Accomplishments
+    // 5. Pull Accomplishments (ADDED job_id)
     const { data: taskData } = await supabase.from('accomplishments').select('*').eq('user_id', userId).gt('created_at', lastSyncedAt);
     if (taskData) {
       for (const row of taskData) {
         if (pendingMap.has(`accomplishments:${row.id}`)) continue;
         await db.runAsync(
-          `INSERT OR REPLACE INTO accomplishments (id, user_id, date, description, remarks, image_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [row.id, row.user_id, row.date, row.description, row.remarks, row.image_url, row.created_at]
+          `INSERT OR REPLACE INTO accomplishments (id, user_id, job_id, date, description, remarks, image_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [row.id, row.user_id, row.job_id, row.date, row.description, row.remarks, row.image_url, row.created_at]
         );
       }
     }

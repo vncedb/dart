@@ -8,13 +8,14 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { format } from 'date-fns';
-import { copyAsync, documentDirectory } from 'expo-file-system';
+import * as FileSystem from 'expo-file-system'; // FIXED: Import as namespace
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Dimensions,
     Image,
     KeyboardAvoidingView,
     Platform,
@@ -34,14 +35,19 @@ import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 
 const MAX_PHOTOS = 5;
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const PHOTO_SIZE = (SCREEN_WIDTH - 48 - 20) / 3; // 3 columns, padding calculations
 
 export default function AddEntry() {
     const router = useRouter();
     const navigation = useNavigation();
-    const { id } = useLocalSearchParams();
-    const entryId = Array.isArray(id) ? id[0] : id; // Handle array case safely
-
     const theme = useAppTheme();
+    
+    // Accept jobId param to ensure we save to the correct context
+    const { id, jobId } = useLocalSearchParams();
+    const entryId = Array.isArray(id) ? id[0] : id; 
+    const passedJobId = Array.isArray(jobId) ? jobId[0] : jobId;
+
     const { triggerSync } = useSync();
     
     const [description, setDescription] = useState('');
@@ -83,21 +89,24 @@ export default function AddEntry() {
         if (entryId) {
             fetchEntryDetails(entryId);
         } else {
-            fetchActiveJob();
+            if (passedJobId) {
+                setActiveJobId(passedJobId);
+                setInitialLoading(false);
+            } else {
+                fetchActiveJob();
+            }
         }
-    }, [entryId]);
+    }, [entryId, passedJobId]);
 
     const fetchActiveJob = async () => {
         try {
             const db = await getDB();
             const { data: { session } } = await supabase.auth.getSession();
             if (session?.user) {
-                // 1. Try to get specific active job from profile
                 const profile = await db.getFirstAsync('SELECT current_job_id FROM profiles WHERE id = ?', [session.user.id]);
                 if (profile && (profile as any).current_job_id) {
                     setActiveJobId((profile as any).current_job_id);
                 } else {
-                    // 2. Fallback: Get the most recently created job
                     const anyJob = await db.getFirstAsync('SELECT id FROM job_positions ORDER BY created_at DESC LIMIT 1');
                     if (anyJob) {
                         setActiveJobId((anyJob as any).id);
@@ -130,39 +139,49 @@ export default function AddEntry() {
         } catch (e) { console.error(e); } finally { setInitialLoading(false); }
     };
 
-    // --- Image Logic ---
     const handleImagePick = async (source: 'camera' | 'gallery') => {
-        if (images.length >= MAX_PHOTOS) {
+        const remaining = MAX_PHOTOS - images.length;
+        if (remaining <= 0) {
             Alert.alert("Limit Reached", `Max ${MAX_PHOTOS} photos allowed.`);
             return;
         }
         
         try {
-            let result;
+            // FIXED: Explicit type definition
+            let result: ImagePicker.ImagePickerResult; 
+            
             if (source === 'camera') {
                 await ImagePicker.requestCameraPermissionsAsync();
                 result = await ImagePicker.launchCameraAsync({
                     mediaTypes: ImagePicker.MediaTypeOptions.Images,
                     quality: 0.7,
                 });
+                
+                if (!result.canceled && result.assets[0].uri) {
+                    setImages(prev => [...prev, result.assets![0].uri]);
+                    setIsDirty(true);
+                }
             } else {
                 await ImagePicker.requestMediaLibraryPermissionsAsync();
                 result = await ImagePicker.launchImageLibraryAsync({
                     mediaTypes: ImagePicker.MediaTypeOptions.Images,
                     quality: 0.7,
+                    allowsMultipleSelection: true, 
+                    selectionLimit: remaining,    
                 });
-            }
 
-            if (!result.canceled && result.assets[0].uri) {
-                setImages(prev => [...prev, result.assets[0].uri]);
-                setIsDirty(true);
+                if (!result.canceled && result.assets) {
+                    const newUris = result.assets.map(a => a.uri);
+                    setImages(prev => [...prev, ...newUris].slice(0, MAX_PHOTOS));
+                    setIsDirty(true);
+                }
             }
         } catch (e) {
+            console.log(e); // Used 'e' to avoid ESLint unused var warning
             Alert.alert("Error", "Could not capture image.");
         }
     };
 
-    // --- Save Logic ---
     const saveEntry = async () => {
         if (!description.trim()) {
             setErrors({ description: true });
@@ -175,20 +194,21 @@ export default function AddEntry() {
 
         setLoading(true);
         try {
-            // 1. Process Images (Save to local app storage)
             const processedImages = await Promise.all(images.map(async (uri) => {
-                if (uri.startsWith('http') || !documentDirectory) return uri;
+                // FIXED: Use FileSystem.documentDirectory
+                if (uri.startsWith('http') || !FileSystem.documentDirectory) return uri;
                 const filename = uri.split('/').pop();
-                const newPath = documentDirectory + filename;
+                const newPath = FileSystem.documentDirectory + filename;
                 try {
-                    await copyAsync({ from: uri, to: newPath });
+                    // FIXED: Use FileSystem.copyAsync
+                    await FileSystem.copyAsync({ from: uri, to: newPath });
                     return newPath;
                 } catch { return uri; }
             }));
             
             const imagesJson = JSON.stringify(processedImages);
             const now = new Date().toISOString();
-            const dateStr = format(new Date(), 'yyyy-MM-dd'); // Standard Date Format
+            const dateStr = format(new Date(), 'yyyy-MM-dd');
             const db = await getDB();
             const { data: { session } } = await supabase.auth.getSession();
             const userId = session?.user?.id;
@@ -231,8 +251,8 @@ export default function AddEntry() {
             }
 
             setIsDirty(false);
-            triggerSync(); // Background sync
-            router.back(); // Return immediately
+            triggerSync(); 
+            router.back(); 
         } catch (e: any) {
             Alert.alert("Save Failed", e.message);
         } finally {
@@ -246,15 +266,19 @@ export default function AddEntry() {
             <LoadingOverlay visible={loading} message="Saving..." />
             
             {/* Header */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, backgroundColor: theme.colors.card, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
-                <TouchableOpacity onPress={() => router.back()} style={{ padding: 8 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, backgroundColor: theme.colors.card, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                <TouchableOpacity onPress={() => router.back()} style={{ padding: 8, marginLeft: -8 }}>
                     <HugeiconsIcon icon={ArrowLeft02Icon} size={24} color={theme.colors.icon} />
                 </TouchableOpacity>
-                <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.colors.text }}>
+                <Text style={{ fontSize: 18, fontWeight: '800', color: theme.colors.text }}>
                     {entryId ? 'Edit Entry' : 'New Entry'}
                 </Text>
-                <TouchableOpacity onPress={saveEntry} disabled={initialLoading} style={{ backgroundColor: theme.colors.primary + '20', padding: 8, borderRadius: 20 }}>
-                    <HugeiconsIcon icon={CheckmarkCircle02Icon} size={24} color={theme.colors.primary} />
+                <TouchableOpacity 
+                    onPress={saveEntry} 
+                    disabled={initialLoading} 
+                    style={{ backgroundColor: theme.colors.primary, padding: 8, borderRadius: 50, shadowColor: theme.colors.primary, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 }}
+                >
+                    <HugeiconsIcon icon={CheckmarkCircle02Icon} size={24} color="#FFF" />
                 </TouchableOpacity>
             </View>
 
@@ -264,67 +288,105 @@ export default function AddEntry() {
                 </View>
             ) : (
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-                    <ScrollView contentContainerStyle={{ padding: 20 }}>
-                        {/* Date Badge */}
-                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.card, padding: 12, borderRadius: 12, marginBottom: 20, borderWidth: 1, borderColor: theme.colors.border }}>
+                    <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 50 }}>
+                        
+                        {/* Date Display */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24, opacity: 0.8 }}>
                             <HugeiconsIcon icon={Calendar03Icon} size={20} color={theme.colors.primary} />
-                            <Text style={{ marginLeft: 10, color: theme.colors.text, fontWeight: '600' }}>
-                                {format(new Date(), 'MMMM d, yyyy')}
+                            <Text style={{ marginLeft: 8, color: theme.colors.text, fontWeight: '600', fontSize: 16 }}>
+                                {format(new Date(), 'EEEE, MMMM d')}
                             </Text>
                         </View>
 
-                        {/* Description */}
-                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: 'bold', marginBottom: 8, textTransform: 'uppercase' }}>Description *</Text>
-                        <TextInput
-                            value={description}
-                            onChangeText={(t) => { setDescription(t); setIsDirty(true); setErrors({description: false}); }}
-                            placeholder="What did you work on?"
-                            placeholderTextColor={theme.colors.textSecondary}
-                            style={{ backgroundColor: theme.colors.card, color: theme.colors.text, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: errors.description ? 'red' : theme.colors.border, marginBottom: 20, fontSize: 16 }}
-                        />
-
-                        {/* Remarks */}
-                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: 'bold', marginBottom: 8, textTransform: 'uppercase' }}>Remarks (Optional)</Text>
-                        <TextInput
-                            value={remarks}
-                            onChangeText={(t) => { setRemarks(t); setIsDirty(true); }}
-                            placeholder="Extra details..."
-                            placeholderTextColor={theme.colors.textSecondary}
-                            multiline
-                            textAlignVertical="top"
-                            style={{ backgroundColor: theme.colors.card, color: theme.colors.text, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 20, minHeight: 100 }}
-                        />
-
-                        {/* Photos */}
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase' }}>Photos</Text>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{images.length} / {MAX_PHOTOS}</Text>
+                        {/* Description Field */}
+                        <View style={{ marginBottom: 24 }}>
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '700', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Description <Text style={{color: 'red'}}>*</Text></Text>
+                            <TextInput
+                                value={description}
+                                onChangeText={(t) => { setDescription(t); setIsDirty(true); setErrors({description: false}); }}
+                                placeholder="What did you work on?"
+                                placeholderTextColor={theme.colors.textSecondary + '80'}
+                                style={{ 
+                                    backgroundColor: theme.colors.card, 
+                                    color: theme.colors.text, 
+                                    padding: 16, 
+                                    borderRadius: 16, 
+                                    borderWidth: 1.5, 
+                                    borderColor: errors.description ? '#ef4444' : theme.colors.border,
+                                    fontSize: 16,
+                                    minHeight: 56
+                                }}
+                            />
                         </View>
 
-                        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
-                            <TouchableOpacity onPress={() => handleImagePick('camera')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 12, backgroundColor: theme.colors.card, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border }}>
+                        {/* Remarks Field */}
+                        <View style={{ marginBottom: 24 }}>
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '700', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Remarks (Optional)</Text>
+                            <TextInput
+                                value={remarks}
+                                onChangeText={(t) => { setRemarks(t); setIsDirty(true); }}
+                                placeholder="Add extra details..."
+                                placeholderTextColor={theme.colors.textSecondary + '80'}
+                                multiline
+                                textAlignVertical="top"
+                                style={{ 
+                                    backgroundColor: theme.colors.card, 
+                                    color: theme.colors.text, 
+                                    padding: 16, 
+                                    borderRadius: 16, 
+                                    borderWidth: 1, 
+                                    borderColor: theme.colors.border, 
+                                    minHeight: 120,
+                                    fontSize: 15,
+                                    lineHeight: 22
+                                }}
+                            />
+                        </View>
+
+                        {/* Photos Section */}
+                        <View style={{ marginBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 }}>Photos</Text>
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600' }}>{images.length} / {MAX_PHOTOS}</Text>
+                        </View>
+
+                        <View style={{ flexDirection: 'row', gap: 12, marginBottom: 24 }}>
+                            <TouchableOpacity 
+                                onPress={() => handleImagePick('camera')} 
+                                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, backgroundColor: theme.colors.card, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border }}
+                            >
                                 <HugeiconsIcon icon={Camera01Icon} size={20} color={theme.colors.primary} />
-                                <Text style={{ marginLeft: 8, color: theme.colors.text, fontWeight: '600' }}>Camera</Text>
+                                <Text style={{ marginLeft: 8, color: theme.colors.text, fontWeight: '700' }}>Camera</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity onPress={() => handleImagePick('gallery')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 12, backgroundColor: theme.colors.card, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border }}>
+                            <TouchableOpacity 
+                                onPress={() => handleImagePick('gallery')} 
+                                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, backgroundColor: theme.colors.card, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border }}
+                            >
                                 <HugeiconsIcon icon={Image01Icon} size={20} color={theme.colors.primary} />
-                                <Text style={{ marginLeft: 8, color: theme.colors.text, fontWeight: '600' }}>Gallery</Text>
+                                <Text style={{ marginLeft: 8, color: theme.colors.text, fontWeight: '700' }}>Gallery</Text>
                             </TouchableOpacity>
                         </View>
 
-                        <View style={{ gap: 12 }}>
+                        {/* Image Grid */}
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                             {images.map((uri, idx) => (
-                                <View key={idx} style={{ height: 200, borderRadius: 12, overflow: 'hidden', backgroundColor: '#000' }}>
+                                <View key={idx} style={{ width: PHOTO_SIZE, height: PHOTO_SIZE, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.colors.card, position: 'relative' }}>
                                     <Image source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
                                     <TouchableOpacity 
                                         onPress={() => { setImages(p => p.filter((_, i) => i !== idx)); setIsDirty(true); }}
-                                        style={{ position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(255,0,0,0.8)', padding: 8, borderRadius: 20 }}
+                                        style={{ position: 'absolute', top: 6, right: 6, backgroundColor: 'rgba(0,0,0,0.6)', padding: 6, borderRadius: 20 }}
                                     >
-                                        <HugeiconsIcon icon={Delete02Icon} size={16} color="#fff" />
+                                        <HugeiconsIcon icon={Delete02Icon} size={14} color="#fff" />
                                     </TouchableOpacity>
                                 </View>
                             ))}
+                            {/* Empty Placeholders for better grid alignment visual */}
+                            {[...Array(Math.max(0, MAX_PHOTOS - images.length))].map((_, i) => (
+                                <View key={`empty-${i}`} style={{ width: PHOTO_SIZE, height: PHOTO_SIZE, borderRadius: 12, borderStyle: 'dashed', borderWidth: 1.5, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center', opacity: 0.5 }}>
+                                    {i === 0 && <Text style={{fontSize: 10, color: theme.colors.textSecondary}}>Empty</Text>}
+                                </View>
+                            ))}
                         </View>
+
                     </ScrollView>
                 </KeyboardAvoidingView>
             )}
