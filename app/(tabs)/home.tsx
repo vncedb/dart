@@ -1,13 +1,6 @@
 import {
     Briefcase01Icon,
-    Delete02Icon,
-    HourglassIcon,
-    Image02Icon,
-    Login03Icon,
-    Logout03Icon,
-    PencilEdit02Icon,
     PlusSignIcon,
-    RefreshIcon,
     WifiOffIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
@@ -19,9 +12,7 @@ import * as Notifications from 'expo-notifications';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
     Alert,
-    Image,
     RefreshControl,
     ScrollView,
     StatusBar,
@@ -43,6 +34,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import BiometricButton from '../../components/BiometricButton';
+// FIXED: Updated import to match the renamed file "ActivityTimeline.tsx"
+import ActivityTimeline from '../../components/ActivityTimeline';
 import DailySummaryCard from '../../components/DailySummaryCard';
 import DynamicBar from '../../components/DynamicBar';
 import DynamicDateHeader from '../../components/DynamicDateHeader';
@@ -98,118 +91,7 @@ const calculateDailyGoal = (jobSettings: any) => {
 };
 
 const getLocalDate = (d = new Date()) => {
-    const offsetMs = d.getTimezoneOffset() * 60000;
-    return new Date(d.getTime() - offsetMs).toISOString().split('T')[0];
-};
-
-// --- IMAGE COMPONENTS ---
-const ActivityImageContent = ({ uri, theme }: { uri: string, theme: any }) => {
-    const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
-    const [key, setKey] = useState(0); 
-    const handleRetry = () => { setStatus('loading'); setKey(prev => prev + 1); };
-    return (
-        <>
-            <Image 
-                key={key} 
-                source={{ uri }} 
-                style={[StyleSheet.absoluteFill, { opacity: status === 'success' ? 1 : 0 }]} 
-                resizeMode="cover" 
-                onLoad={() => setStatus('success')} 
-                onError={() => setStatus('error')} 
-            />
-            {status === 'loading' && (
-                <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
-                    <ActivityIndicator size="small" color={theme.colors.primary} />
-                </View>
-            )}
-            {status === 'error' && (
-                <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.card }]}>
-                    <HugeiconsIcon icon={Image02Icon} size={32} color={theme.colors.icon} />
-                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 8, marginBottom: 12 }}>Failed to load</Text>
-                    <TouchableOpacity onPress={handleRetry} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.colors.background, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border }}>
-                        <HugeiconsIcon icon={RefreshIcon} size={14} color={theme.colors.text} />
-                        <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: 'bold', marginLeft: 6 }}>Retry</Text>
-                    </TouchableOpacity>
-                </View>
-            )}
-        </>
-    );
-};
-
-const ActivityGallery = ({ uri, theme }: { uri: string, theme: any }) => {
-    const [images, setImages] = useState<string[]>([]);
-    const [containerWidth, setContainerWidth] = useState(0);
-    const [activeIndex, setActiveIndex] = useState(0);
-
-    useEffect(() => {
-        if (!uri) return;
-        try {
-            const parsed = JSON.parse(uri);
-            if (Array.isArray(parsed)) setImages(parsed);
-            else setImages([uri]);
-        } catch {
-            setImages([uri]);
-        }
-    }, [uri]);
-
-    const handleScroll = (event: any) => {
-        const slideSize = event.nativeEvent.layoutMeasurement.width;
-        if (slideSize === 0) return;
-        const index = event.nativeEvent.contentOffset.x / slideSize;
-        const roundIndex = Math.round(index);
-        if (roundIndex !== activeIndex) {
-            setActiveIndex(roundIndex);
-        }
-    };
-
-    if (images.length === 0) return null;
-
-    return (
-        <View 
-            style={{ 
-                width: '100%', 
-                aspectRatio: 4/3, 
-                backgroundColor: theme.colors.card, 
-                position: 'relative',
-                marginTop: 8
-            }}
-            onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
-        >
-            {containerWidth > 0 && (
-                <ScrollView 
-                    horizontal 
-                    pagingEnabled 
-                    showsHorizontalScrollIndicator={false}
-                    onScroll={handleScroll}
-                    scrollEventThrottle={16}
-                    contentContainerStyle={{ width: containerWidth * images.length }}
-                    decelerationRate="fast"
-                >
-                    {images.map((imgUri, index) => (
-                        <View key={index} style={{ width: containerWidth, height: '100%' }}>
-                            <ActivityImageContent uri={imgUri} theme={theme} />
-                        </View>
-                    ))}
-                </ScrollView>
-            )}
-            {images.length > 1 && (
-                <View style={{ 
-                    position: 'absolute', 
-                    top: 10, 
-                    right: 10, 
-                    backgroundColor: 'rgba(0,0,0,0.6)', 
-                    borderRadius: 12, 
-                    paddingHorizontal: 10, 
-                    paddingVertical: 5,
-                    zIndex: 10
-                }}>
-                    <Text style={{ color: 'white', fontSize: 11, fontWeight: 'bold' }}>
-                        {activeIndex + 1} / {images.length}
-                    </Text>
-                </View>
-            )}
-        </View>
-    );
+    return format(d, 'yyyy-MM-dd');
 };
 
 // --- SKELETONS ---
@@ -428,7 +310,9 @@ export default function Home() {
             if (!session?.user) return;
             const user = session.user;
             const db = await getDB();
-            const dateStr = getLocalDate(selectedDate);
+            
+            // USE date-fns format to match what was saved in add-entry
+            const dateStr = format(selectedDate, 'yyyy-MM-dd');
             const startMonth = startOfMonth(selectedDate).toISOString().split('T')[0];
             const endMonth = endOfMonth(selectedDate).toISOString().split('T')[0];
 
@@ -500,17 +384,44 @@ export default function Home() {
         await loadData();
     };
 
+    // --- UPDATED TIMELINE CONSTRUCTION ---
     useEffect(() => {
-        const timeline: any[] = [];
-        const sortedRecords = [...todaysRecords].sort((a, b) => new Date(a.clock_in).getTime() - new Date(b.clock_in).getTime());
-        sortedRecords.forEach(record => {
+        let timeline: any[] = [];
+        
+        // 1. Add Attendance Events (Check-in / Check-out)
+        todaysRecords.forEach(record => {
             const isOT = record.remarks && record.remarks.includes('Overtime');
-            timeline.push({ type: 'check-in', time: record.clock_in, id: record.id, isOvertime: isOT });
-            const start = new Date(record.clock_in).getTime();
-            const end = record.clock_out ? new Date(record.clock_out).getTime() : Infinity;
-            tasks.filter(t => { const tTime = new Date(t.created_at).getTime(); return tTime >= start && tTime <= end; }).forEach(t => timeline.push({ type: 'task', data: t }));
-            if (record.clock_out) timeline.push({ type: 'check-out', time: record.clock_out, id: record.id, isOvertime: isOT });
+            timeline.push({ 
+                type: 'check-in', 
+                time: record.clock_in, 
+                id: record.id, 
+                isOvertime: isOT,
+                sortTime: new Date(record.clock_in).getTime()
+            });
+
+            if (record.clock_out) {
+                timeline.push({ 
+                    type: 'check-out', 
+                    time: record.clock_out, 
+                    id: record.id, 
+                    isOvertime: isOT,
+                    sortTime: new Date(record.clock_out).getTime()
+                });
+            }
         });
+
+        // 2. Add Task Events (Without filtering by attendance window)
+        tasks.forEach(task => {
+            timeline.push({
+                type: 'task',
+                data: task,
+                sortTime: new Date(task.created_at).getTime()
+            });
+        });
+
+        // 3. Sort Everything by Time
+        timeline.sort((a, b) => a.sortTime - b.sortTime);
+
         setTimelineData(timeline);
     }, [todaysRecords, tasks]);
 
@@ -526,6 +437,9 @@ export default function Home() {
             if (!session?.user) return;
             const user = session.user;
             const db = await getDB();
+            
+            // FIXED: Ensure date format consistency
+            const todayStr = format(new Date(), 'yyyy-MM-dd');
 
             if (isClockedIn) {
                 const now = new Date().toISOString();
@@ -549,7 +463,7 @@ export default function Home() {
                     user_id: user.id, 
                     job_id: activeJobId, 
                     clock_in: now.toISOString(), 
-                    date: getLocalDate(), 
+                    date: todayStr, 
                     status: 'pending', 
                     remarks 
                 };
@@ -645,58 +559,12 @@ export default function Home() {
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}><Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.5 }}>{activityTitle}</Text><TouchableOpacity disabled={!isClockedIn} onPress={() => router.push('/reports/add-entry')} style={{ backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background, borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><HugeiconsIcon icon={PlusSignIcon} size={20} color={isClockedIn ? theme.colors.primary : theme.colors.icon} /></TouchableOpacity></View>
                 <View style={{ backgroundColor: theme.colors.card, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' }} collapsable={false}>
                     <View style={{ padding: 20 }}>
-                        {timelineData.length === 0 ? <View style={{ alignItems: 'center', padding: 20, opacity: 0.5 }}><HugeiconsIcon icon={HourglassIcon} size={32} color={theme.colors.icon} /><Text style={{ color: theme.colors.textSecondary, marginTop: 8, fontSize: 12 }}>No activity yet.</Text></View> : (
-                            <View style={{ borderLeftWidth: 2, borderLeftColor: theme.colors.border, marginLeft: 8, paddingLeft: 16 }}>
-                                {timelineData.map((item: any) => (
-                                    <View 
-                                        key={item.type === 'task' ? `task-${item.data.id}` : `${item.type}-${item.id}`} 
-                                        style={{ marginBottom: 24 }}
-                                    >
-                                        <View style={{ position: 'absolute', left: -32, top: '50%', marginTop: -16 }}>{item.type === 'check-in' ? <View style={{ backgroundColor: theme.colors.card, borderRadius: 16, padding: 4, borderWidth: 2, borderColor: theme.colors.success }}><HugeiconsIcon icon={Login03Icon} size={16} color={theme.colors.success} /></View> : item.type === 'check-out' ? <View style={{ backgroundColor: theme.colors.card, borderRadius: 16, padding: 4, borderWidth: 2, borderColor: theme.colors.warning }}><HugeiconsIcon icon={Logout03Icon} size={16} color={theme.colors.warning} /></View> : <View style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: theme.colors.card, borderWidth: 3, borderColor: theme.colors.primary, marginLeft: 10 }} />}</View>
-                                        
-                                        {/* TASK ITEM WITH FLUSH GALLERY */}
-                                        {item.type === 'task' ? (
-                                            <View style={{ backgroundColor: theme.colors.background, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' }}>
-                                                <View style={{ padding: 12 }}>
-                                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                                                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '700', opacity: 0.8 }}>
-                                                            {format(new Date(item.data.created_at), 'h:mm a')}
-                                                        </Text>
-                                                        <View style={{ flexDirection: 'row', gap: 12 }}>
-                                                            <TouchableOpacity onPress={() => handleEdit(item.data)} hitSlop={10}>
-                                                                <HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.textSecondary} />
-                                                            </TouchableOpacity>
-                                                            <TouchableOpacity onPress={() => handleDeleteTask(item.data)} hitSlop={10}>
-                                                                <HugeiconsIcon icon={Delete02Icon} size={16} color="#ef4444" />
-                                                            </TouchableOpacity>
-                                                        </View>
-                                                    </View>
-                                                    <Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: 14, marginBottom: item.data.remarks ? 4 : 0 }}>
-                                                        {item.data.description}
-                                                    </Text>
-                                                    {item.data.remarks && (
-                                                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>
-                                                            {item.data.remarks}
-                                                        </Text>
-                                                    )}
-                                                </View>
-                                                {item.data.image_url && <ActivityGallery uri={item.data.image_url} theme={theme} />}
-                                            </View>
-                                        ) : (
-                                            <View style={{ justifyContent: 'center', minHeight: 32 }}>
-                                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                                    <Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: 14, marginRight: 8 }}>
-                                                        {item.type === 'check-in' ? 'Checked In' : 'Checked Out'}
-                                                    </Text>
-                                                    {item.isOvertime && <View style={{ backgroundColor: theme.colors.warning + '20', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: theme.colors.warning }}><Text style={{ fontSize: 10, fontWeight: '800', color: theme.colors.warning }}>OT</Text></View>}
-                                                </View>
-                                                <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{format(new Date(item.time), 'h:mm a')}</Text>
-                                            </View>
-                                        )}
-                                    </View>
-                                ))}
-                            </View>
-                        )}
+                        <ActivityTimeline 
+                            timelineData={timelineData} 
+                            theme={theme} 
+                            onEditTask={handleEdit} 
+                            onDeleteTask={handleDeleteTask} 
+                        />
                     </View>
                 </View>
             </ScrollView>

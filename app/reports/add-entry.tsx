@@ -7,8 +7,8 @@ import {
     Image01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import { format } from 'date-fns'; // Ensure this is imported
-import * as FileSystem from 'expo-file-system';
+import { format } from 'date-fns';
+import { copyAsync, documentDirectory } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -38,237 +38,181 @@ const MAX_PHOTOS = 5;
 export default function AddEntry() {
     const router = useRouter();
     const navigation = useNavigation();
-    const { id } = useLocalSearchParams(); 
+    const { id } = useLocalSearchParams();
+    const entryId = Array.isArray(id) ? id[0] : id; // Handle array case safely
+
     const theme = useAppTheme();
     const { triggerSync } = useSync();
     
     const [description, setDescription] = useState('');
     const [remarks, setRemarks] = useState('');
     const [images, setImages] = useState<string[]>([]);
-    
+    const [activeJobId, setActiveJobId] = useState<string | null>(null);
+
     const [errors, setErrors] = useState({ description: false });
     const [loading, setLoading] = useState(false);
-    const [loadingMessage, setLoadingMessage] = useState('Initializing...');
-    const [initialLoading, setInitialLoading] = useState(false);
-    
-    const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+    const [initialLoading, setInitialLoading] = useState(true);
     const [isDirty, setIsDirty] = useState(false);
+    const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
-    // --- NAVIGATION PROTECTION ---
+    // Prevent going back with unsaved changes
     useEffect(() => {
         const unsubscribe = navigation.addListener('beforeRemove', (e) => {
-            if (loading) {
-                e.preventDefault();
-                return;
-            }
-            if (isDirty) {
-                e.preventDefault();
-                setAlertConfig({
-                    visible: true,
-                    type: 'warning',
-                    title: 'Unsaved Changes',
-                    message: 'You have unsaved changes. Do you want to discard them?',
-                    confirmText: 'Discard',
-                    cancelText: 'Keep Editing',
-                    onConfirm: () => {
-                        setAlertConfig((p: any) => ({ ...p, visible: false }));
-                        setIsDirty(false); 
-                        setTimeout(() => navigation.dispatch(e.action), 0);
-                    },
-                    onCancel: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
-                });
-            }
+            if (loading || !isDirty) return;
+            e.preventDefault();
+            setAlertConfig({
+                visible: true,
+                type: 'warning',
+                title: 'Unsaved Changes',
+                message: 'Discard your changes?',
+                confirmText: 'Discard',
+                cancelText: 'Keep Editing',
+                onConfirm: () => {
+                    setAlertConfig((p: any) => ({ ...p, visible: false }));
+                    setIsDirty(false); 
+                    navigation.dispatch(e.data.action);
+                },
+                onCancel: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
+            });
         });
         return unsubscribe;
     }, [navigation, loading, isDirty]);
 
-    // --- FETCH DATA ---
+    // Load Data on Mount
     useEffect(() => {
-        if (id) fetchEntryDetails(id as string);
-    }, [id]);
-
-    const updateField = (setter: any, value: any, fieldName: string) => {
-        setter(value);
-        setIsDirty(true);
-        if (fieldName === 'description' && errors.description) {
-            setErrors(prev => ({ ...prev, description: false }));
+        if (entryId) {
+            fetchEntryDetails(entryId);
+        } else {
+            fetchActiveJob();
         }
-    };
+    }, [entryId]);
 
-    const fetchEntryDetails = async (entryId: string) => {
-        setInitialLoading(true);
-        setLoadingMessage("Fetching details...");
+    const fetchActiveJob = async () => {
         try {
             const db = await getDB();
-            const entry = await db.getFirstAsync('SELECT * FROM accomplishments WHERE id = ?', [entryId]);
-            
-            if (entry) {
-                const data = entry as any;
-                setDescription(data.description);
-                setRemarks(data.remarks || '');
-                
-                // Parse images
-                if (data.image_url) {
-                    try {
-                        const parsed = JSON.parse(data.image_url);
-                        if (Array.isArray(parsed)) {
-                            setImages(parsed);
-                        } else {
-                            setImages([data.image_url]);
-                        }
-                    } catch {
-                        setImages([data.image_url]);
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+                // 1. Try to get specific active job from profile
+                const profile = await db.getFirstAsync('SELECT current_job_id FROM profiles WHERE id = ?', [session.user.id]);
+                if (profile && (profile as any).current_job_id) {
+                    setActiveJobId((profile as any).current_job_id);
+                } else {
+                    // 2. Fallback: Get the most recently created job
+                    const anyJob = await db.getFirstAsync('SELECT id FROM job_positions ORDER BY created_at DESC LIMIT 1');
+                    if (anyJob) {
+                        setActiveJobId((anyJob as any).id);
                     }
                 }
-                setIsDirty(false); 
             }
-        } catch (e) { console.log(e); } finally { setInitialLoading(false); }
-    };
-
-    // --- IMAGE HANDLING ---
-    const checkLimit = () => {
-        if (images.length >= MAX_PHOTOS) {
-            setAlertConfig({
-                visible: true,
-                type: 'warning',
-                title: 'Limit Reached',
-                message: `You can only add up to ${MAX_PHOTOS} photos.`,
-                confirmText: 'Okay',
-                onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false }))
-            });
-            return false;
+        } catch (e) {
+            console.log("Error fetching job:", e);
+        } finally {
+            setInitialLoading(false);
         }
-        return true;
     };
 
-    // Safe accessor for MediaType
-    const getMediaType = () => {
-        // @ts-ignore
-        return ImagePicker.MediaTypeOptions?.Images ?? ImagePicker.MediaType?.Images ?? 'Images';
+    const fetchEntryDetails = async (id: string) => {
+        try {
+            const db = await getDB();
+            const entry: any = await db.getFirstAsync('SELECT * FROM accomplishments WHERE id = ?', [id]);
+            if (entry) {
+                setDescription(entry.description);
+                setRemarks(entry.remarks || '');
+                setActiveJobId(entry.job_id);
+                if (entry.image_url) {
+                    try {
+                        const parsed = JSON.parse(entry.image_url);
+                        setImages(Array.isArray(parsed) ? parsed : [entry.image_url]);
+                    } catch { setImages([entry.image_url]); }
+                }
+                setIsDirty(false);
+            }
+        } catch (e) { console.error(e); } finally { setInitialLoading(false); }
     };
 
-    const pickFromCamera = async () => {
-        if (!checkLimit()) return;
-
-        const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== 'granted') {
-            Alert.alert("Permission Required", "Camera access is needed.");
+    // --- Image Logic ---
+    const handleImagePick = async (source: 'camera' | 'gallery') => {
+        if (images.length >= MAX_PHOTOS) {
+            Alert.alert("Limit Reached", `Max ${MAX_PHOTOS} photos allowed.`);
             return;
         }
         
         try {
-            const result = await ImagePicker.launchCameraAsync({
-                mediaTypes: getMediaType(),
-                allowsEditing: true,
-                aspect: [4, 3],
-                quality: 0.7,
-            });
+            let result;
+            if (source === 'camera') {
+                await ImagePicker.requestCameraPermissionsAsync();
+                result = await ImagePicker.launchCameraAsync({
+                    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                    quality: 0.7,
+                });
+            } else {
+                await ImagePicker.requestMediaLibraryPermissionsAsync();
+                result = await ImagePicker.launchImageLibraryAsync({
+                    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                    quality: 0.7,
+                });
+            }
 
-            if (!result.canceled) addImage(result.assets[0].uri);
+            if (!result.canceled && result.assets[0].uri) {
+                setImages(prev => [...prev, result.assets[0].uri]);
+                setIsDirty(true);
+            }
         } catch (e) {
-            console.error("Camera Error:", e);
-            Alert.alert("Error", "Failed to open camera.");
+            Alert.alert("Error", "Could not capture image.");
         }
     };
 
-    const pickFromGallery = async () => {
-        if (!checkLimit()) return;
-
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') {
-            Alert.alert("Permission Required", "Gallery access is needed.");
+    // --- Save Logic ---
+    const saveEntry = async () => {
+        if (!description.trim()) {
+            setErrors({ description: true });
+            return;
+        }
+        if (!activeJobId) {
+            Alert.alert("No Job Found", "Please create or select a job in your profile first.");
             return;
         }
 
-        try {
-            const result = await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: getMediaType(),
-                allowsEditing: true,
-                aspect: [4, 3],
-                quality: 0.7,
-            });
-
-            if (!result.canceled) addImage(result.assets[0].uri);
-        } catch (e) {
-            console.error("Gallery Error:", e);
-            Alert.alert("Error", "Failed to open gallery.");
-        }
-    };
-
-    const addImage = (uri: string) => {
-        setImages(prev => [...prev, uri]);
-        setIsDirty(true);
-    };
-
-    const removeImage = (indexToRemove: number) => {
-        setImages(prev => prev.filter((_, index) => index !== indexToRemove));
-        setIsDirty(true);
-    };
-
-    const uploadImage = async (uri: string) => {
-        if (uri.startsWith('http')) return uri;
-        if (!uri.startsWith('file://')) return uri;
-
-        const filename = uri.split('/').pop();
-        const docDir = FileSystem.documentDirectory;
-        if (docDir) {
-            const newPath = `${docDir}${filename}`;
-            try {
-                await FileSystem.copyAsync({ from: uri, to: newPath });
-                return newPath;
-            } catch {
-                return uri; 
-            }
-        }
-        return uri;
-    };
-
-    // --- SAVE LOGIC ---
-    const handleSavePress = () => {
-        if (!description.trim()) { setErrors({ description: true }); return; }
-        executeSave();
-    };
-
-    const executeSave = async () => {
         setLoading(true);
         try {
-            setLoadingMessage("Processing images...");
+            // 1. Process Images (Save to local app storage)
+            const processedImages = await Promise.all(images.map(async (uri) => {
+                if (uri.startsWith('http') || !documentDirectory) return uri;
+                const filename = uri.split('/').pop();
+                const newPath = documentDirectory + filename;
+                try {
+                    await copyAsync({ from: uri, to: newPath });
+                    return newPath;
+                } catch { return uri; }
+            }));
             
-            const processedImages = await Promise.all(
-                images.map(async (img) => await uploadImage(img))
-            );
             const imagesJson = JSON.stringify(processedImages);
-
-            setLoadingMessage("Saving entry...");
-            const { data: { session } } = await supabase.auth.getSession();
-            const user = session?.user;
-            if (!user) throw new Error("No user logged in");
-
+            const now = new Date().toISOString();
+            const dateStr = format(new Date(), 'yyyy-MM-dd'); // Standard Date Format
             const db = await getDB();
-            
-            // --- DATE FIX START ---
-            const now = new Date().toISOString(); // Keep ISO for timestamps
-            // use local date for the 'date' column so it matches Home screen filter
-            const dateStr = format(new Date(), 'yyyy-MM-dd'); 
-            // --- DATE FIX END ---
+            const { data: { session } } = await supabase.auth.getSession();
+            const userId = session?.user?.id;
 
-            if (id) {
-                // Update Local
+            if (!userId) throw new Error("User not authenticated");
+
+            if (entryId) {
+                // UPDATE
                 await db.runAsync(
                     'UPDATE accomplishments SET description = ?, remarks = ?, image_url = ?, updated_at = ? WHERE id = ?',
-                    [description, remarks, imagesJson, now, id]
+                    [description, remarks, imagesJson, now, entryId]
                 );
-                // Queue Sync
                 await db.runAsync(
                     'INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)',
-                    ['accomplishments', id, 'UPDATE', JSON.stringify({ description, remarks, image_url: imagesJson, updated_at: now })]
+                    ['accomplishments', entryId, 'UPDATE', JSON.stringify({ description, remarks, image_url: imagesJson, updated_at: now })]
                 );
             } else {
+                // INSERT
                 const newId = generateUUID();
-                const newEntry = {
+                const newRecord = {
                     id: newId,
-                    user_id: user.id,
-                    date: dateStr, // Uses local date
+                    user_id: userId,
+                    job_id: activeJobId,
+                    date: dateStr,
                     description,
                     remarks,
                     image_url: imagesJson,
@@ -277,133 +221,109 @@ export default function AddEntry() {
                 };
 
                 await db.runAsync(
-                    'INSERT INTO accomplishments (id, user_id, date, description, remarks, image_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-                    [newId, user.id, dateStr, description, remarks, imagesJson, now, now]
+                    'INSERT INTO accomplishments (id, user_id, job_id, date, description, remarks, image_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    [newId, userId, activeJobId, dateStr, description, remarks, imagesJson, now, now]
                 );
-
                 await db.runAsync(
                     'INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)',
-                    ['accomplishments', newId, 'INSERT', JSON.stringify(newEntry)]
+                    ['accomplishments', newId, 'INSERT', JSON.stringify(newRecord)]
                 );
             }
 
-            triggerSync();
-            setIsDirty(false); 
-            router.back();
+            setIsDirty(false);
+            triggerSync(); // Background sync
+            router.back(); // Return immediately
         } catch (e: any) {
-            setAlertConfig({ 
-                visible: true, 
-                type: 'error', 
-                title: 'Error', 
-                message: e.message || 'Failed to save entry.', 
-                confirmText: 'Close', 
-                onConfirm: () => setAlertConfig((p:any) => ({ ...p, visible: false })) 
-            });
-        } finally { setLoading(false); }
+            Alert.alert("Save Failed", e.message);
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
             <ModernAlert {...alertConfig} />
-            <LoadingOverlay visible={loading} message={loadingMessage} />
+            <LoadingOverlay visible={loading} message="Saving..." />
             
-            {/* HEADER */}
-            <View style={{ backgroundColor: theme.colors.card, borderBottomColor: theme.colors.border }} className="z-10 flex-row items-center justify-between px-6 py-4 border-b shadow-sm">
-                <TouchableOpacity onPress={() => router.back()} className="p-2 -ml-2 rounded-full active:bg-slate-100 dark:active:bg-slate-800">
+            {/* Header */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, backgroundColor: theme.colors.card, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
+                <TouchableOpacity onPress={() => router.back()} style={{ padding: 8 }}>
                     <HugeiconsIcon icon={ArrowLeft02Icon} size={24} color={theme.colors.icon} />
                 </TouchableOpacity>
-                <Text style={{ color: theme.colors.text }} className="text-xl font-bold">{id ? 'Edit Entry' : 'New Entry'}</Text>
-                <TouchableOpacity 
-                    onPress={handleSavePress} 
-                    disabled={initialLoading || loading}
-                    style={{ backgroundColor: theme.colors.primaryLight, opacity: (initialLoading || loading) ? 0.5 : 1 }} 
-                    className="p-2 -mr-2 rounded-full"
-                >
+                <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.colors.text }}>
+                    {entryId ? 'Edit Entry' : 'New Entry'}
+                </Text>
+                <TouchableOpacity onPress={saveEntry} disabled={initialLoading} style={{ backgroundColor: theme.colors.primary + '20', padding: 8, borderRadius: 20 }}>
                     <HugeiconsIcon icon={CheckmarkCircle02Icon} size={24} color={theme.colors.primary} />
                 </TouchableOpacity>
             </View>
 
-            {/* CONTENT BODY */}
             {initialLoading ? (
                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
                     <ActivityIndicator size="large" color={theme.colors.primary} />
-                    <Text style={{ marginTop: 12, color: theme.colors.textSecondary, fontWeight: '500' }}>Fetching Details...</Text>
                 </View>
             ) : (
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-                    <ScrollView className="flex-1" contentContainerStyle={{ padding: 24 }}>
-                        {/* Date Display */}
-                        <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }} className="flex-row items-center p-4 mb-6 border rounded-2xl">
-                            <HugeiconsIcon icon={Calendar03Icon} size={20} color={theme.colors.icon} />
-                            <Text style={{ color: theme.colors.text }} className="ml-3 text-base font-bold">{format(new Date(), 'MMMM d, yyyy')}</Text>
+                    <ScrollView contentContainerStyle={{ padding: 20 }}>
+                        {/* Date Badge */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.card, padding: 12, borderRadius: 12, marginBottom: 20, borderWidth: 1, borderColor: theme.colors.border }}>
+                            <HugeiconsIcon icon={Calendar03Icon} size={20} color={theme.colors.primary} />
+                            <Text style={{ marginLeft: 10, color: theme.colors.text, fontWeight: '600' }}>
+                                {format(new Date(), 'MMMM d, yyyy')}
+                            </Text>
                         </View>
 
-                        {/* Description Input */}
-                        <View className="mb-5">
-                            <Text style={{ color: theme.colors.textSecondary }} className="mb-2 text-xs font-bold uppercase">Task Description <Text style={{ color: theme.colors.danger }}>*</Text></Text>
-                            <View style={{ backgroundColor: errors.description ? '#FEF2F2' : theme.colors.card, borderColor: errors.description ? '#EF4444' : theme.colors.border }} className="flex-row items-center border rounded-xl">
-                                <TextInput value={description} onChangeText={(t) => updateField(setDescription, t, 'description')} placeholder="What did you work on?" placeholderTextColor={theme.colors.textSecondary} style={{ color: theme.colors.text }} className="flex-1 p-4 font-bold" />
-                            </View>
+                        {/* Description */}
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: 'bold', marginBottom: 8, textTransform: 'uppercase' }}>Description *</Text>
+                        <TextInput
+                            value={description}
+                            onChangeText={(t) => { setDescription(t); setIsDirty(true); setErrors({description: false}); }}
+                            placeholder="What did you work on?"
+                            placeholderTextColor={theme.colors.textSecondary}
+                            style={{ backgroundColor: theme.colors.card, color: theme.colors.text, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: errors.description ? 'red' : theme.colors.border, marginBottom: 20, fontSize: 16 }}
+                        />
+
+                        {/* Remarks */}
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: 'bold', marginBottom: 8, textTransform: 'uppercase' }}>Remarks (Optional)</Text>
+                        <TextInput
+                            value={remarks}
+                            onChangeText={(t) => { setRemarks(t); setIsDirty(true); }}
+                            placeholder="Extra details..."
+                            placeholderTextColor={theme.colors.textSecondary}
+                            multiline
+                            textAlignVertical="top"
+                            style={{ backgroundColor: theme.colors.card, color: theme.colors.text, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 20, minHeight: 100 }}
+                        />
+
+                        {/* Photos */}
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase' }}>Photos</Text>
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>{images.length} / {MAX_PHOTOS}</Text>
                         </View>
 
-                        {/* Remarks Input */}
-                        <View className="mb-5">
-                            <Text style={{ color: theme.colors.textSecondary }} className="mb-2 text-xs font-bold uppercase">Remarks (Optional)</Text>
-                            <TextInput value={remarks} onChangeText={(t) => updateField(setRemarks, t, 'remarks')} placeholder="Additional notes..." placeholderTextColor={theme.colors.textSecondary} multiline textAlignVertical="top" style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, color: theme.colors.text }} className="p-4 min-h-[100px] font-medium border rounded-xl" />
+                        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+                            <TouchableOpacity onPress={() => handleImagePick('camera')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 12, backgroundColor: theme.colors.card, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border }}>
+                                <HugeiconsIcon icon={Camera01Icon} size={20} color={theme.colors.primary} />
+                                <Text style={{ marginLeft: 8, color: theme.colors.text, fontWeight: '600' }}>Camera</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => handleImagePick('gallery')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 12, backgroundColor: theme.colors.card, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border }}>
+                                <HugeiconsIcon icon={Image01Icon} size={20} color={theme.colors.primary} />
+                                <Text style={{ marginLeft: 8, color: theme.colors.text, fontWeight: '600' }}>Gallery</Text>
+                            </TouchableOpacity>
                         </View>
 
-                        {/* Image Picker Section */}
-                        <View className="mb-6">
-                            <View className="flex-row items-center justify-between mb-2">
-                                <Text style={{ color: theme.colors.textSecondary }} className="text-xs font-bold uppercase">ADD Photo</Text>
-                                <Text style={{ color: images.length >= MAX_PHOTOS ? theme.colors.danger : theme.colors.textSecondary, fontSize: 11, fontWeight: 'bold' }}>
-                                    {images.length} / {MAX_PHOTOS}
-                                </Text>
-                            </View>
-
-                            {/* Buttons Row */}
-                            <View className="flex-row gap-3 mb-3">
-                                <TouchableOpacity onPress={pickFromCamera} style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }} className="flex-row items-center justify-center flex-1 p-3 border rounded-xl">
-                                    <HugeiconsIcon icon={Camera01Icon} size={20} color={theme.colors.primary} />
-                                    <Text style={{ color: theme.colors.text }} className="ml-2 font-semibold">Camera</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity onPress={pickFromGallery} style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }} className="flex-row items-center justify-center flex-1 p-3 border rounded-xl">
-                                    <HugeiconsIcon icon={Image01Icon} size={20} color={theme.colors.primary} />
-                                    <Text style={{ color: theme.colors.text }} className="ml-2 font-semibold">Gallery</Text>
-                                </TouchableOpacity>
-                            </View>
-
-                            {/* Images Stack */}
-                            <View className="gap-4">
-                                {images.length > 0 ? (
-                                    images.map((uri, index) => (
-                                        <View key={index} style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }} className="w-full aspect-[4/3] rounded-2xl border overflow-hidden items-center justify-center relative">
-                                            <Image source={{ uri }} className="w-full h-full" resizeMode="cover" />
-                                            <TouchableOpacity 
-                                                onPress={() => removeImage(index)} 
-                                                className="absolute p-2 bg-red-500 rounded-full shadow-sm top-2 right-2"
-                                            >
-                                                <HugeiconsIcon icon={Delete02Icon} size={16} color="white" />
-                                            </TouchableOpacity>
-                                            
-                                            {/* Badge for index */}
-                                            <View className="absolute px-2 py-1 rounded-md top-2 left-2 bg-black/50">
-                                                <Text className="text-xs font-bold text-white">Photo {index + 1}</Text>
-                                            </View>
-                                        </View>
-                                    ))
-                                ) : (
-                                    // Empty State
-                                    <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }} className="w-full aspect-[4/3] rounded-2xl border-2 border-dashed overflow-hidden items-center justify-center">
-                                        <View className="items-center justify-center">
-                                            <View style={{ backgroundColor: theme.colors.primaryLight }} className="items-center justify-center w-12 h-12 mb-2 rounded-full">
-                                                <HugeiconsIcon icon={Image01Icon} size={24} color={theme.colors.primary} />
-                                            </View>
-                                            <Text style={{ color: theme.colors.textSecondary }} className="text-sm font-semibold">No photo selected</Text>
-                                        </View>
-                                    </View>
-                                )}
-                            </View>
+                        <View style={{ gap: 12 }}>
+                            {images.map((uri, idx) => (
+                                <View key={idx} style={{ height: 200, borderRadius: 12, overflow: 'hidden', backgroundColor: '#000' }}>
+                                    <Image source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                                    <TouchableOpacity 
+                                        onPress={() => { setImages(p => p.filter((_, i) => i !== idx)); setIsDirty(true); }}
+                                        style={{ position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(255,0,0,0.8)', padding: 8, borderRadius: 20 }}
+                                    >
+                                        <HugeiconsIcon icon={Delete02Icon} size={16} color="#fff" />
+                                    </TouchableOpacity>
+                                </View>
+                            ))}
                         </View>
                     </ScrollView>
                 </KeyboardAvoidingView>
