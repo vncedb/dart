@@ -45,6 +45,7 @@ export const initDatabase = async () => {
   await addColumn('job_positions', 'employment_status', 'TEXT');
   await addColumn('job_positions', 'rate', 'REAL');
   await addColumn('job_positions', 'rate_type', 'TEXT');
+  await addColumn('accomplishments', 'updated_at', 'TEXT');
 
   console.log("Database initialized.");
 };

@@ -7,7 +7,7 @@ import {
   Image01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import { format } from 'date-fns';
+import { format } from 'date-fns'; // Ensure this is imported
 import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
@@ -141,9 +141,9 @@ export default function AddEntry() {
         return true;
     };
 
-    // Safe accessor for MediaType to prevent crashes on different Expo versions
+    // Safe accessor for MediaType
     const getMediaType = () => {
-        // @ts-ignore - Handle deprecation/version mismatch safely
+        // @ts-ignore
         return ImagePicker.MediaTypeOptions?.Images ?? ImagePicker.MediaType?.Images ?? 'Images';
     };
 
@@ -206,10 +206,9 @@ export default function AddEntry() {
     };
 
     const uploadImage = async (uri: string) => {
-        if (uri.startsWith('http')) return uri; // Already remote
-        if (!uri.startsWith('file://')) return uri; // Fallback
+        if (uri.startsWith('http')) return uri;
+        if (!uri.startsWith('file://')) return uri;
 
-        // Move to document directory for offline persistence before sync
         const filename = uri.split('/').pop();
         const docDir = FileSystem.documentDirectory;
         if (docDir) {
@@ -235,7 +234,6 @@ export default function AddEntry() {
         try {
             setLoadingMessage("Processing images...");
             
-            // Process all images
             const processedImages = await Promise.all(
                 images.map(async (img) => await uploadImage(img))
             );
@@ -247,8 +245,12 @@ export default function AddEntry() {
             if (!user) throw new Error("No user logged in");
 
             const db = await getDB();
-            const now = new Date().toISOString();
-            const dateStr = now.split('T')[0];
+            
+            // --- DATE FIX START ---
+            const now = new Date().toISOString(); // Keep ISO for timestamps
+            // use local date for the 'date' column so it matches Home screen filter
+            const dateStr = format(new Date(), 'yyyy-MM-dd'); 
+            // --- DATE FIX END ---
 
             if (id) {
                 // Update Local
@@ -266,7 +268,7 @@ export default function AddEntry() {
                 const newEntry = {
                     id: newId,
                     user_id: user.id,
-                    date: dateStr,
+                    date: dateStr, // Uses local date
                     description,
                     remarks,
                     image_url: imagesJson,
