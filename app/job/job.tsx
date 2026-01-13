@@ -1,11 +1,13 @@
 import {
     Briefcase01Icon,
     Building03Icon,
+    CheckmarkCircle02Icon,
     Clock01Icon,
     Delete02Icon,
     DollarCircleIcon,
     PencilEdit02Icon,
     PlusSignIcon,
+    Tick02Icon,
     WifiOffIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
@@ -75,9 +77,13 @@ export default function MyJobsScreen() {
     const { triggerSync } = useSync();
     
     const [jobs, setJobs] = useState<any[]>([]);
+    const [activeJobId, setActiveJobId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
-    const [deleting, setDeleting] = useState(false);
+    
+    const [processing, setProcessing] = useState(false); 
+    const [loadingMessage, setLoadingMessage] = useState('');
+    
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
     const [isOffline, setIsOffline] = useState(false);
 
@@ -87,13 +93,30 @@ export default function MyJobsScreen() {
             if (!user) return;
             const db = await getDB();
 
-            // 1. Fetch Local Jobs (Single Source of Truth)
+            // 1. Fetch Local Jobs
             const localJobs = await db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ? ORDER BY created_at DESC', [user.id]);
-            const parsedLocalJobs = (localJobs as any[]).map(j => ({
+            let parsedLocalJobs = (localJobs as any[]).map(j => ({
                 ...j,
                 work_schedule: typeof j.work_schedule === 'string' ? JSON.parse(j.work_schedule) : j.work_schedule,
                 break_schedule: typeof j.break_schedule === 'string' ? JSON.parse(j.break_schedule) : j.break_schedule
             }));
+
+            // 2. Fetch Active Job ID from Profile
+            const profile: any = await db.getFirstAsync('SELECT current_job_id FROM profiles WHERE id = ?', [user.id]);
+            const currentId = profile?.current_job_id;
+            
+            if (currentId) {
+                setActiveJobId(currentId);
+                // 3. SORT: Move Active Job to the top
+                parsedLocalJobs = parsedLocalJobs.sort((a, b) => {
+                    if (a.id === currentId) return -1;
+                    if (b.id === currentId) return 1;
+                    return 0; 
+                });
+            } else {
+                setActiveJobId(null);
+            }
+
             setJobs(parsedLocalJobs);
 
             const netInfo = await NetInfo.fetch();
@@ -108,41 +131,70 @@ export default function MyJobsScreen() {
 
     useFocusEffect(useCallback(() => { fetchJobs(); }, []));
 
+    const handleSetActive = async (jobId: string) => {
+        setLoadingMessage('Updating profile...');
+        setProcessing(true);
+        try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+            
+            const db = await getDB();
+            
+            await db.runAsync('UPDATE profiles SET current_job_id = ? WHERE id = ?', [jobId, user.id]);
+            
+            const updates = { id: user.id, current_job_id: jobId, updated_at: new Date().toISOString() };
+            await queueSyncItem('profiles', user.id, 'UPDATE', updates);
+            
+            setActiveJobId(jobId);
+            
+            // Re-sort locally immediately for instant feedback
+            setJobs(prevJobs => {
+                const sorted = [...prevJobs].sort((a, b) => {
+                    if (a.id === jobId) return -1;
+                    if (b.id === jobId) return 1;
+                    return 0; 
+                });
+                return sorted;
+            });
+
+            triggerSync();
+            
+        } catch (e) {
+            console.log("Error setting active job:", e);
+            setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Could not update active job.', confirmText: 'OK', onConfirm: () => setAlertConfig({ visible: false }) });
+        } finally {
+            setProcessing(false);
+        }
+    };
+
     const handleDelete = async (id: string) => {
         setAlertConfig({
             visible: true, type: 'warning', title: 'Delete Job?', message: 'This will permanently remove this job position.', confirmText: 'Delete', cancelText: 'Cancel',
             onConfirm: async () => {
                 setAlertConfig((prev: any) => ({ ...prev, visible: false }));
-                setDeleting(true);
+                setLoadingMessage('Deleting job...');
+                setProcessing(true);
                 try {
                     const db = await getDB();
                     const { data: { user } } = await supabase.auth.getUser();
                     if(!user) return;
 
-                    // 1. Check if job is linked to profile locally
-                    const profile: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
-                    
-                    if (profile && profile.current_job_id === id) {
+                    if (activeJobId === id) {
                         await db.runAsync('UPDATE profiles SET current_job_id = NULL WHERE id = ?', [user.id]);
                         await queueSyncItem('profiles', user.id, 'UPDATE', { current_job_id: null });
+                        setActiveJobId(null);
                     }
 
-                    // 2. DELETE LOCALLY
                     await deleteJobLocal(id);
-
-                    // 3. QUEUE DELETE SYNC
                     await queueSyncItem('job_positions', id, 'DELETE');
                     
-                    // 4. SYNC (Push change immediately)
                     triggerSync();
-                    
-                    // 5. UPDATE UI (Reload from local DB)
                     await fetchJobs();
 
                 } catch (e) { 
                     console.log('Delete error:', e); 
                 } finally { 
-                    setDeleting(false); 
+                    setProcessing(false); 
                 }
             },
             onCancel: () => setAlertConfig((prev: any) => ({ ...prev, visible: false }))
@@ -157,26 +209,67 @@ export default function MyJobsScreen() {
     };
 
     const renderJobItem = ({ item }: any) => {
+        const isActive = item.id === activeJobId;
         const isSalarySet = item.rate && item.rate > 0;
         const workSchedule = item.work_schedule || { start: '09:00', end: '17:00' };
 
         return (
-            <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }} className="p-5 mb-5 border shadow-sm rounded-3xl">
+            <View 
+                style={{ 
+                    backgroundColor: theme.colors.card, 
+                    borderColor: isActive ? theme.colors.primary : theme.colors.border,
+                    borderWidth: isActive ? 2 : 1
+                }} 
+                className="p-5 mb-5 shadow-sm rounded-3xl"
+            >
+                {/* Header Section */}
                 <View className="flex-row justify-between mb-4">
+                    {/* Left: Title & Company */}
                     <View className="flex-1 mr-4">
                         <Text style={{ color: theme.colors.text }} className="text-xl font-extrabold" numberOfLines={1}>{item.title}</Text>
-                        <View className="flex-row items-center mt-1"><HugeiconsIcon icon={Building03Icon} size={16} color={theme.colors.textSecondary} /><Text style={{ color: theme.colors.textSecondary }} className="ml-1.5 text-sm font-medium" numberOfLines={2}>{item.company || 'Unknown Company'}</Text></View>
+                        <View className="flex-row items-center mt-1">
+                            <HugeiconsIcon icon={Building03Icon} size={16} color={theme.colors.textSecondary} />
+                            <Text style={{ color: theme.colors.textSecondary }} className="ml-1.5 text-sm font-medium" numberOfLines={2}>{item.company || 'Unknown Company'}</Text>
+                        </View>
                     </View>
-                    <View style={{ backgroundColor: theme.colors.primary + '15', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, alignSelf: 'flex-start' }}><Text style={{ color: theme.colors.primary, fontSize: 10, fontWeight: '800', textTransform: 'uppercase' }}>{item.employment_status || 'Regular'}</Text></View>
+
+                    {/* Right: Status Indicators (Swapped Order) */}
+                    <View style={{ alignItems: 'flex-end', gap: 6 }}>
+                        <View style={{ backgroundColor: theme.colors.primary + '15', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 }}>
+                            <Text style={{ color: theme.colors.primary, fontSize: 10, fontWeight: '800', textTransform: 'uppercase' }}>{item.employment_status || 'Regular'}</Text>
+                        </View>
+                        {isActive && (
+                            <View style={{ backgroundColor: theme.colors.success + '20', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, flexDirection: 'row', alignItems: 'center' }}>
+                                <HugeiconsIcon icon={CheckmarkCircle02Icon} size={12} color={theme.colors.success} />
+                                <Text style={{ color: theme.colors.success, fontSize: 10, fontWeight: '800', marginLeft: 4 }}>ACTIVE</Text>
+                            </View>
+                        )}
+                    </View>
                 </View>
+                
                 <View style={{ height: 1, backgroundColor: theme.colors.border }} className="w-full mb-4 opacity-50" />
+                
                 <View className="gap-y-4">
                     <View><Text style={{ color: theme.colors.textSecondary }} className="mb-1 text-xs font-bold uppercase">Pay Rate</Text><View className="flex-row items-center"><HugeiconsIcon icon={DollarCircleIcon} size={16} color={theme.colors.success} /><Text style={{ color: theme.colors.text }} className="ml-2 text-sm font-bold">{isSalarySet ? formatRateDisplay(item.rate, item.rate_type || 'hourly') : 'Not set'}</Text></View></View>
                     <View><Text style={{ color: theme.colors.textSecondary }} className="mb-1 text-xs font-bold uppercase">Shift Schedule</Text><View className="flex-row items-center p-3 rounded-xl" style={{ backgroundColor: theme.colors.background }}><HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.primary} /><Text style={{ color: theme.colors.text }} className="ml-3 text-sm font-bold">{formatTime12h(workSchedule.start)}  —  {formatTime12h(workSchedule.end)}</Text></View></View>
                 </View>
+                
                 <View className="flex-row gap-3 mt-5">
-                    <TouchableOpacity onPress={() => router.push({ pathname: '/job/form', params: { id: item.id } })} style={{ backgroundColor: theme.colors.background, borderColor: theme.colors.border }} className="flex-row items-center justify-center flex-1 py-3 border rounded-xl active:opacity-70"><HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.text} /><Text style={{ color: theme.colors.text }} className="ml-2 font-bold">Edit</Text></TouchableOpacity>
-                    <TouchableOpacity onPress={() => handleDelete(item.id)} style={{ backgroundColor: '#fee2e2' }} className="flex-row items-center justify-center flex-1 py-3 rounded-xl active:opacity-70"><HugeiconsIcon icon={Delete02Icon} size={16} color="#ef4444" /><Text style={{ color: '#ef4444' }} className="ml-2 font-bold">Delete</Text></TouchableOpacity>
+                    {!isActive && (
+                        <TouchableOpacity onPress={() => handleSetActive(item.id)} style={{ backgroundColor: theme.colors.primary + '15', borderColor: theme.colors.primary }} className="flex-row items-center justify-center flex-1 py-3 border rounded-xl active:opacity-70">
+                            <HugeiconsIcon icon={Tick02Icon} size={16} color={theme.colors.primary} />
+                            <Text style={{ color: theme.colors.primary }} className="ml-2 font-bold">Set Active</Text>
+                        </TouchableOpacity>
+                    )}
+                    
+                    <TouchableOpacity onPress={() => router.push({ pathname: '/job/form', params: { id: item.id } })} style={{ backgroundColor: theme.colors.background, borderColor: theme.colors.border }} className="flex-row items-center justify-center flex-1 py-3 border rounded-xl active:opacity-70">
+                        <HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.text} />
+                        <Text style={{ color: theme.colors.text }} className="ml-2 font-bold">Edit</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity onPress={() => handleDelete(item.id)} style={{ backgroundColor: '#fee2e2' }} className="items-center justify-center px-4 py-3 rounded-xl active:opacity-70">
+                        <HugeiconsIcon icon={Delete02Icon} size={16} color="#ef4444" />
+                    </TouchableOpacity>
                 </View>
             </View>
         );
@@ -184,7 +277,7 @@ export default function MyJobsScreen() {
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
-            <LoadingOverlay visible={deleting} message="Deleting job..." />
+            <LoadingOverlay visible={processing} message={loadingMessage} />
             <ModernAlert {...alertConfig} />
             <Header title="My Jobs" rightElement={!isOffline ? (<TouchableOpacity onPress={() => router.push('/job/form')} style={{ backgroundColor: theme.colors.primaryLight, padding: 8, borderRadius: 20 }}><HugeiconsIcon icon={PlusSignIcon} size={24} color={theme.colors.primary} /></TouchableOpacity>) : null} />
             

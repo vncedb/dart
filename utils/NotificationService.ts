@@ -12,7 +12,7 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// 2. Setup Action Buttons (e.g., Clock Out directly from notification)
+// 2. Setup Action Buttons
 export async function setupNotificationCategories() {
   await Notifications.setNotificationCategoryAsync('shift_actions', [
     {
@@ -23,6 +23,20 @@ export async function setupNotificationCategories() {
     {
       identifier: 'view_details',
       buttonTitle: 'View Details',
+      options: { opensAppToForeground: true },
+    },
+  ]);
+
+  // NEW: Category for Auto Timeout Actions
+  await Notifications.setNotificationCategoryAsync('auto_checkout_actions', [
+    {
+      identifier: 'extend_shift',
+      buttonTitle: 'Extend Shift',
+      options: { opensAppToForeground: false }, // Can handle in background/quick action
+    },
+    {
+      identifier: 'time_out_now',
+      buttonTitle: 'Time Out Now',
       options: { opensAppToForeground: true },
     },
   ]);
@@ -40,7 +54,6 @@ export async function registerForPushNotificationsAsync() {
   }
 
   if (!Device.isDevice) {
-    // console.log('Must use physical device for Push Notifications');
     return false;
   }
 
@@ -62,9 +75,9 @@ export async function sendLocalNotification(title: string, body: string, categor
       title,
       body,
       sound: true,
-      categoryIdentifier: categoryId, // Links to buttons defined above
+      categoryIdentifier: categoryId,
       data: { timestamp: Date.now() },
     },
-    trigger: null, // Send immediately
+    trigger: null,
   });
 }

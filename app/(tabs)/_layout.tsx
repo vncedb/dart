@@ -20,8 +20,8 @@ export default function TabsLayout() {
       tabBarPosition="bottom"
       tabBar={(props) => <CustomTabBar {...props} />}
       screenOptions={{
-        swipeEnabled: true, // Enable swipe gestures
-        animationEnabled: true, // Enable sliding animation
+        swipeEnabled: false, // DISABLED slide to change tab feature
+        animationEnabled: true, // Animation still plays on button tap
         lazy: false, // Ensures tabs are mounted immediately
       }}
     >

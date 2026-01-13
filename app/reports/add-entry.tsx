@@ -1,10 +1,10 @@
 import {
-  ArrowLeft02Icon,
-  Calendar03Icon,
-  Camera01Icon,
-  CheckmarkCircle02Icon,
-  Delete02Icon,
-  Image01Icon
+    ArrowLeft02Icon,
+    Calendar03Icon,
+    Camera01Icon,
+    CheckmarkCircle02Icon,
+    Delete02Icon,
+    Image01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { format } from 'date-fns'; // Ensure this is imported
@@ -13,16 +13,16 @@ import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    Alert,
+    Image,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LoadingOverlay from '../../components/LoadingOverlay';

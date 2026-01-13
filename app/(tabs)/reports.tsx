@@ -1,5 +1,4 @@
 import {
-    AlertCircleIcon,
     Clock01Icon,
     Delete02Icon,
     MoreVerticalCircle01Icon,
@@ -7,7 +6,7 @@ import {
     Search01Icon,
     Task01Icon,
     Tick02Icon,
-    Upload02Icon // Imported
+    Upload02Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { useFocusEffect, useNavigation, useRouter } from 'expo-router';
@@ -29,7 +28,7 @@ import FloatingAlert from '../../components/FloatingAlert';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
 import { useAppTheme } from '../../constants/theme';
-import { useSync } from '../../context/SyncContext'; // Import useSync
+import { useSync } from '../../context/SyncContext';
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 
@@ -38,13 +37,15 @@ export default function ReportsScreen() {
   const navigation = useNavigation();
   const theme = useAppTheme();
   
-  // Get sync status and trigger function
   const { triggerSync, isSyncing } = useSync(); 
   
   const [sections, setSections] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true); 
   const [refreshing, setRefreshing] = useState(false);
   const [loadingAction, setLoadingAction] = useState(false);
+  
+  const [activeJobTitle, setActiveJobTitle] = useState('');
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
   
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [menuVisible, setMenuVisible] = useState(false);
@@ -81,8 +82,24 @@ export default function ReportsScreen() {
       if (!user) return;
       const db = await getDB();
 
-      const attendance = await db.getAllAsync('SELECT * FROM attendance WHERE user_id = ? ORDER BY date DESC', [user.id]);
-      const tasks = await db.getAllAsync('SELECT * FROM accomplishments WHERE user_id = ?', [user.id]);
+      // 1. FETCH ACTIVE JOB CONTEXT FIRST
+      const profile = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
+      const currentJobId = (profile as any)?.current_job_id;
+      setActiveJobId(currentJobId);
+
+      if (currentJobId) {
+          const job = await db.getFirstAsync('SELECT title FROM job_positions WHERE id = ?', [currentJobId]);
+          if (job) setActiveJobTitle((job as any).title);
+      } else {
+          setActiveJobTitle('');
+          setSections([]); // No job active = no data
+          setIsLoading(false);
+          return;
+      }
+
+      // 2. FETCH DATA FILTERED BY JOB ID
+      const attendance = await db.getAllAsync('SELECT * FROM attendance WHERE user_id = ? AND job_id = ? ORDER BY date DESC', [user.id, currentJobId]);
+      const tasks = await db.getAllAsync('SELECT * FROM accomplishments WHERE user_id = ? AND job_id = ?', [user.id, currentJobId]);
       
       const { data: historyData } = await supabase.from('report_history').select('title').eq('user_id', user.id);
       const generatedTitles = new Set(historyData?.map(h => h.title) || []);
@@ -161,7 +178,7 @@ export default function ReportsScreen() {
 
   const handleManualSync = async () => {
     await triggerSync();
-    fetchReports(); // Refresh local list after potential pull
+    fetchReports(); 
   };
 
   const handleDeleteSelected = () => {
@@ -179,10 +196,11 @@ export default function ReportsScreen() {
         setLoadingAction(true);
         try {
             const { data: { user } } = await supabase.auth.getUser();
-            if(user) {
+            if(user && activeJobId) {
                 const db = await getDB();
-                const attToDelete = await db.getAllAsync('SELECT id FROM attendance WHERE user_id = ? AND date = ?', [user.id, selectedId]);
-                const tasksToDelete = await db.getAllAsync('SELECT id FROM accomplishments WHERE user_id = ? AND date = ?', [user.id, selectedId]);
+                // Select records to delete to queue them
+                const attToDelete = await db.getAllAsync('SELECT id FROM attendance WHERE user_id = ? AND job_id = ? AND date = ?', [user.id, activeJobId, selectedId]);
+                const tasksToDelete = await db.getAllAsync('SELECT id FROM accomplishments WHERE user_id = ? AND job_id = ? AND date = ?', [user.id, activeJobId, selectedId]);
                 
                 for (const row of attToDelete as any[]) {
                     await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action) VALUES (?, ?, ?)', ['attendance', row.id, 'DELETE']);
@@ -191,8 +209,9 @@ export default function ReportsScreen() {
                     await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action) VALUES (?, ?, ?)', ['accomplishments', row.id, 'DELETE']);
                 }
 
-                await db.runAsync('DELETE FROM attendance WHERE user_id = ? AND date = ?', [user.id, selectedId]);
-                await db.runAsync('DELETE FROM accomplishments WHERE user_id = ? AND date = ?', [user.id, selectedId]);
+                // Perform Deletion
+                await db.runAsync('DELETE FROM attendance WHERE user_id = ? AND job_id = ? AND date = ?', [user.id, activeJobId, selectedId]);
+                await db.runAsync('DELETE FROM accomplishments WHERE user_id = ? AND job_id = ? AND date = ?', [user.id, activeJobId, selectedId]);
 
                 setSelectedId(null);
                 await fetchReports(); 
@@ -205,6 +224,7 @@ export default function ReportsScreen() {
   };
 
   const onDeleteCutoff = () => {
+    if (!activeJobId) return;
     setMenuVisible(false);
     setAlertConfig({
         visible: true, type: 'confirm', title: 'Delete Cutoff', message: `Are you sure you want to delete ALL logs from ${menuTarget.start} to ${menuTarget.end}?`,
@@ -218,8 +238,8 @@ export default function ReportsScreen() {
                 if (!user) return;
                 const db = await getDB();
                 
-                const attToDelete = await db.getAllAsync('SELECT id FROM attendance WHERE user_id = ? AND date >= ? AND date <= ?', [user.id, menuTarget.start, menuTarget.end]);
-                const tasksToDelete = await db.getAllAsync('SELECT id FROM accomplishments WHERE user_id = ? AND date >= ? AND date <= ?', [user.id, menuTarget.start, menuTarget.end]);
+                const attToDelete = await db.getAllAsync('SELECT id FROM attendance WHERE user_id = ? AND job_id = ? AND date >= ? AND date <= ?', [user.id, activeJobId, menuTarget.start, menuTarget.end]);
+                const tasksToDelete = await db.getAllAsync('SELECT id FROM accomplishments WHERE user_id = ? AND job_id = ? AND date >= ? AND date <= ?', [user.id, activeJobId, menuTarget.start, menuTarget.end]);
 
                 for (const row of attToDelete as any[]) {
                      await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action) VALUES (?, ?, ?)', ['attendance', row.id, 'DELETE']);
@@ -228,8 +248,8 @@ export default function ReportsScreen() {
                      await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action) VALUES (?, ?, ?)', ['accomplishments', row.id, 'DELETE']);
                 }
 
-                await db.runAsync('DELETE FROM attendance WHERE user_id = ? AND date >= ? AND date <= ?', [user.id, menuTarget.start, menuTarget.end]);
-                await db.runAsync('DELETE FROM accomplishments WHERE user_id = ? AND date >= ? AND date <= ?', [user.id, menuTarget.start, menuTarget.end]);
+                await db.runAsync('DELETE FROM attendance WHERE user_id = ? AND job_id = ? AND date >= ? AND date <= ?', [user.id, activeJobId, menuTarget.start, menuTarget.end]);
+                await db.runAsync('DELETE FROM accomplishments WHERE user_id = ? AND job_id = ? AND date >= ? AND date <= ?', [user.id, activeJobId, menuTarget.start, menuTarget.end]);
 
                 await fetchReports();
                 triggerSync();
@@ -245,9 +265,12 @@ export default function ReportsScreen() {
     try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user && menuTarget) {
+            // Note: Report history is generally per user, but could be scoped to job if needed. 
+            // For now, keeping it simple as it just tracks generation history.
             await supabase.from('report_history').insert({ user_id: user.id, title: menuTarget.title, start_date: menuTarget.start, end_date: menuTarget.end });
         }
-        router.push({ pathname: '/reports/print', params: { mode: 'cutoff', startDate: menuTarget.start, endDate: menuTarget.end, title: menuTarget.title } });
+        // Pass activeJobId to print screen if it needs to filter by job
+        router.push({ pathname: '/reports/print', params: { mode: 'cutoff', startDate: menuTarget.start, endDate: menuTarget.end, title: menuTarget.title, jobId: activeJobId } });
         setTimeout(fetchReports, 1000); 
     } catch(e) { console.log(e); }
     finally { setLoadingAction(false); }
@@ -338,7 +361,11 @@ export default function ReportsScreen() {
           <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
               <View>
                  <Text style={{ color: theme.colors.text, fontSize: 28, fontWeight: '800', letterSpacing: -0.5 }}>Reports</Text>
-                 {pendingNotification && <Text style={{ color: theme.colors.danger, fontSize: 12, fontWeight: '700' }}>● Pending Actions</Text>}
+                 {activeJobTitle ? (
+                     <Text style={{ color: theme.colors.primary, fontSize: 13, fontWeight: '700' }}>{activeJobTitle}</Text>
+                 ) : (
+                     <Text style={{ color: theme.colors.textSecondary, fontSize: 13, fontWeight: '700' }}>All History</Text>
+                 )}
               </View>
               <View style={{ flexDirection: 'row', gap: 12 }}>
                   <TouchableOpacity 

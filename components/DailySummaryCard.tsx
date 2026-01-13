@@ -20,6 +20,7 @@ interface DailySummaryCardProps {
     dailyGoal?: number;
     isOvertime?: boolean;
     startTime?: string;
+    currentSessionMinutes?: number;
 }
 
 const DailySummaryCard = ({ 
@@ -28,7 +29,8 @@ const DailySummaryCard = ({
     theme, 
     dailyGoal = 8, 
     isOvertime = false, 
-    startTime 
+    startTime,
+    currentSessionMinutes = 0
 }: DailySummaryCardProps) => {
     const safeMinutes = Math.max(0, totalMinutes);
     const h = Math.floor(safeMinutes / 60);
@@ -38,6 +40,10 @@ const DailySummaryCard = ({
     const displayPercentage = Math.round(percentage * 100);
     const progressValue = useSharedValue(0);
     const scaleValue = useSharedValue(1);
+    
+    // Calculate OT specific time
+    const otH = Math.floor(currentSessionMinutes / 60);
+    const otM = Math.floor(currentSessionMinutes % 60);
     
     useEffect(() => { 
         progressValue.value = withTiming(percentage, { duration: 1500, easing: Easing.out(Easing.cubic) }); 
@@ -75,9 +81,22 @@ const DailySummaryCard = ({
                             </View>
                         </View>
                         <Text style={{ fontSize: 36, fontWeight: '900', color: theme.colors.text, fontVariant: ['tabular-nums'], letterSpacing: -1, lineHeight: 40 }}>{h}<Text style={{ fontSize: 18, color: theme.colors.textSecondary, fontWeight: '600' }}>h</Text> {m}<Text style={{ fontSize: 18, color: theme.colors.textSecondary, fontWeight: '600' }}>m</Text></Text>
-                        <View style={{ flexDirection: 'row', gap: 20, marginTop: 16 }}>
-                            <View><Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.textSecondary, opacity: 0.7 }}>CHECK-IN</Text><Text style={{ fontSize: 13, fontWeight: '700', color: theme.colors.text, marginTop: 2 }}>{isClockedIn && startTime ? format(new Date(startTime), 'h:mm a') : '--:--'}</Text></View>
-                            <View><Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.textSecondary, opacity: 0.7 }}>GOAL</Text><Text style={{ fontSize: 13, fontWeight: '700', color: theme.colors.text, marginTop: 2 }}>{dailyGoal}h</Text></View>
+                        
+                        {/* Status Grid */}
+                        <View style={{ marginTop: 16 }}>
+                            <View style={{ flexDirection: 'row', gap: 20 }}>
+                                <View><Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.textSecondary, opacity: 0.7 }}>CHECK-IN</Text><Text style={{ fontSize: 13, fontWeight: '700', color: theme.colors.text, marginTop: 2 }}>{isClockedIn && startTime ? format(new Date(startTime), 'h:mm a') : '--:--'}</Text></View>
+                                <View><Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.textSecondary, opacity: 0.7 }}>GOAL</Text><Text style={{ fontSize: 13, fontWeight: '700', color: theme.colors.text, marginTop: 2 }}>{dailyGoal}h</Text></View>
+                            </View>
+                            
+                            {/* Embedded Overtime Indicator (Only Visible when OT is active) */}
+                            {isOvertime && (
+                                <View style={{ marginTop: 12, backgroundColor: theme.colors.danger + '15', alignSelf: 'flex-start', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
+                                    <Text style={{ color: theme.colors.danger, fontSize: 11, fontWeight: '700' }}>
+                                        OT Duration: {otH}h {otM}m
+                                    </Text>
+                                </View>
+                            )}
                         </View>
                     </View>
                     <View style={{ width: SIZE, height: SIZE, alignItems: 'center', justifyContent: 'center' }}>
@@ -91,7 +110,7 @@ const DailySummaryCard = ({
 };
 
 const styles = StyleSheet.create({
-    cardNew: { borderRadius: 24, marginBottom: 32, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 6, overflow: 'hidden', position: 'relative', height: 200, borderWidth: 1 },
+    cardNew: { borderRadius: 24, marginBottom: 32, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 6, overflow: 'hidden', position: 'relative', minHeight: 200, borderWidth: 1 },
 });
 
 export default DailySummaryCard;

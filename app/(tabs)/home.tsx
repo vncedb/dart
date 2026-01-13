@@ -12,9 +12,10 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { addMinutes, endOfMonth, format, isAfter, isToday, startOfMonth } from 'date-fns';
+import { addHours, addSeconds, endOfMonth, format, isAfter, isToday, startOfMonth } from 'date-fns';
 import { useAudioPlayer } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
+import * as Notifications from 'expo-notifications';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -102,7 +103,6 @@ const getLocalDate = (d = new Date()) => {
 };
 
 // --- IMAGE COMPONENTS ---
-
 const ActivityImageContent = ({ uri, theme }: { uri: string, theme: any }) => {
     const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
     const [key, setKey] = useState(0); 
@@ -192,8 +192,6 @@ const ActivityGallery = ({ uri, theme }: { uri: string, theme: any }) => {
                     ))}
                 </ScrollView>
             )}
-
-            {/* Steady Badge Position */}
             {images.length > 1 && (
                 <View style={{ 
                     position: 'absolute', 
@@ -250,14 +248,17 @@ const JobSetupCard = ({ theme, router, isOffline }: any) => {
             </View>
             <View style={{ flex: 1 }}>
                 <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: '800', marginBottom: 4 }}>
-                    {isOffline ? 'Offline Mode' : 'Set up your Job'}
+                    {isOffline ? 'Offline Mode' : 'No Active Job'}
                 </Text>
                 {isOffline ? (
-                     <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>Using cached job details.</Text>
+                     <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>Using cached details.</Text>
                 ) : (
-                    <TouchableOpacity onPress={() => router.push('/job/form')} style={{ backgroundColor: theme.colors.primary, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 10, alignSelf: 'flex-start' }}>
-                        <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>Start Setup</Text>
-                    </TouchableOpacity>
+                    <>
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>Please select an active job to continue.</Text>
+                        <TouchableOpacity onPress={() => router.push('/job/job')} style={{ backgroundColor: theme.colors.primary, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 10, alignSelf: 'flex-start' }}>
+                            <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>Manage Jobs</Text>
+                        </TouchableOpacity>
+                    </>
                 )}
             </View>
         </View>
@@ -277,6 +278,7 @@ export default function Home() {
     
     // Data State
     const [profile, setProfile] = useState<any>(null);
+    const [activeJobId, setActiveJobId] = useState<string | null>(null);
     const [jobSettings, setJobSettings] = useState<any>(null); 
     const [todaysRecords, setTodaysRecords] = useState<any[]>([]);
     const [monthRecords, setMonthRecords] = useState<any[]>([]);
@@ -287,7 +289,8 @@ export default function Home() {
     const [timelineData, setTimelineData] = useState<any[]>([]);
     const [appSettings, setAppSettings] = useState({ vibrationEnabled: true, soundEnabled: true });
     
-    const [workedMinutes, setWorkedMinutes] = useState(0); 
+    const [workedMinutes, setWorkedMinutes] = useState(0);
+    const [currentSessionMinutes, setCurrentSessionMinutes] = useState(0); 
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [isBreak, setIsBreak] = useState(false);
     
@@ -315,45 +318,105 @@ export default function Home() {
     useEffect(() => {
         registerForPushNotificationsAsync();
         setupNotificationCategories();
+
+        const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+            const actionId = response.actionIdentifier;
+            if (actionId === 'time_out_now') {
+                processClockAction(false);
+            } else if (actionId === 'extend_shift') {
+                const now = new Date();
+                const todayKey = `extended_${now.toISOString().split('T')[0]}`;
+                AsyncStorage.setItem(todayKey, 'true');
+                Alert.alert("Shift Extended", "Auto-checkout has been disabled for today's shift.");
+            }
+        });
+
+        return () => subscription.remove();
     }, []);
 
+    // --- TIMERS: WORK MINUTES, BREAK, & AUTO-CHECKOUT MONITOR ---
     useEffect(() => {
-        const timer = setInterval(() => {
+        const timer = setInterval(async () => {
+            // 1. Calculate Worked Minutes
             let totalMs = 0;
-            todaysRecords.forEach(record => {
+            let currentSessMs = 0;
+            todaysRecords.forEach((record, index) => {
                 const start = new Date(record.clock_in).getTime();
                 const end = record.clock_out ? new Date(record.clock_out).getTime() : new Date().getTime();
-                totalMs += Math.max(0, end - start);
+                const duration = Math.max(0, end - start);
+                totalMs += duration;
+                if (index === 0 && record.status === 'pending') {
+                    currentSessMs = duration;
+                }
             });
             setWorkedMinutes(totalMs / (1000 * 60));
-            if (jobSettings && jobSettings.break_schedule) setIsBreak(checkIsBreakTime(jobSettings.break_schedule));
-        }, 1000);
-        return () => clearInterval(timer);
-    }, [todaysRecords, jobSettings]);
+            setCurrentSessionMinutes(currentSessMs / (1000 * 60));
 
+            // 2. Check Break Time
+            if (jobSettings && jobSettings.break_schedule) setIsBreak(checkIsBreakTime(jobSettings.break_schedule));
+
+            // 3. Monitor Overtime Expiry
+            if (isClockedIn && isSessionOvertime) {
+                const otEndTimeStr = await AsyncStorage.getItem('active_ot_expiry');
+                if (otEndTimeStr) {
+                    const otEndTime = new Date(otEndTimeStr);
+                    const now = new Date();
+                    
+                    if (isAfter(now, otEndTime)) {
+                        processClockAction(false); 
+                        await AsyncStorage.removeItem('active_ot_expiry');
+                        await Notifications.scheduleNotificationAsync({
+                             content: { title: "Overtime Finished", body: "You have been automatically checked out based on your set duration.", sound: true },
+                             trigger: null,
+                         });
+                        setModernAlertConfig({ visible: true, type: 'info', title: 'Overtime Finished', message: 'You have been automatically checked out.', confirmText: 'Okay', onConfirm: () => setModernAlertConfig((prev: any) => ({ ...prev, visible: false })) });
+                    }
+                }
+            }
+            
+            // 4. Run Auto-Checkout Check (Standard Shift ONLY)
+            if (isClockedIn && !isSessionOvertime && jobSettings) {
+                checkAutoCheckout(jobSettings, latestRecord);
+            }
+
+        }, 1000); 
+
+        return () => clearInterval(timer);
+    }, [todaysRecords, jobSettings, isClockedIn, isSessionOvertime]);
+
+    // --- STANDARD SHIFT AUTO-CHECKOUT ---
     const checkAutoCheckout = async (currentJob: any, lastRecord: any) => {
         if (!lastRecord || lastRecord.status !== 'pending' || !currentJob?.work_schedule?.end) return;
+        if (lastRecord.remarks && lastRecord.remarks.includes('Overtime')) return;
+
+        const dateKey = `extended_${getLocalDate()}`;
+        const isExtended = await AsyncStorage.getItem(dateKey);
+        if (isExtended === 'true') return;
+
         const now = new Date();
         const [endH, endM] = currentJob.work_schedule.end.split(':').map(Number);
         const shiftEnd = new Date();
         shiftEnd.setHours(endH, endM, 0, 0);
-        if (isAfter(now, addMinutes(shiftEnd, 30)) && isToday(new Date(lastRecord.clock_in))) {
+
+        if (isAfter(now, shiftEnd) && !isAfter(now, addSeconds(shiftEnd, 30))) {
+            const warningKey = `shift_end_notif_${getLocalDate()}`;
+            const hasWarned = await AsyncStorage.getItem(warningKey);
+            if (!hasWarned) {
+                 await Notifications.scheduleNotificationAsync({
+                     content: { title: "Shift Ended", body: "Shift time over. Auto-checkout in 30 seconds.", sound: true, categoryIdentifier: 'auto_checkout_actions' },
+                     trigger: null,
+                 });
+                 await AsyncStorage.setItem(warningKey, 'true');
+            }
+        }
+
+        if (isAfter(now, addSeconds(shiftEnd, 30))) {
             const db = await getDB();
             const endIso = shiftEnd.toISOString();
-            await db.runAsync('UPDATE attendance SET clock_out = ?, status = ?, remarks = ? WHERE id = ?', 
-                [endIso, 'completed', 'Auto-checkout: Shift End', lastRecord.id]
-            );
-            await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', 
-                ['attendance', lastRecord.id, 'UPDATE', JSON.stringify({ clock_out: endIso, status: 'completed', remarks: 'Auto-checkout: Shift End' })]
-            );
-            setModernAlertConfig({
-                visible: true,
-                type: 'info',
-                title: 'Auto Checked Out',
-                message: `You were automatically checked out at ${format(shiftEnd, 'h:mm a')} because your shift ended.`,
-                confirmText: 'Okay',
-                onConfirm: () => setModernAlertConfig((prev:any) => ({...prev, visible: false}))
-            });
+            await db.runAsync('UPDATE attendance SET clock_out = ?, status = ?, remarks = ? WHERE id = ?', [endIso, 'completed', 'Auto-checkout: Shift End', lastRecord.id]);
+            await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', ['attendance', lastRecord.id, 'UPDATE', JSON.stringify({ clock_out: endIso, status: 'completed', remarks: 'Auto-checkout: Shift End' })]);
+            await Notifications.scheduleNotificationAsync({ content: { title: "Auto Checked Out", body: "You have been checked out.", sound: true }, trigger: null });
+            setModernAlertConfig({ visible: true, type: 'info', title: 'Auto Checked Out', message: `You were automatically checked out at ${format(shiftEnd, 'h:mm a')}.`, confirmText: 'Okay', onConfirm: () => setModernAlertConfig((prev:any) => ({...prev, visible: false})) });
             await loadData();
             triggerSync();
         }
@@ -369,39 +432,55 @@ export default function Home() {
             const startMonth = startOfMonth(selectedDate).toISOString().split('T')[0];
             const endMonth = endOfMonth(selectedDate).toISOString().split('T')[0];
 
-            const [attendance, dailyTasks, monthlyAtt, localProfile, localJobs] = await Promise.all([
-                db.getAllAsync('SELECT * FROM attendance WHERE user_id = ? AND date = ? ORDER BY clock_in DESC', [user.id, dateStr]),
-                db.getAllAsync('SELECT * FROM accomplishments WHERE user_id = ? AND date = ?', [user.id, dateStr]),
-                db.getAllAsync('SELECT id, date, clock_in, clock_out FROM attendance WHERE user_id = ? AND date >= ? AND date <= ?', [user.id, startMonth, endMonth]),
-                db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]),
-                db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ? ORDER BY created_at DESC', [user.id])
-            ]);
+            // 1. GET PROFILE & ACTIVE JOB ID FIRST
+            const localProfile: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
+            setProfile(localProfile);
             
-            setTodaysRecords(attendance as any[]);
-            setTasks(dailyTasks as any[]);
-            setMonthRecords(monthlyAtt as any[]);
+            const currentJobId = localProfile?.current_job_id;
+            setActiveJobId(currentJobId);
 
-            if (localProfile) setProfile(localProfile);
-
-            if (localJobs && (localJobs as any[]).length > 0) {
-                 const jobs = localJobs as any[];
-                 const specificJobId = (localProfile as any)?.current_job_id;
-                 const activeJob = specificJobId ? jobs.find(j => j.id === specificJobId) : jobs[0];
-                 
-                 if (activeJob) {
-                    const parsedJob = {
-                        ...activeJob,
-                        work_schedule: typeof activeJob.work_schedule === 'string' ? JSON.parse(activeJob.work_schedule) : activeJob.work_schedule,
-                        break_schedule: typeof activeJob.break_schedule === 'string' ? JSON.parse(activeJob.break_schedule) : activeJob.break_schedule,
-                    };
-                    setJobSettings(parsedJob);
-                    setDailyGoal(calculateDailyGoal(parsedJob));
-                    
-                    if (attendance && (attendance as any[]).length > 0) {
-                         checkAutoCheckout(parsedJob, (attendance as any[])[0]);
-                    }
-                 }
+            if (!currentJobId) {
+                // If no job is active, clear data and allow "Manage Job" card to show
+                setJobSettings(null);
+                setTodaysRecords([]);
+                setTasks([]);
+                setMonthRecords([]);
+                setLoading(false);
+                setIsInitialLoading(false);
+                return;
             }
+
+            // 2. FETCH ACTIVE JOB DETAILS
+            const activeJob = await db.getFirstAsync('SELECT * FROM job_positions WHERE id = ?', [currentJobId]);
+            
+            if (activeJob) {
+                const aj: any = activeJob;
+                const parsedJob = {
+                    ...aj,
+                    work_schedule: typeof aj.work_schedule === 'string' ? JSON.parse(aj.work_schedule) : aj.work_schedule,
+                    break_schedule: typeof aj.break_schedule === 'string' ? JSON.parse(aj.break_schedule) : aj.break_schedule,
+                };
+                setJobSettings(parsedJob);
+                setDailyGoal(calculateDailyGoal(parsedJob));
+
+                // 3. FETCH DATA FILTERED BY JOB ID
+                const [attendance, dailyTasks, monthlyAtt] = await Promise.all([
+                    db.getAllAsync('SELECT * FROM attendance WHERE user_id = ? AND job_id = ? AND date = ? ORDER BY clock_in DESC', [user.id, currentJobId, dateStr]),
+                    db.getAllAsync('SELECT * FROM accomplishments WHERE user_id = ? AND job_id = ? AND date = ?', [user.id, currentJobId, dateStr]),
+                    db.getAllAsync('SELECT id, date, clock_in, clock_out FROM attendance WHERE user_id = ? AND job_id = ? AND date >= ? AND date <= ?', [user.id, currentJobId, startMonth, endMonth]),
+                ]);
+                
+                setTodaysRecords(attendance as any[]);
+                setTasks(dailyTasks as any[]);
+                setMonthRecords(monthlyAtt as any[]);
+
+                if (attendance && (attendance as any[]).length > 0) {
+                        checkAutoCheckout(parsedJob, (attendance as any[])[0]);
+                }
+            } else {
+                setJobSettings(null); // Job might have been deleted
+            }
+
         } catch (e: any) { 
             console.log("Load Data Error:", e);
         } finally { 
@@ -436,6 +515,11 @@ export default function Home() {
     }, [todaysRecords, tasks]);
 
     const processClockAction = async (isOvertime = false, duration = 0) => {
+        if (!activeJobId) {
+            setModernAlertConfig({ visible: true, type: 'warning', title: 'No Job Active', message: 'Please set an active job in your profile first.', confirmText: 'Manage Jobs', onConfirm: () => { setModernAlertConfig((prev:any)=>({...prev, visible:false})); router.push('/job/job'); } });
+            return;
+        }
+
         setLoading(true);
         try {
             const { data: { session } } = await supabase.auth.getSession();
@@ -447,7 +531,7 @@ export default function Home() {
                 const now = new Date().toISOString();
                 await db.runAsync('UPDATE attendance SET clock_out = ?, status = ? WHERE id = ?', [now, 'completed', latestRecord.id]);
                 await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', ['attendance', latestRecord.id, 'UPDATE', JSON.stringify({ clock_out: now, status: 'completed' })]);
-                await AsyncStorage.removeItem('active_ot_end');
+                await AsyncStorage.removeItem('active_ot_expiry');
                 setAlertMessage("See you later!"); 
                 setAlertType('check-out');
             } else {
@@ -455,11 +539,24 @@ export default function Home() {
                 let remarks = null;
                 if (isOvertime) {
                     remarks = duration > 0 ? `Overtime: ${duration.toFixed(2)} hrs` : 'Overtime';
+                    const expiryTime = addHours(now, duration);
+                    await AsyncStorage.setItem('active_ot_expiry', expiryTime.toISOString());
                 }
                 const newId = generateUUID();
-                const record = { id: newId, user_id: user.id, clock_in: now.toISOString(), date: getLocalDate(), status: 'pending', remarks };
                 
-                await db.runAsync('INSERT INTO attendance (id, user_id, date, clock_in, status, remarks) VALUES (?, ?, ?, ?, ?, ?)', [record.id, record.user_id, record.date, record.clock_in, record.status, record.remarks]);
+                const record = { 
+                    id: newId, 
+                    user_id: user.id, 
+                    job_id: activeJobId, 
+                    clock_in: now.toISOString(), 
+                    date: getLocalDate(), 
+                    status: 'pending', 
+                    remarks 
+                };
+                
+                await db.runAsync('INSERT INTO attendance (id, user_id, job_id, date, clock_in, status, remarks) VALUES (?, ?, ?, ?, ?, ?, ?)', 
+                    [record.id, record.user_id, record.job_id, record.date, record.clock_in, record.status, record.remarks]);
+                
                 await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', ['attendance', record.id, 'INSERT', JSON.stringify(record)]);
                 
                 setAlertMessage(isOvertime ? "Overtime Started!" : "Welcome In!"); 
@@ -475,8 +572,8 @@ export default function Home() {
     };
 
     const handleClockButtonPress = () => {
-        if (!jobSettings) {
-            setModernAlertConfig({ visible: true, type: 'warning', title: 'No Job Found', message: 'Please set up your job details first.', confirmText: 'Add Job', onConfirm: () => { setModernAlertConfig((prev:any)=>({...prev, visible:false})); router.push('/job/form'); } });
+        if (!jobSettings || !activeJobId) {
+            setModernAlertConfig({ visible: true, type: 'warning', title: 'No Job Active', message: 'Please select an active job in your profile.', confirmText: 'Manage Jobs', onConfirm: () => { setModernAlertConfig((prev:any)=>({...prev, visible:false})); router.push('/job/job'); } });
             return;
         }
         
@@ -528,9 +625,23 @@ export default function Home() {
                     />
                     <BiometricButton onSuccess={handleClockButtonPress} isClockedIn={isClockedIn} isLoading={loading} settings={appSettings} />
                 </View>
+
                 <View style={{ marginBottom: 24 }} collapsable={false}>
-                    {jobSettings ? <DailySummaryCard totalMinutes={workedMinutes} isClockedIn={isClockedIn} theme={theme} dailyGoal={dailyGoal} isOvertime={isSessionOvertime} startTime={latestRecord?.clock_in} /> : <JobSetupCard theme={theme} router={router} isOffline={false} />}
+                    {jobSettings ? (
+                        <DailySummaryCard 
+                            totalMinutes={workedMinutes} 
+                            isClockedIn={isClockedIn} 
+                            theme={theme} 
+                            dailyGoal={dailyGoal} 
+                            isOvertime={isSessionOvertime} 
+                            startTime={latestRecord?.clock_in}
+                            currentSessionMinutes={currentSessionMinutes}
+                        />
+                    ) : (
+                        <JobSetupCard theme={theme} router={router} isOffline={false} />
+                    )}
                 </View>
+
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}><Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.5 }}>{activityTitle}</Text><TouchableOpacity disabled={!isClockedIn} onPress={() => router.push('/reports/add-entry')} style={{ backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background, borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}><HugeiconsIcon icon={PlusSignIcon} size={20} color={isClockedIn ? theme.colors.primary : theme.colors.icon} /></TouchableOpacity></View>
                 <View style={{ backgroundColor: theme.colors.card, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' }} collapsable={false}>
                     <View style={{ padding: 20 }}>

@@ -22,6 +22,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Dimensions,
     Image,
     Platform,
     RefreshControl,
@@ -42,6 +43,8 @@ import { useSync } from '../../context/SyncContext';
 import { queueSyncItem, saveJobLocal, saveProfileLocal } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
+
+const { height } = Dimensions.get('window');
 
 // --- Shared Shadow Style ---
 const shadowStyle = Platform.select({
@@ -144,7 +147,6 @@ export default function ProfileScreen() {
     const [avatarModalVisible, setAvatarModalVisible] = useState(false);
     const [visibleDetailKeys, setVisibleDetailKeys] = useState<string[]>(['employment_status', 'shift', 'rate', 'rate_type', 'payroll', 'breaks']);
 
-    // Force re-render of image when URL changes
     useEffect(() => {
         if (viewData.profile?.avatar_url || viewData.profile?.local_avatar_path) {
             setImageError(false);
@@ -159,15 +161,16 @@ export default function ProfileScreen() {
             setEmail(session.user.email || '');
             const db = await getDB();
 
-            // 1. OFFLINE FIRST: Load local data immediately
+            const jobsData = await db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ?', [userId]);
             const localProfile = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [userId]);
+            
             let tempProfile = localProfile;
             let tempJob = null;
 
             if (localProfile) {
                 const jobId = (localProfile as any).current_job_id;
-                if (jobId) {
-                    const localJob = await db.getFirstAsync('SELECT * FROM job_positions WHERE id = ?', [jobId]);
+                if (jobId && jobsData) {
+                    const localJob = (jobsData as any[]).find(j => j.id === jobId);
                     if (localJob) {
                         const lj: any = localJob;
                         try {
@@ -185,47 +188,35 @@ export default function ProfileScreen() {
                 setIsLoading(true); 
             }
 
-            // 2. REMOTE FETCH: Update background & cache images
             const state = await NetInfo.fetch();
             if (state.isConnected) {
                 const { data: remoteProfile } = await supabase.from('profiles').select('*').eq('id', userId).single();
                 if (remoteProfile) {
+                    // Sync Avatar Logic
                     if (remoteProfile.avatar_url) {
                         try {
-                            // FIX: Sanitize filename. Remove '?' query params and special chars
                             const rawFileName = remoteProfile.avatar_url.split('/').pop();
                             const cleanFileName = rawFileName ? rawFileName.split('?')[0].replace(/[^a-zA-Z0-9._-]/g, '_') : 'avatar.jpg';
                             const fileName = `${userId}_${cleanFileName}`;
-
-                            // FIX: Robust Directory Check
                             const rootDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
                             
                             if (rootDir) {
                                 const avatarDir = `${rootDir}avatars/`;
-                                // Ensure avatars folder exists
                                 const dirInfo = await getInfoAsync(avatarDir);
-                                if (!dirInfo.exists) {
-                                    await makeDirectoryAsync(avatarDir, { intermediates: true });
-                                }
+                                if (!dirInfo.exists) await makeDirectoryAsync(avatarDir, { intermediates: true });
 
                                 const localUri = `${avatarDir}${fileName}`;
                                 const fileInfo = await getInfoAsync(localUri);
                                 
-                                if (!fileInfo.exists) {
-                                    // Download fresh image
-                                    await downloadAsync(remoteProfile.avatar_url, localUri);
-                                }
+                                if (!fileInfo.exists) await downloadAsync(remoteProfile.avatar_url, localUri);
                                 remoteProfile.local_avatar_path = localUri;
                             }
                         } catch (err) {
-                            console.log("Error caching avatar for offline use:", err);
-                            // Fallback to existing local path if download fails
                             if (tempProfile && (tempProfile as any).local_avatar_path) {
                                  remoteProfile.local_avatar_path = (tempProfile as any).local_avatar_path;
                             }
                         }
                     }
-
                     await saveProfileLocal(remoteProfile);
                     
                     let remoteJob = null;
@@ -234,7 +225,7 @@ export default function ProfileScreen() {
                         remoteJob = jobRes;
                         if (remoteJob) await saveJobLocal(remoteJob);
                     }
-                    setViewData({ profile: remoteProfile, job: remoteJob });
+                    setViewData({ profile: remoteProfile, job: remoteJob || tempJob });
                 }
             }
         } catch (e) { console.log("Error loading profile:", e); } 
@@ -248,6 +239,7 @@ export default function ProfileScreen() {
 
     const onRefresh = async () => { setRefreshing(true); await triggerSync(); await loadData(true); };
 
+    // ... Avatar Helper Functions ...
     const deleteOldAvatar = async (url: string) => {
         if (!url) return;
         try {
@@ -268,11 +260,7 @@ export default function ProfileScreen() {
         const ext = uri.substring(uri.lastIndexOf('.') + 1);
         const fileName = `${userId}/${Date.now()}.${ext}`;
 
-        const { error } = await supabase.storage.from('avatars').upload(fileName, arrayBuffer, {
-            contentType: `image/${ext}`,
-            upsert: true,
-        });
-
+        const { error } = await supabase.storage.from('avatars').upload(fileName, arrayBuffer, { contentType: `image/${ext}`, upsert: true });
         if (error) throw error;
 
         const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
@@ -298,7 +286,6 @@ export default function ProfileScreen() {
                      const publicUrl = await uploadAvatar(updates.avatar_url, user.id);
                      finalUpdates.avatar_url = publicUrl;
                      finalUpdates.local_avatar_path = updates.avatar_url; 
-                     
                      if (oldAvatarUrl && oldAvatarUrl !== publicUrl) deleteOldAvatar(oldAvatarUrl);
                  } catch (e: any) {
                      setIsUpdating(false);
@@ -330,20 +317,15 @@ export default function ProfileScreen() {
     };
 
     const pickAvatar = async () => {
-        const result = await ImagePicker.launchImageLibraryAsync({ 
-            mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.5 
-        });
-        if (!result.canceled) { 
-            handleUpdateProfile({ avatar_url: result.assets[0].uri }); 
-        }
+        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.5 });
+        if (!result.canceled) { handleUpdateProfile({ avatar_url: result.assets[0].uri }); }
     };
 
-    const removeAvatar = () => {
-        handleUpdateProfile({ avatar_url: null });
-    };
+    const removeAvatar = () => { handleUpdateProfile({ avatar_url: null }); };
 
     const { profile: userProfile, job: userJob } = viewData;
-    
+    const avatarSource = userProfile?.local_avatar_path ? { uri: userProfile.local_avatar_path } : (userProfile?.avatar_url ? { uri: userProfile.avatar_url } : null);
+
     const displayName = (() => {
         if(!userProfile) return 'User';
         const titlePart = userProfile.title ? `${userProfile.title.trim()} ` : '';
@@ -352,30 +334,14 @@ export default function ProfileScreen() {
         return `${titlePart}${namePart}${userProfile.professional_suffix ? `, ${userProfile.professional_suffix.trim()}` : ''}`;
     })();
 
-    const displayJobTitle = userProfile?.job_title || null; 
-    
-    const avatarSource = userProfile?.local_avatar_path 
-        ? { uri: userProfile.local_avatar_path } 
-        : (userProfile?.avatar_url ? { uri: userProfile.avatar_url } : null);
+    const displayJobTitle = userJob ? userJob.title : 'No Job Selected';
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
             <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} translucent backgroundColor="transparent" />
             
-            <EditDisplayModal 
-                visible={modalVisible} 
-                onClose={() => setModalVisible(false)} 
-                selectedKeys={visibleDetailKeys} 
-                onSave={(newKeys) => setVisibleDetailKeys(newKeys)} 
-            />
-            
-            <EditAvatarModal 
-                visible={avatarModalVisible} 
-                onClose={() => setAvatarModalVisible(false)} 
-                onPickImage={pickAvatar}
-                onRemoveImage={removeAvatar}
-            />
-
+            <EditDisplayModal visible={modalVisible} onClose={() => setModalVisible(false)} selectedKeys={visibleDetailKeys} onSave={(newKeys) => setVisibleDetailKeys(newKeys)} />
+            <EditAvatarModal visible={avatarModalVisible} onClose={() => setAvatarModalVisible(false)} onPickImage={pickAvatar} onRemoveImage={removeAvatar} />
             <LoadingOverlay visible={isUpdating} message={loadingMessage} />
             
             <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
@@ -388,35 +354,19 @@ export default function ProfileScreen() {
             {isLoading && !userProfile ? (
                 <View style={styles.loadingContainer}><ActivityIndicator size="large" color={theme.colors.primary} /></View>
             ) : (
-                <ScrollView 
-                    contentContainerStyle={styles.scrollContent} 
-                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} />} 
-                    showsVerticalScrollIndicator={false}
-                >
+                <ScrollView contentContainerStyle={styles.scrollContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} />} showsVerticalScrollIndicator={false}>
                     <View style={styles.profileSection}>
                         <TouchableOpacity onPress={() => setAvatarModalVisible(true)} activeOpacity={0.8}>
                             <View style={styles.avatarMainContainer}>
                                 <View style={[styles.avatarWrapper, { borderColor: theme.colors.primary, backgroundColor: theme.colors.card }]}>
                                     {avatarSource && !imageError ? (
-                                        <>
-                                            <Image 
-                                                key={avatarSource.uri} // Re-render when URI updates
-                                                source={avatarSource} 
-                                                style={styles.avatar} 
-                                                resizeMode="cover" 
-                                                onError={(e) => {
-                                                    console.log('Image Load Error', e.nativeEvent.error);
-                                                    setImageError(true);
-                                                }}
-                                            />
-                                        </>
+                                        <Image key={avatarSource.uri} source={avatarSource} style={styles.avatar} resizeMode="cover" onError={() => setImageError(true)} />
                                     ) : (
                                         <View style={[StyleSheet.absoluteFill, styles.avatarPlaceholder, { backgroundColor: theme.colors.card }]}>
                                             <HugeiconsIcon icon={UserCircleIcon} size={64} color={theme.colors.textSecondary} />
                                         </View>
                                     )}
                                 </View>
-                                
                                 <View style={[styles.editAvatarBtn, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                                     <HugeiconsIcon icon={Camera01Icon} size={16} color={theme.colors.text} />
                                 </View>
@@ -425,13 +375,9 @@ export default function ProfileScreen() {
 
                         <View style={{ alignItems: 'center', marginTop: 16 }}>
                             <Text style={[styles.nameText, { color: theme.colors.text }]}>{displayName}</Text>
-                            
-                            {displayJobTitle && (
-                                <View style={[styles.badgeContainer, { backgroundColor: theme.colors.primary + '15' }]}>
-                                    <Text style={[styles.badgeText, { color: theme.colors.primary }]}>{displayJobTitle}</Text>
-                                </View>
-                            )}
-                            
+                            <View style={[styles.badgeContainer, { backgroundColor: theme.colors.primary + '15' }]}>
+                                <Text style={[styles.badgeText, { color: theme.colors.primary }]}>{displayJobTitle}</Text>
+                            </View>
                             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, opacity: 0.6 }}>
                                 <HugeiconsIcon icon={Mail01Icon} size={14} color={theme.colors.text} />
                                 <Text style={{ marginLeft: 6, fontSize: 13, color: theme.colors.text, fontWeight: '500' }}>{email}</Text>
@@ -474,19 +420,8 @@ const styles = StyleSheet.create({
     avatarPlaceholder: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
     
     editAvatarBtn: { 
-        position: 'absolute', 
-        bottom: 0, 
-        right: 0, 
-        width: 38, 
-        height: 38, 
-        borderRadius: 19, 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        borderWidth: 2,
-        ...Platform.select({
-            ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 3 },
-            android: { elevation: 4 }
-        })
+        position: 'absolute', bottom: 0, right: 0, width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', borderWidth: 2,
+        ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 3 }, android: { elevation: 4 } })
     },
     
     nameText: { fontSize: 24, fontWeight: '800', textAlign: 'center', letterSpacing: -0.5 },
@@ -494,31 +429,17 @@ const styles = StyleSheet.create({
     badgeText: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
     
     actionButtonsRow: { flexDirection: 'row', gap: 12, marginTop: 24, width: '100%' },
-    actionButton: { 
-        flexDirection: 'row', 
-        alignItems: 'center', 
-        paddingVertical: 14, 
-        borderRadius: 16, 
-        borderWidth: 1, 
-        flex: 1, 
-        justifyContent: 'center', 
-        ...shadowStyle 
-    },
+    actionButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderRadius: 16, borderWidth: 1, flex: 1, justifyContent: 'center', ...shadowStyle },
     actionButtonText: { marginLeft: 8, fontWeight: '700', fontSize: 14 },
     
     sectionContainer: { paddingHorizontal: 24, marginBottom: 20 },
     sectionTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 12, opacity: 0.7 },
     
-    card: { 
-        borderRadius: 16, 
-        borderWidth: 1, 
-        overflow: 'hidden',
-        ...shadowStyle
-    },
+    card: { borderRadius: 16, borderWidth: 1, overflow: 'hidden', ...shadowStyle },
     cardHeader: { padding: 20, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1 },
     jobTitle: { fontSize: 18, fontWeight: '800', marginBottom: 4 },
     companyName: { fontSize: 14, fontWeight: '500' },
-    iconButton: { padding: 8, borderRadius: 12, borderWidth: 1 },
+    iconButton: { padding: 8, borderRadius: 12, borderWidth: 1, flexDirection: 'row', alignItems: 'center' },
     cardContent: { padding: 20 },
     gridContainer: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -8 },
     gridItem: { width: '50%', paddingHorizontal: 8, marginBottom: 16 },
@@ -527,23 +448,10 @@ const styles = StyleSheet.create({
     detailLabel: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', marginBottom: 2, opacity: 0.7 },
     detailValue: { fontSize: 14, fontWeight: '700' },
     
-    emptyCard: { 
-        padding: 32, 
-        alignItems: 'center', 
-        borderRadius: 16, 
-        borderWidth: 1, 
-        borderStyle: 'dashed',
-        ...shadowStyle 
-    },
+    emptyCard: { padding: 32, alignItems: 'center', borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', ...shadowStyle },
     emptyIconContainer: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
     emptyTitle: { fontSize: 18, fontWeight: '800', marginBottom: 8 },
     emptyDesc: { textAlign: 'center', fontSize: 14, marginBottom: 24, opacity: 0.7 },
     primaryButton: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 100 },
     primaryButtonText: { color: '#fff', fontWeight: '700' },
-    
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-    bottomSheetContent: { padding: 24, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingBottom: 48, borderWidth: 1, borderBottomWidth: 0 },
-    actionSheetButton: { flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 20 },
-    actionIconBox: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 16 },
-    actionSheetText: { fontSize: 16, fontWeight: '700' },
 });
