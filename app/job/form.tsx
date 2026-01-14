@@ -2,6 +2,7 @@ import {
     ArrowDown01Icon,
     Briefcase01Icon,
     Building03Icon,
+    Calendar01Icon,
     Calendar03Icon,
     CheckmarkCircle02Icon,
     Clock01Icon,
@@ -33,7 +34,7 @@ import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
 import SearchableSelectionModal from '../../components/SearchableSelectionModal';
-import TimePickerModal from '../../components/TimePickerModal'; // Updated Import
+import TimePickerModal from '../../components/TimePickerModal';
 
 import { JOBS_LIST } from '../../constants/Jobs';
 import { useAppTheme } from '../../constants/theme';
@@ -74,6 +75,13 @@ const EMPLOYMENT_STATUS_OPTIONS = [
     { label: 'Intern / OJT', value: 'Intern' },
 ];
 
+const PAYOUT_OPTIONS = [
+    { label: 'Weekly (Every week)', value: 'Weekly' },
+    { label: 'Bi-Weekly (Every 2 weeks)', value: 'Bi-Weekly' },
+    { label: 'Semi-Monthly (15th & 30th)', value: 'Semi-Monthly' },
+    { label: 'Monthly', value: 'Monthly' },
+];
+
 export default function JobForm() {
     const router = useRouter();
     const navigation = useNavigation();
@@ -92,8 +100,9 @@ export default function JobForm() {
     const [employmentStatus, setEmploymentStatus] = useState('Regular');
     const [salaryDisplay, setSalaryDisplay] = useState('');
     const [rateType, setRateType] = useState<'hourly' | 'daily' | 'monthly'>('hourly');
+    const [payoutType, setPayoutType] = useState('Semi-Monthly'); // New State
     const [startDate, setStartDate] = useState(new Date());
-    const [cutoffType, setCutoffType] = useState<'semi-monthly' | 'monthly' | 'weekly'>('semi-monthly');
+    
     const [workStart, setWorkStart] = useState<Date>(() => { const d = new Date(); d.setHours(9, 0, 0, 0); return d; });
     const [workEnd, setWorkEnd] = useState<Date>(() => { const d = new Date(); d.setHours(17, 0, 0, 0); return d; });
     const [breaks, setBreaks] = useState<{ id: string, start: Date, end: Date, title?: string }[]>([]);
@@ -103,6 +112,8 @@ export default function JobForm() {
     const [calendarVisible, setCalendarVisible] = useState(false);
     const [jobSelectorVisible, setJobSelectorVisible] = useState(false);
     const [statusSelectorVisible, setStatusSelectorVisible] = useState(false);
+    const [payoutSelectorVisible, setPayoutSelectorVisible] = useState(false); // New Selector
+    
     const [pickerConfig, setPickerConfig] = useState<{ mode: string, breakId?: string, currentValue?: Date }>({ mode: 'workStart' });
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
@@ -155,8 +166,9 @@ export default function JobForm() {
                 setEmploymentStatus(data.employment_status || 'Regular');
                 setSalaryDisplay(data.rate ? formatCurrency(data.rate.toString()) : '');
                 setRateType(data.rate_type || 'hourly');
+                setPayoutType(data.payout_type || 'Semi-Monthly'); // Load payout_type
+
                 if (data.start_date) setStartDate(new Date(data.start_date));
-                if (data.cutoff_config && data.cutoff_config.type) setCutoffType(data.cutoff_config.type);
                 
                 if (workSched) {
                     setWorkStart(parseTimeStringToDate(workSched.start));
@@ -266,10 +278,10 @@ export default function JobForm() {
                 rate: salaryValue, 
                 salary: salaryValue, 
                 rate_type: rateType, 
+                payout_type: payoutType, // ADDED
                 start_date: startDate.toISOString().split('T')[0],
                 work_schedule: { start: formatDBTime(workStart), end: formatDBTime(workEnd) },
                 break_schedule: breaks.map(b => ({ start: formatDBTime(b.start), end: formatDBTime(b.end), title: b.title })),
-                cutoff_config: { type: cutoffType },
                 updated_at: now
             };
 
@@ -303,7 +315,6 @@ export default function JobForm() {
             <LoadingOverlay visible={saving} message="Saving Job..." />
             <ModernAlert {...alertConfig} />
             
-            {/* Replaced TimePicker with TimePickerModal */}
             <TimePickerModal 
                 visible={pickerVisible} 
                 mode="time"
@@ -317,6 +328,7 @@ export default function JobForm() {
 
             <SearchableSelectionModal visible={jobSelectorVisible} onClose={() => setJobSelectorVisible(false)} onSelect={(val) => markDirty(setPosition, val)} title="Select Job Title" options={JOBS_LIST} placeholder="Search job title..." />
             <SearchableSelectionModal visible={statusSelectorVisible} onClose={() => setStatusSelectorVisible(false)} onSelect={(val) => markDirty(setEmploymentStatus, val)} title="Employment Status" options={EMPLOYMENT_STATUS_OPTIONS} placeholder="Select Status" />
+            <SearchableSelectionModal visible={payoutSelectorVisible} onClose={() => setPayoutSelectorVisible(false)} onSelect={(val) => markDirty(setPayoutType, val)} title="Payout Schedule" options={PAYOUT_OPTIONS} placeholder="Select Schedule" /> 
             <CalendarPickerModal visible={calendarVisible} onClose={() => setCalendarVisible(false)} onSelect={(date) => { markDirty(setStartDate, date); setCalendarVisible(false); }} selectedDate={startDate} />
 
             <Modal transparent={true} visible={breakTitleModalVisible} animationType="fade" onRequestClose={() => setBreakTitleModalVisible(false)}>
@@ -338,7 +350,7 @@ export default function JobForm() {
 
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
                 <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
-                    {/* ... (Rest of the JSX remains exactly the same) ... */}
+                    
                     <View className="mb-8">
                         <Text style={{ color: theme.colors.textSecondary }} className="mb-4 text-xs font-bold tracking-wider uppercase">Job Information</Text>
                         <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }} className="p-6 border shadow-sm rounded-3xl">
@@ -356,7 +368,10 @@ export default function JobForm() {
                     <View className="mb-8">
                         <Text style={{ color: theme.colors.textSecondary }} className="mb-4 text-xs font-bold tracking-wider uppercase">Compensation</Text>
                         <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }} className="p-6 mb-4 border shadow-sm rounded-3xl">
-                            <View className="flex-row items-center"><HugeiconsIcon icon={DollarCircleIcon} size={22} color={theme.colors.success} /><View className="flex-1 ml-4"><Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 2 }}>Pay Rate</Text><TextInput placeholder="₱ 0.00" placeholderTextColor={theme.colors.textSecondary} value={salaryDisplay} onChangeText={handleSalaryChange} keyboardType="numeric" style={{ color: theme.colors.text, fontSize: 16, fontWeight: 'bold', padding: 0 }} /></View></View>
+                            <View className="flex-row items-center mb-6"><HugeiconsIcon icon={DollarCircleIcon} size={22} color={theme.colors.success} /><View className="flex-1 ml-4"><Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 2 }}>Pay Rate</Text><TextInput placeholder="₱ 0.00" placeholderTextColor={theme.colors.textSecondary} value={salaryDisplay} onChangeText={handleSalaryChange} keyboardType="numeric" style={{ color: theme.colors.text, fontSize: 16, fontWeight: 'bold', padding: 0 }} /></View></View>
+                            <View className="h-[1px] bg-slate-100 dark:bg-slate-800 mb-6" />
+                            {/* ADDED: Payout Schedule Selector */}
+                            <TouchableOpacity onPress={() => setPayoutSelectorVisible(true)} className="flex-row items-center"><HugeiconsIcon icon={Calendar01Icon} size={22} color={theme.colors.textSecondary} /><View className="flex-1 ml-4"><Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 2 }}>Payout Schedule</Text><Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: 'bold' }}>{payoutType}</Text></View><HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.icon} /></TouchableOpacity>
                         </View>
                         <View style={{ flexDirection: 'row', backgroundColor: theme.colors.card, padding: 6, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.border }}>{(['hourly', 'daily', 'monthly'] as const).map((type) => (<TouchableOpacity key={type} onPress={() => markDirty(setRateType, type)} style={{ flex: 1, paddingVertical: 12, borderRadius: 16, backgroundColor: rateType === type ? theme.colors.primary : 'transparent', alignItems: 'center' }}><Text style={{ color: rateType === type ? '#fff' : theme.colors.textSecondary, fontWeight: 'bold', fontSize: 14, textTransform: 'capitalize' }}>{type}</Text></TouchableOpacity>))}</View>
                     </View>

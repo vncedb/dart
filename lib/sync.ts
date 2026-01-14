@@ -95,45 +95,84 @@ export const syncPull = async (userId: string) => {
       );
     }
 
-    // 3. Pull Jobs
+    // 3. Pull Jobs (Use Prepared Statement to avoid loop crash)
     const { data: jobData } = await supabase.from('job_positions').select('*').eq('user_id', userId);
-    if (jobData) {
-      for (const job of jobData) {
-        if (pendingMap.has(`job_positions:${job.id}`)) continue;
-        await db.runAsync(
-          `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, work_schedule, break_schedule, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            job.id, job.user_id, job.title, job.company || job.company_name, job.department, 
-            job.employment_status, job.rate, job.rate_type, 
-            typeof job.work_schedule === 'string' ? job.work_schedule : JSON.stringify(job.work_schedule),
-            typeof job.break_schedule === 'string' ? job.break_schedule : JSON.stringify(job.break_schedule),
-            job.created_at, job.updated_at
-          ]
-        );
+    if (jobData && jobData.length > 0) {
+      const statement = await db.prepareAsync(
+        `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, payout_type, work_schedule, break_schedule, created_at, updated_at) VALUES ($id, $user_id, $title, $company, $department, $employment_status, $rate, $rate_type, $payout_type, $work_schedule, $break_schedule, $created_at, $updated_at)`
+      );
+      try {
+        for (const job of jobData) {
+          if (pendingMap.has(`job_positions:${job.id}`)) continue;
+          await statement.executeAsync({
+            $id: job.id,
+            $user_id: job.user_id,
+            $title: job.title,
+            $company: job.company || job.company_name || null,
+            $department: job.department || '',
+            $employment_status: job.employment_status || 'Regular',
+            $rate: job.rate || 0,
+            $rate_type: job.rate_type || 'hourly',
+            $payout_type: job.payout_type || 'Semi-Monthly',
+            $work_schedule: typeof job.work_schedule === 'string' ? job.work_schedule : JSON.stringify(job.work_schedule || {}),
+            $break_schedule: typeof job.break_schedule === 'string' ? job.break_schedule : JSON.stringify(job.break_schedule || []),
+            $created_at: job.created_at,
+            $updated_at: job.updated_at
+          });
+        }
+      } finally {
+        await statement.finalizeAsync();
       }
     }
 
-    // 4. Pull Attendance (ADDED job_id)
+    // 4. Pull Attendance (Use Prepared Statement)
     const { data: attendanceData } = await supabase.from('attendance').select('*').eq('user_id', userId).gt('updated_at', lastSyncedAt);
-    if (attendanceData) {
-      for (const row of attendanceData) {
-        if (pendingMap.has(`attendance:${row.id}`)) continue;
-        await db.runAsync(
-          `INSERT OR REPLACE INTO attendance (id, user_id, job_id, date, clock_in, clock_out, status, remarks, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [row.id, row.user_id, row.job_id, row.date, row.clock_in, row.clock_out, row.status, row.remarks, row.updated_at || newSyncTime]
-        );
+    if (attendanceData && attendanceData.length > 0) {
+      const statement = await db.prepareAsync(
+         `INSERT OR REPLACE INTO attendance (id, user_id, job_id, date, clock_in, clock_out, status, remarks, updated_at) VALUES ($id, $user_id, $job_id, $date, $clock_in, $clock_out, $status, $remarks, $updated_at)`
+      );
+      try {
+        for (const row of attendanceData) {
+          if (pendingMap.has(`attendance:${row.id}`)) continue;
+          await statement.executeAsync({
+             $id: row.id,
+             $user_id: row.user_id,
+             $job_id: row.job_id || null,
+             $date: row.date,
+             $clock_in: row.clock_in,
+             $clock_out: row.clock_out,
+             $status: row.status,
+             $remarks: row.remarks,
+             $updated_at: row.updated_at || newSyncTime
+          });
+        }
+      } finally {
+        await statement.finalizeAsync();
       }
     }
 
-    // 5. Pull Accomplishments (ADDED job_id)
+    // 5. Pull Accomplishments (Use Prepared Statement)
     const { data: taskData } = await supabase.from('accomplishments').select('*').eq('user_id', userId).gt('created_at', lastSyncedAt);
-    if (taskData) {
-      for (const row of taskData) {
-        if (pendingMap.has(`accomplishments:${row.id}`)) continue;
-        await db.runAsync(
-          `INSERT OR REPLACE INTO accomplishments (id, user_id, job_id, date, description, remarks, image_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [row.id, row.user_id, row.job_id, row.date, row.description, row.remarks, row.image_url, row.created_at]
-        );
+    if (taskData && taskData.length > 0) {
+      const statement = await db.prepareAsync(
+         `INSERT OR REPLACE INTO accomplishments (id, user_id, job_id, date, description, remarks, image_url, created_at) VALUES ($id, $user_id, $job_id, $date, $description, $remarks, $image_url, $created_at)`
+      );
+      try {
+        for (const row of taskData) {
+           if (pendingMap.has(`accomplishments:${row.id}`)) continue;
+           await statement.executeAsync({
+              $id: row.id,
+              $user_id: row.user_id,
+              $job_id: row.job_id || null,
+              $date: row.date,
+              $description: row.description,
+              $remarks: row.remarks,
+              $image_url: row.image_url,
+              $created_at: row.created_at
+           });
+        }
+      } finally {
+        await statement.finalizeAsync();
       }
     }
 

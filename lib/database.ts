@@ -4,34 +4,28 @@ import { getDB } from './db-client';
 export const initDatabase = async () => {
   const database = await getDB();
 
-  // 1. Create Tables (Safe for fresh installs)
+  // 1. Create Tables
   await database.execAsync(`
     PRAGMA journal_mode = WAL;
     
-    -- OFFLINE TABLES (Include job_id for new installs)
     CREATE TABLE IF NOT EXISTS attendance (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL, job_id TEXT, date TEXT NOT NULL, clock_in TEXT NOT NULL, clock_out TEXT, status TEXT, remarks TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS accomplishments (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL, job_id TEXT, date TEXT NOT NULL, description TEXT NOT NULL, remarks TEXT, image_url TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
     
-    -- Sync queue
     CREATE TABLE IF NOT EXISTS sync_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, table_name TEXT NOT NULL, row_id TEXT, action TEXT NOT NULL, data TEXT, status TEXT DEFAULT 'PENDING', retry_count INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
-    
     CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT);
 
-    -- CACHE TABLES
     CREATE TABLE IF NOT EXISTS profiles (id TEXT PRIMARY KEY NOT NULL, email TEXT, first_name TEXT, last_name TEXT, middle_name TEXT, title TEXT, professional_suffix TEXT, current_job_id TEXT, full_name TEXT, avatar_url TEXT, local_avatar_path TEXT, updated_at TEXT);
-    CREATE TABLE IF NOT EXISTS job_positions (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, title TEXT, company TEXT, department TEXT, employment_status TEXT, rate REAL, rate_type TEXT, work_schedule TEXT, break_schedule TEXT, created_at TEXT, updated_at TEXT);
+    CREATE TABLE IF NOT EXISTS job_positions (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, title TEXT, company TEXT, department TEXT, employment_status TEXT, rate REAL, rate_type TEXT, payout_type TEXT, work_schedule TEXT, break_schedule TEXT, created_at TEXT, updated_at TEXT);
     
-    -- BASIC INDICES (Safe to run immediately)
     CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance(user_id, date);
     CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);
   `);
 
-  // --- MIGRATIONS (Add columns for existing users) ---
+  // --- MIGRATIONS ---
   const addColumn = async (table: string, col: string, type: string) => {
     try { 
         await database.execAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${type};`); 
     } catch (e: any) { 
-        // Ignore "duplicate column" errors if it already exists
         if (!e.message?.includes('duplicate column') && !e.message?.includes('no such column')) {
             console.log(`Migration Note (${table}.${col}):`, e.message); 
         }
@@ -51,14 +45,13 @@ export const initDatabase = async () => {
   await addColumn('job_positions', 'employment_status', 'TEXT');
   await addColumn('job_positions', 'rate', 'REAL');
   await addColumn('job_positions', 'rate_type', 'TEXT');
+  await addColumn('job_positions', 'payout_type', 'TEXT'); // <--- CRITICAL FIX
   
   await addColumn('accomplishments', 'updated_at', 'TEXT');
 
-  // IMPORTANT: Add job_id columns
   await addColumn('attendance', 'job_id', 'TEXT');
   await addColumn('accomplishments', 'job_id', 'TEXT');
 
-  // 2. Create Job Indices (Run AFTER columns are definitely added)
   try {
       await database.execAsync(`
         CREATE INDEX IF NOT EXISTS idx_attendance_job ON attendance(job_id);
@@ -126,7 +119,7 @@ export const saveProfileLocal = async (profile: any) => {
 export const saveJobLocal = async (job: any) => {
     const db = await getDB();
     await db.runAsync(
-        `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, work_schedule, break_schedule, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, payout_type, work_schedule, break_schedule, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
             job.id, 
             job.user_id, 
@@ -136,6 +129,7 @@ export const saveJobLocal = async (job: any) => {
             job.employment_status || 'Regular',
             job.rate || 0,
             job.rate_type || 'hourly',
+            job.payout_type || 'Semi-Monthly',
             typeof job.work_schedule === 'string' ? job.work_schedule : JSON.stringify(job.work_schedule),
             typeof job.break_schedule === 'string' ? job.break_schedule : JSON.stringify(job.break_schedule),
             job.created_at || new Date().toISOString(), 
