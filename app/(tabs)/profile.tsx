@@ -117,15 +117,33 @@ const JobCard = ({ currentJob, visibleKeys, theme, onEdit }: any) => {
     );
 };
 
-const EmptyJobCard = ({ theme, router }: any) => (
+// Updated Empty Job Card with conditional text
+const EmptyJobCard = ({ theme, router, hasJobs }: any) => (
     <View style={[styles.emptyCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
         <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
             <HugeiconsIcon icon={Briefcase01Icon} size={32} color={theme.colors.primary} />
         </View>
-        <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Active Job</Text>
-        <Text style={[styles.emptyDesc, { color: theme.colors.textSecondary }]}>Set up your job profile to start tracking your attendance and earnings.</Text>
-        <TouchableOpacity onPress={() => router.push('/job/form')} style={[styles.primaryButton, { backgroundColor: theme.colors.primary }]}>
-            <Text style={styles.primaryButtonText}>Set Up Job</Text>
+        
+        {/* Dynamic Title */}
+        <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>
+            {hasJobs ? "No Active Job" : "No Jobs Added"}
+        </Text>
+        
+        {/* Dynamic Description (Removed 'and earnings') */}
+        <Text style={[styles.emptyDesc, { color: theme.colors.textSecondary }]}>
+            {hasJobs 
+                ? "You have saved jobs but none are set as active." 
+                : "Set up your job profile to start tracking your attendance."}
+        </Text>
+        
+        {/* Button redirects to Job List */}
+        <TouchableOpacity 
+            onPress={() => router.push('/job/job')} 
+            style={[styles.primaryButton, { backgroundColor: theme.colors.primary }]}
+        >
+            <Text style={styles.primaryButtonText}>
+                {hasJobs ? "Select Active Job" : "Manage Jobs"}
+            </Text>
         </TouchableOpacity>
     </View>
 );
@@ -138,6 +156,7 @@ export default function ProfileScreen() {
     const [refreshing, setRefreshing] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [viewData, setViewData] = useState<{ profile: any; job: any }>({ profile: null, job: null });
+    const [hasJobs, setHasJobs] = useState(false); // Track if user has any jobs
     const [email, setEmail] = useState('');
     const [imageError, setImageError] = useState(false);
     
@@ -162,6 +181,8 @@ export default function ProfileScreen() {
             const db = await getDB();
 
             const jobsData = await db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ?', [userId]);
+            setHasJobs(jobsData && (jobsData as any[]).length > 0);
+
             const localProfile = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [userId]);
             
             let tempProfile = localProfile;
@@ -398,7 +419,7 @@ export default function ProfileScreen() {
 
                     <View style={styles.sectionContainer}>
                         <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>CURRENT JOB</Text>
-                        {userJob ? <JobCard currentJob={userJob} visibleKeys={visibleDetailKeys} theme={theme} onEdit={() => setModalVisible(true)} /> : <EmptyJobCard theme={theme} router={router} />}
+                        {userJob ? <JobCard currentJob={userJob} visibleKeys={visibleDetailKeys} theme={theme} onEdit={() => setModalVisible(true)} /> : <EmptyJobCard theme={theme} router={router} hasJobs={hasJobs} />}
                     </View>
                 </ScrollView>
             )}

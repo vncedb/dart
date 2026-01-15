@@ -1,23 +1,23 @@
 import {
-  Calendar03Icon,
-  Clock01Icon,
-  Delete02Icon,
-  MoreVerticalCircle01Icon,
-  PencilEdit02Icon,
-  PrinterIcon,
-  Task01Icon
+    Calendar03Icon,
+    Clock01Icon,
+    Delete02Icon,
+    MoreVerticalCircle01Icon,
+    PencilEdit02Icon,
+    PrinterIcon,
+    Task01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
-  ActivityIndicator,
-  Image,
-  ScrollView,
-  StatusBar,
-  Text,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    Image,
+    ScrollView,
+    StatusBar,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -41,7 +41,7 @@ export default function ReportDetailsScreen() {
   const [loadingAction, setLoadingAction] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
-  const [menuPosition, setMenuPosition] = useState({ top: 60, right: 20 });
+  const [menuAnchor, setMenuAnchor] = useState<{ x: number, y: number } | undefined>(undefined);
 
   useFocusEffect(
     useCallback(() => {
@@ -129,7 +129,11 @@ export default function ReportDetailsScreen() {
       <Header 
         title="Daily Report" 
         rightElement={
-            <TouchableOpacity onPress={() => setMenuVisible(true)}>
+            <TouchableOpacity onPress={(e) => {
+                // Ensure anchor is below the header container
+                setMenuAnchor({ x: e.nativeEvent.pageX, y: e.nativeEvent.pageY + 20 });
+                setMenuVisible(true);
+            }}>
                 <HugeiconsIcon icon={MoreVerticalCircle01Icon} size={24} color={theme.colors.textSecondary} />
             </TouchableOpacity>
         }
@@ -143,7 +147,7 @@ export default function ReportDetailsScreen() {
             { label: 'Print PDF', icon: PrinterIcon, onPress: handlePrint, color: '#f97316' },
             { label: 'Delete Day', icon: Delete02Icon, onPress: handleDelete, color: theme.colors.danger },
         ]}
-        position={{ top: 70, right: 20 }}
+        anchor={menuAnchor}
       />
 
       {initialLoading ? (

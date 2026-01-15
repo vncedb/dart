@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAppTheme } from '../constants/theme';
 import Button from './Button';
+import ModalHeader from './ModalHeader';
 
 interface DurationPickerProps {
     visible: boolean;
@@ -44,9 +45,9 @@ export default function DurationPicker({ visible, onClose, onConfirm, initialHou
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
             <Pressable style={styles.overlay} onPress={onClose}>
                 <Pressable style={[styles.container, { backgroundColor: theme.colors.card }]} onPress={e => e.stopPropagation()}>
-                    <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-                        <Text style={[styles.title, { color: theme.colors.text }]}>Set Duration</Text>
-                    </View>
+                    
+                    {/* Center Modal: No Close Button */}
+                    <ModalHeader title="Set Duration" />
 
                     <View style={styles.content}>
                         <View style={{ gap: 40, alignItems: 'center' }}>
@@ -56,7 +57,7 @@ export default function DurationPicker({ visible, onClose, onConfirm, initialHou
                     </View>
 
                     <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
-                        <Button title="Cancel" variant="ghost" onPress={onClose} style={{ flex: 1 }} />
+                        <Button title="Cancel" variant="neutral" onPress={onClose} style={{ flex: 1 }} />
                         <View style={{ width: 12 }} />
                         <Button title="Confirm" variant="primary" onPress={() => { onConfirm(durHours, durMins); onClose(); }} style={{ flex: 1 }} />
                     </View>
@@ -68,11 +69,9 @@ export default function DurationPicker({ visible, onClose, onConfirm, initialHou
 
 const styles = StyleSheet.create({
     overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
-    container: { width: 340, borderRadius: 28, overflow: 'hidden' }, 
-    header: { paddingVertical: 16, alignItems: 'center', borderBottomWidth: 1 },
-    title: { fontSize: 16, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+    container: { width: 340, borderRadius: 28, overflow: 'hidden', elevation: 10 },
     content: { paddingVertical: 40, alignItems: 'center' },
     roundBtn: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)' },
     btnText: { fontSize: 24, fontWeight: '600' },
-    footer: { padding: 20, borderTopWidth: 1, flexDirection: 'row' },
+    footer: { padding: 16, borderTopWidth: 1, flexDirection: 'row' },
 });

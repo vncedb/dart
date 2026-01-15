@@ -64,7 +64,7 @@ const EmptyJobCard = ({ theme, router, isOffline }: any) => {
             {!isOffline && (
                 <TouchableOpacity onPress={() => router.push('/job/form')} style={{ backgroundColor: theme.colors.primary, flexDirection: 'row', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 32, borderRadius: 100 }}>
                     <HugeiconsIcon icon={PlusSignIcon} size={20} color="#FFF" strokeWidth={3} />
-                    <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 16, marginLeft: 8 }}>Add First Job</Text>
+                    <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 16, marginLeft: 8 }}>Add Your First Job</Text>
                 </TouchableOpacity>
             )}
         </View>
@@ -93,7 +93,6 @@ export default function MyJobsScreen() {
             if (!user) return;
             const db = await getDB();
 
-            // 1. Fetch Local Jobs
             const localJobs = await db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ? ORDER BY created_at DESC', [user.id]);
             let parsedLocalJobs = (localJobs as any[]).map(j => ({
                 ...j,
@@ -101,13 +100,11 @@ export default function MyJobsScreen() {
                 break_schedule: typeof j.break_schedule === 'string' ? JSON.parse(j.break_schedule) : j.break_schedule
             }));
 
-            // 2. Fetch Active Job ID from Profile
             const profile: any = await db.getFirstAsync('SELECT current_job_id FROM profiles WHERE id = ?', [user.id]);
             const currentId = profile?.current_job_id;
             
             if (currentId) {
                 setActiveJobId(currentId);
-                // 3. SORT: Move Active Job to the top
                 parsedLocalJobs = parsedLocalJobs.sort((a, b) => {
                     if (a.id === currentId) return -1;
                     if (b.id === currentId) return 1;
@@ -139,7 +136,6 @@ export default function MyJobsScreen() {
             if (!user) return;
             
             const db = await getDB();
-            
             await db.runAsync('UPDATE profiles SET current_job_id = ? WHERE id = ?', [jobId, user.id]);
             
             const updates = { id: user.id, current_job_id: jobId, updated_at: new Date().toISOString() };
@@ -147,7 +143,6 @@ export default function MyJobsScreen() {
             
             setActiveJobId(jobId);
             
-            // Re-sort locally immediately for instant feedback
             setJobs(prevJobs => {
                 const sorted = [...prevJobs].sort((a, b) => {
                     if (a.id === jobId) return -1;
@@ -158,9 +153,7 @@ export default function MyJobsScreen() {
             });
 
             triggerSync();
-            
         } catch (e) {
-            console.log("Error setting active job:", e);
             setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Could not update active job.', confirmText: 'OK', onConfirm: () => setAlertConfig({ visible: false }) });
         } finally {
             setProcessing(false);
@@ -190,12 +183,7 @@ export default function MyJobsScreen() {
                     
                     triggerSync();
                     await fetchJobs();
-
-                } catch (e) { 
-                    console.log('Delete error:', e); 
-                } finally { 
-                    setProcessing(false); 
-                }
+                } catch (e) { console.log('Delete error:', e); } finally { setProcessing(false); }
             },
             onCancel: () => setAlertConfig((prev: any) => ({ ...prev, visible: false }))
         });
@@ -222,9 +210,7 @@ export default function MyJobsScreen() {
                 }} 
                 className="p-5 mb-5 shadow-sm rounded-3xl"
             >
-                {/* Header Section */}
                 <View className="flex-row justify-between mb-4">
-                    {/* Left: Title & Company */}
                     <View className="flex-1 mr-4">
                         <Text style={{ color: theme.colors.text }} className="text-xl font-extrabold" numberOfLines={1}>{item.title}</Text>
                         <View className="flex-row items-center mt-1">
@@ -232,8 +218,6 @@ export default function MyJobsScreen() {
                             <Text style={{ color: theme.colors.textSecondary }} className="ml-1.5 text-sm font-medium" numberOfLines={2}>{item.company || 'Unknown Company'}</Text>
                         </View>
                     </View>
-
-                    {/* Right: Status Indicators (Swapped Order) */}
                     <View style={{ alignItems: 'flex-end', gap: 6 }}>
                         <View style={{ backgroundColor: theme.colors.primary + '15', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 }}>
                             <Text style={{ color: theme.colors.primary, fontSize: 10, fontWeight: '800', textTransform: 'uppercase' }}>{item.employment_status || 'Regular'}</Text>
@@ -279,7 +263,21 @@ export default function MyJobsScreen() {
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
             <LoadingOverlay visible={processing} message={loadingMessage} />
             <ModernAlert {...alertConfig} />
-            <Header title="My Jobs" rightElement={!isOffline ? (<TouchableOpacity onPress={() => router.push('/job/form')} style={{ backgroundColor: theme.colors.primaryLight, padding: 8, borderRadius: 20 }}><HugeiconsIcon icon={PlusSignIcon} size={24} color={theme.colors.primary} /></TouchableOpacity>) : null} />
+            
+            {/* Logic Logic: Only show '+' if we have jobs */}
+            <Header 
+                title="My Jobs" 
+                rightElement={
+                    !isOffline && jobs.length > 0 ? (
+                        <TouchableOpacity 
+                            onPress={() => router.push('/job/form')} 
+                            style={{ backgroundColor: theme.colors.primaryLight, padding: 8, borderRadius: 20 }}
+                        >
+                            <HugeiconsIcon icon={PlusSignIcon} size={24} color={theme.colors.primary} />
+                        </TouchableOpacity>
+                    ) : null
+                } 
+            />
             
             {loading ? (
                 <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>

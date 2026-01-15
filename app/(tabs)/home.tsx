@@ -1,6 +1,6 @@
 import {
     Briefcase01Icon,
-    Notification01Icon, // FIXED: Changed from 03 to 01
+    Notification01Icon,
     PlusSignIcon,
     WifiOffIcon
 } from '@hugeicons/core-free-icons';
@@ -148,7 +148,6 @@ export default function Home() {
     const [isInitialLoading, setIsInitialLoading] = useState(true); 
     const [refreshing, setRefreshing] = useState(false);
     
-    // Data State
     const [profile, setProfile] = useState<any>(null);
     const [activeJobId, setActiveJobId] = useState<string | null>(null);
     const [jobSettings, setJobSettings] = useState<any>(null); 
@@ -156,12 +155,10 @@ export default function Home() {
     const [monthRecords, setMonthRecords] = useState<any[]>([]);
     const [tasks, setTasks] = useState<any[]>([]);
     
-    // Notifications State
     const [notifications, setNotifications] = useState<any[]>([]);
     const [notifModalVisible, setNotifModalVisible] = useState(false);
     const notificationListener = useRef<any>();
     
-    // Computed
     const [dailyGoal, setDailyGoal] = useState(8); 
     const [timelineData, setTimelineData] = useState<any[]>([]);
     const [appSettings, setAppSettings] = useState({ vibrationEnabled: true, soundEnabled: true });
@@ -193,7 +190,6 @@ export default function Home() {
 
     const handleHideAlert = useCallback(() => { setAlertVisible(false); }, []);
 
-    // --- NOTIFICATION HANDLERS ---
     useEffect(() => {
         registerForPushNotificationsAsync();
         setupNotificationCategories();
@@ -500,10 +496,8 @@ export default function Home() {
                 setAlertType('check-in');
             }
             
-            // FIXED: Safer audio playback
             if (appSettings.soundEnabled) {
                 try {
-                    // Check if player is still valid/loaded before playing
                     if (successPlayer) {
                         successPlayer.seekTo(0); 
                         successPlayer.play(); 
@@ -603,9 +597,7 @@ export default function Home() {
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                     <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.5 }}>{activityTitle}</Text>
                     
-                    {/* UPDATED: Action Buttons Row */}
                     <View style={{ flexDirection: 'row', gap: 12 }}>
-                         {/* Notification Button */}
                          <TouchableOpacity 
                             onPress={() => setNotifModalVisible(true)} 
                             style={{ backgroundColor: theme.colors.card, borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.colors.border }}
@@ -616,7 +608,6 @@ export default function Home() {
                             )}
                         </TouchableOpacity>
 
-                        {/* Add Entry Button */}
                         <TouchableOpacity 
                             disabled={!isClockedIn} 
                             onPress={() => router.push({ pathname: '/reports/add-entry', params: { jobId: activeJobId } })} 

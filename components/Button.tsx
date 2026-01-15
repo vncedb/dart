@@ -6,19 +6,21 @@ import {
     PressableProps,
     StyleSheet,
     Text,
+    TextStyle,
     ViewStyle
 } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useAppTheme } from '../constants/theme';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
+export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'cancel' | 'neutral';
 
 interface ButtonProps extends PressableProps {
     title: string;
     variant?: ButtonVariant;
     isLoading?: boolean;
     style?: ViewStyle;
-    textStyle?: any;
+    textStyle?: TextStyle;
+    icon?: React.ReactNode;
 }
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -30,6 +32,7 @@ export default function Button({
     style,
     disabled,
     textStyle,
+    icon,
     ...props
 }: ButtonProps) {
     const theme = useAppTheme();
@@ -39,12 +42,24 @@ export default function Button({
         if (disabled) return { bg: theme.colors.border, text: theme.colors.textSecondary, border: 'transparent' };
         
         switch (variant) {
-            case 'primary': return { bg: theme.colors.primary, text: '#ffffff', border: 'transparent' };
-            case 'secondary': return { bg: theme.colors.card, text: theme.colors.text, border: theme.colors.border };
-            case 'outline': return { bg: 'transparent', text: theme.colors.text, border: theme.colors.border };
-            case 'ghost': return { bg: 'transparent', text: theme.colors.textSecondary, border: 'transparent' };
-            case 'danger': return { bg: '#fee2e2', text: '#ef4444', border: 'transparent' };
-            default: return { bg: theme.colors.primary, text: '#ffffff', border: 'transparent' };
+            case 'primary': 
+                return { bg: theme.colors.primary, text: '#ffffff', border: 'transparent' };
+            case 'secondary': 
+                return { bg: theme.colors.card, text: theme.colors.text, border: theme.colors.border };
+            case 'outline': 
+                return { bg: 'transparent', text: theme.colors.text, border: theme.colors.border };
+            case 'ghost': 
+                return { bg: 'transparent', text: theme.colors.textSecondary, border: 'transparent' };
+            case 'danger': 
+                return { bg: '#fee2e2', text: '#ef4444', border: 'transparent' };
+            case 'cancel': 
+                // Light background, Red text (Destructive Cancel)
+                return { bg: theme.colors.background, text: '#ef4444', border: 'transparent' };
+            case 'neutral': 
+                // Light background, Gray text (Standard Cancel like "Rename Break")
+                return { bg: theme.colors.background, text: theme.colors.textSecondary, border: 'transparent' };
+            default: 
+                return { bg: theme.colors.primary, text: '#ffffff', border: 'transparent' };
         }
     };
 
@@ -55,7 +70,7 @@ export default function Button({
     }));
 
     const handlePressIn = () => {
-        if (!disabled && !isLoading) scale.value = withSpring(0.98);
+        if (!disabled && !isLoading) scale.value = withSpring(0.96);
     };
 
     const handlePressOut = () => {
@@ -83,9 +98,16 @@ export default function Button({
             {isLoading ? (
                 <ActivityIndicator size="small" color={colors.text} />
             ) : (
-                <Text style={[styles.text, { color: colors.text }, textStyle]}>
-                    {title}
-                </Text>
+                <>
+                    {icon}
+                    <Text style={[
+                        styles.text, 
+                        { color: colors.text, marginLeft: icon ? 8 : 0 }, 
+                        textStyle
+                    ]}>
+                        {title}
+                    </Text>
+                </>
             )}
         </AnimatedPressable>
     );
@@ -93,8 +115,8 @@ export default function Button({
 
 const styles = StyleSheet.create({
     container: {
-        height: 52,
-        borderRadius: 16,
+        height: 52, // Standard touch height
+        borderRadius: 16, // Modern "Squircle" radius
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
@@ -107,8 +129,15 @@ const styles = StyleSheet.create({
     },
     shadow: {
         ...Platform.select({
-            ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8 },
-            android: { elevation: 3 }
+            ios: { 
+                shadowColor: '#000', 
+                shadowOffset: { width: 0, height: 4 }, 
+                shadowOpacity: 0.15, 
+                shadowRadius: 8 
+            },
+            android: { 
+                elevation: 3 
+            }
         })
     }
 });

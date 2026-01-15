@@ -1,19 +1,32 @@
 import {
     Cancel01Icon,
     PlusSignIcon,
-    Search01Icon
+    Search01Icon,
+    Tick02Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import React, { useEffect, useState } from 'react';
 import {
+    Dimensions,
+    FlatList,
+    KeyboardAvoidingView,
     Modal,
+    Platform,
     Pressable,
-    ScrollView,
+    StyleSheet,
     Text,
     TextInput,
     TouchableOpacity,
     View
 } from 'react-native';
+import Animated, {
+    runOnJS,
+    useAnimatedStyle,
+    useSharedValue,
+    withSpring,
+    withTiming
+} from 'react-native-reanimated';
+import { useAppTheme } from '../constants/theme';
 
 interface Option {
     label: string;
@@ -27,108 +40,301 @@ interface SearchableSelectionModalProps {
     title: string;
     options: Option[];
     placeholder?: string;
-    // Added optional props to maintain compatibility with your existing parent components
-    theme?: any; 
+    theme?: any;
     currentValue?: any;
 }
 
-export default function SearchableSelectionModal({ 
-    visible, 
-    onClose, 
-    onSelect, 
-    title, 
-    options, 
-    placeholder 
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const MODAL_HEIGHT = 550; // Fixed height to prevent resizing
+
+export default function SearchableSelectionModal({
+    visible,
+    onClose,
+    onSelect,
+    title,
+    options,
+    placeholder,
+    currentValue
 }: SearchableSelectionModalProps) {
+    const theme = useAppTheme();
     const [search, setSearch] = useState('');
     const [filteredOptions, setFilteredOptions] = useState<Option[]>(options);
+    const [showModal, setShowModal] = useState(visible);
 
-    // Reset search when modal opens
+    // Animation Values
+    const opacity = useSharedValue(0);
+    const translateY = useSharedValue(MODAL_HEIGHT);
+
     useEffect(() => {
         if (visible) {
+            setShowModal(true);
             setSearch('');
-            setFilteredOptions(options);
+            sortAndFilterOptions('', options);
+            
+            opacity.value = withTiming(1, { duration: 200 });
+            translateY.value = withSpring(0, {
+                damping: 15,
+                mass: 0.8,
+                stiffness: 100,
+            });
+        } else {
+            opacity.value = withTiming(0, { duration: 150 });
+            translateY.value = withTiming(MODAL_HEIGHT, { duration: 200 }, (finished) => {
+                if (finished) {
+                    runOnJS(setShowModal)(false);
+                }
+            });
         }
     }, [visible, options]);
 
-    // Local Filtering Logic
     useEffect(() => {
-        const lowerSearch = search.toLowerCase();
-        const results = options.filter(opt => 
+        sortAndFilterOptions(search, options);
+    }, [search, options, currentValue]);
+
+    const sortAndFilterOptions = (searchText: string, allOptions: Option[]) => {
+        const lowerSearch = searchText.toLowerCase();
+        
+        let results = allOptions.filter(opt =>
             opt.label.toLowerCase().includes(lowerSearch)
         );
+
+        if (currentValue) {
+            results = results.sort((a, b) => {
+                const isA = a.value === currentValue || a.label === currentValue;
+                const isB = b.value === currentValue || b.label === currentValue;
+                if (isA && !isB) return -1;
+                if (!isA && isB) return 1;
+                return 0;
+            });
+        }
+
         setFilteredOptions(results);
-    }, [search, options]);
+    };
+
+    const handleClose = () => {
+        onClose();
+    };
+
+    const animatedBackdropStyle = useAnimatedStyle(() => ({
+        opacity: opacity.value,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+    }));
+
+    const animatedContainerStyle = useAnimatedStyle(() => ({
+        transform: [{ translateY: translateY.value }],
+    }));
+
+    if (!showModal) return null;
 
     return (
-        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-            <Pressable 
-                style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 24 }} 
-                onPress={onClose}
+        <Modal transparent visible={showModal} onRequestClose={handleClose} animationType="none">
+            <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                style={{ flex: 1 }}
             >
-                <Pressable className="overflow-hidden bg-white shadow-xl dark:bg-slate-800 rounded-3xl" onPress={() => {}}>
-                    {/* Header */}
-                    <View className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
-                        <Text className="font-bold text-center text-slate-900 dark:text-white">{title}</Text>
-                    </View>
-                    
-                    {/* Search Bar */}
-                    <View className="px-6 py-4 border-b border-slate-100 dark:border-slate-700">
-                        <View className="flex-row items-center px-4 py-3 bg-slate-100 dark:bg-slate-700/50 rounded-xl">
-                            <HugeiconsIcon icon={Search01Icon} size={20} color="#94a3b8" />
-                            <TextInput 
-                                placeholder={placeholder || "Search..."}
-                                placeholderTextColor="#94a3b8"
-                                value={search}
-                                onChangeText={setSearch}
-                                className="flex-1 ml-3 text-base font-medium text-slate-900 dark:text-white"
-                                autoFocus={false}
-                            />
-                            {/* Clear Button */}
-                            {search.length > 0 && (
-                                <TouchableOpacity onPress={() => setSearch('')}>
-                                    <HugeiconsIcon icon={Cancel01Icon} size={18} color="#94a3b8" />
-                                </TouchableOpacity>
-                            )}
+                <View style={styles.overlayContainer}>
+                    <AnimatedPressable
+                        style={[StyleSheet.absoluteFill, animatedBackdropStyle]}
+                        onPress={handleClose}
+                    />
+
+                    <Animated.View
+                        style={[
+                            styles.modalContainer,
+                            {
+                                backgroundColor: theme.colors.card,
+                                height: MODAL_HEIGHT, 
+                            },
+                            animatedContainerStyle
+                        ]}
+                    >
+                        <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
+                            <Text style={[styles.title, { color: theme.colors.text }]}>{title}</Text>
                         </View>
-                    </View>
 
-                    {/* List with Fixed Max Height */}
-                    <ScrollView style={{ maxHeight: 400 }} keyboardShouldPersistTaps="handled">
-                        {filteredOptions.length > 0 ? (
-                            filteredOptions.map((opt, idx) => (
-                                <TouchableOpacity 
-                                    key={idx} 
-                                    onPress={() => { onSelect(opt.value); onClose(); }} 
-                                    className="flex-row items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-700"
-                                >
-                                    <Text className="text-base font-medium text-slate-700 dark:text-white">{opt.label}</Text>
-                                </TouchableOpacity>
-                            ))
-                        ) : (
-                            <View className="items-center p-8">
-                                <Text className="text-slate-400">No matching options found</Text>
+                        <View style={[styles.searchContainer, { borderBottomColor: theme.colors.border }]}>
+                            <View style={[styles.searchInputWrapper, { backgroundColor: theme.colors.background }]}>
+                                <HugeiconsIcon icon={Search01Icon} size={20} color={theme.colors.textSecondary} />
+                                <TextInput
+                                    placeholder={placeholder || "Search..."}
+                                    placeholderTextColor={theme.colors.textSecondary}
+                                    value={search}
+                                    onChangeText={setSearch}
+                                    style={[styles.searchInput, { color: theme.colors.text }]}
+                                    autoCorrect={false}
+                                />
+                                {search.length > 0 && (
+                                    <TouchableOpacity onPress={() => setSearch('')} hitSlop={10}>
+                                        <HugeiconsIcon icon={Cancel01Icon} size={18} color={theme.colors.textSecondary} />
+                                    </TouchableOpacity>
+                                )}
                             </View>
-                        )}
-                        
-                        {/* Add Custom Option Logic */}
-                        {search.length > 0 && !filteredOptions.find(o => o.label.toLowerCase() === search.toLowerCase()) && (
-                            <TouchableOpacity 
-                                onPress={() => { onSelect(search); onClose(); }} 
-                                className="flex-row items-center px-6 py-4 bg-indigo-50 dark:bg-indigo-900/20"
-                            >
-                                <HugeiconsIcon icon={PlusSignIcon} size={20} color="#6366f1" />
-                                <Text className="ml-3 font-bold text-indigo-600 dark:text-indigo-400">Add &quot;{search}&quot;</Text>
-                            </TouchableOpacity>
-                        )}
-                    </ScrollView>
+                        </View>
 
-                    {/* Footer */}
-                    <TouchableOpacity onPress={onClose} className="px-6 py-4 border-t bg-slate-50 dark:bg-slate-900 border-slate-100 dark:border-slate-700">
-                        <Text className="font-bold text-center text-red-500">Cancel</Text>
-                    </TouchableOpacity>
-                </Pressable>
-            </Pressable>
+                        <FlatList
+                            data={filteredOptions}
+                            keyExtractor={(item, index) => item.value + index}
+                            contentContainerStyle={{ flexGrow: 1, paddingBottom: 20 }}
+                            keyboardShouldPersistTaps="handled"
+                            ListEmptyComponent={
+                                <View style={styles.emptyContainer}>
+                                    <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
+                                        No matching options found
+                                    </Text>
+                                    
+                                    {search.length > 0 && (
+                                        <TouchableOpacity
+                                            onPress={() => { onSelect(search); handleClose(); }}
+                                            style={[styles.addButton, { backgroundColor: theme.colors.primary + '15' }]}
+                                        >
+                                            <HugeiconsIcon icon={PlusSignIcon} size={18} color={theme.colors.primary} />
+                                            <Text style={[styles.addButtonText, { color: theme.colors.primary }]}>
+                                                Use "{search}"
+                                            </Text>
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+                            }
+                            renderItem={({ item }) => {
+                                const isSelected = currentValue === item.value || currentValue === item.label;
+                                return (
+                                    <TouchableOpacity
+                                        onPress={() => { onSelect(item.value); handleClose(); }}
+                                        style={[
+                                            styles.optionItem,
+                                            { 
+                                                borderBottomColor: theme.colors.border,
+                                                backgroundColor: isSelected ? theme.colors.primary + '08' : 'transparent' 
+                                            }
+                                        ]}
+                                        activeOpacity={0.7}
+                                    >
+                                        <Text
+                                            style={[
+                                                styles.optionText,
+                                                { 
+                                                    color: isSelected ? theme.colors.primary : theme.colors.text,
+                                                    fontWeight: isSelected ? '700' : '500' 
+                                                }
+                                            ]}
+                                        >
+                                            {item.label}
+                                        </Text>
+                                        
+                                        {isSelected && (
+                                            <HugeiconsIcon icon={Tick02Icon} size={22} color={theme.colors.primary} weight="fill" />
+                                        )}
+                                    </TouchableOpacity>
+                                );
+                            }}
+                        />
+
+                        <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
+                            <TouchableOpacity
+                                onPress={handleClose}
+                                style={[styles.cancelButton, { backgroundColor: theme.colors.background }]}
+                            >
+                                <Text style={styles.cancelText}>Cancel</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </Animated.View>
+                </View>
+            </KeyboardAvoidingView>
         </Modal>
     );
 }
+
+const styles = StyleSheet.create({
+    overlayContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        paddingHorizontal: 20,
+    },
+    modalContainer: {
+        width: '100%',
+        maxWidth: 400,
+        borderRadius: 24,
+        overflow: 'hidden',
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.2,
+        shadowRadius: 20,
+        elevation: 10,
+    },
+    header: {
+        paddingVertical: 18,
+        borderBottomWidth: 1,
+        alignItems: 'center',
+    },
+    title: {
+        fontSize: 17,
+        fontWeight: '700',
+        letterSpacing: 0.5,
+    },
+    searchContainer: {
+        padding: 16,
+        borderBottomWidth: 1,
+    },
+    searchInputWrapper: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 16,
+        height: 48,
+        borderRadius: 14,
+    },
+    searchInput: {
+        flex: 1,
+        marginLeft: 10,
+        fontSize: 16,
+        fontWeight: '500',
+        height: '100%',
+    },
+    optionItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingVertical: 16,
+        paddingHorizontal: 20,
+        borderBottomWidth: 1,
+    },
+    optionText: {
+        fontSize: 16,
+    },
+    emptyContainer: {
+        alignItems: 'center',
+        padding: 32,
+    },
+    emptyText: {
+        fontSize: 15,
+        marginBottom: 16,
+    },
+    addButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 10,
+        paddingHorizontal: 20,
+        borderRadius: 100,
+    },
+    addButtonText: {
+        marginLeft: 8,
+        fontSize: 15,
+        fontWeight: '700',
+    },
+    footer: {
+        padding: 16,
+        borderTopWidth: 1,
+    },
+    cancelButton: {
+        height: 50,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    cancelText: {
+        color: '#ef4444',
+        fontSize: 16,
+        fontWeight: '700',
+    }
+});

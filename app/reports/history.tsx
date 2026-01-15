@@ -9,6 +9,7 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
+  GestureResponderEvent,
   StatusBar,
   Text,
   TouchableOpacity,
@@ -32,7 +33,7 @@ export default function HistoryScreen() {
   
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectedItem, setSelectedItem] = useState<any>(null);
-  const [menuPosition, setMenuPosition] = useState({ top: 0, right: 20 });
+  const [menuAnchor, setMenuAnchor] = useState<{ x: number, y: number } | undefined>(undefined);
   const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
   useEffect(() => { fetchHistory(); }, []);
@@ -46,8 +47,10 @@ export default function HistoryScreen() {
     } catch (e) { console.log(e); } finally { setLoading(false); }
   };
 
-  const handleMenu = (event: any, item: any) => {
-    setMenuPosition({ top: event.nativeEvent.pageY + 20, right: 20 });
+  const handleMenu = (event: GestureResponderEvent, item: any) => {
+    const { pageX, pageY } = event.nativeEvent;
+    // Offset Y by 20 to clear the icon height
+    setMenuAnchor({ x: pageX, y: pageY + 20 });
     setSelectedItem(item);
     setMenuVisible(true);
   };
@@ -89,7 +92,7 @@ export default function HistoryScreen() {
       <Header title="Report History" />
 
       <ActionMenu 
-        visible={menuVisible} onClose={() => setMenuVisible(false)} position={menuPosition}
+        visible={menuVisible} onClose={() => setMenuVisible(false)} anchor={menuAnchor}
         actions={[
             { label: 'Reprint', icon: PrinterIcon, onPress: handleReprint },
             { label: 'Delete Record', icon: Delete02Icon, onPress: handleDelete, color: theme.colors.danger }
