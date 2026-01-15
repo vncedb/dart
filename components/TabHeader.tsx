@@ -5,9 +5,10 @@ import { useAppTheme } from '../constants/theme';
 
 interface TabHeaderProps {
   title: string;
-  rightIcon?: any; // Icon component
-  onRightPress?: () => void;
-  rightElement?: React.ReactNode; // For custom elements like "1 Selected"
+  rightIcon?: any; // Legacy prop support
+  onRightPress?: () => void; // Legacy prop support
+  rightElement?: React.ReactNode; 
+  leftElement?: React.ReactNode; // NEW: Supports Close button or Back button
   subtitle?: string | React.ReactNode;
 }
 
@@ -16,21 +17,33 @@ export default function TabHeader({
   rightIcon, 
   onRightPress, 
   rightElement,
+  leftElement,
   subtitle 
 }: TabHeaderProps) {
   const theme = useAppTheme();
 
   return (
     <View style={[styles.header, { borderBottomColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
-      <View>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>{title}</Text>
-        {subtitle && (
-          <View style={{ marginTop: 4 }}>
-            {typeof subtitle === 'string' ? (
-               <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600' }}>{subtitle}</Text>
-            ) : subtitle}
-          </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+        {/* Left Element (e.g., Close Icon) */}
+        {leftElement && (
+            <View style={{ marginRight: -4 }}>
+                {leftElement}
+            </View>
         )}
+
+        <View style={{ flex: 1 }}>
+            <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>
+                {title}
+            </Text>
+            {subtitle && (
+            <View style={{ marginTop: 4 }}>
+                {typeof subtitle === 'string' ? (
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600' }}>{subtitle}</Text>
+                ) : subtitle}
+            </View>
+            )}
+        </View>
       </View>
 
       {/* Right Action Area */}
@@ -59,6 +72,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderBottomWidth: 1,
     zIndex: 10,
+    minHeight: 80, // Ensure consistent height with Profile
   },
   headerTitle: {
     fontSize: 28,

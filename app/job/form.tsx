@@ -34,7 +34,7 @@ import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
 import SearchableSelectionModal from '../../components/SearchableSelectionModal';
-import TimePickerModal from '../../components/TimePickerModal';
+import TimePickerModal from '../../components/TimePicker';
 
 import { JOBS_LIST } from '../../constants/Jobs';
 import { useAppTheme } from '../../constants/theme';

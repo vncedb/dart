@@ -1,8 +1,10 @@
 import {
+    ArrowDown01Icon,
+    ArrowRight01Icon,
     Calendar03Icon,
-    Clock01Icon,
+    Cancel01Icon,
     Delete02Icon,
-    File02Icon,
+    MoreVerticalCircle01Icon,
     PrinterIcon,
     RepeatIcon,
     Search01Icon,
@@ -12,11 +14,13 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import NetInfo from '@react-native-community/netinfo';
-import { endOfWeek, format, getWeek, startOfWeek } from 'date-fns';
+import { format } from 'date-fns';
 import { useFocusEffect, useNavigation, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
+    BackHandler,
+    LayoutAnimation,
     Platform,
     RefreshControl,
     SectionList,
@@ -24,10 +28,10 @@ import {
     StyleSheet,
     Text,
     TouchableOpacity,
+    UIManager,
     View
 } from 'react-native';
 import Animated, {
-    Easing,
     cancelAnimation,
     useAnimatedStyle,
     useSharedValue,
@@ -36,6 +40,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import ActionMenu from '../../components/ActionMenu'; // Import the new component
 import FloatingAlert from '../../components/FloatingAlert';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
@@ -44,6 +49,11 @@ import { useAppTheme } from '../../constants/theme';
 import { useSync } from '../../context/SyncContext';
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
+import { ReportService } from '../../services/ReportService';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const shadowStyle = Platform.select({
     ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4 },
@@ -51,23 +61,19 @@ const shadowStyle = Platform.select({
 });
 
 const SyncStatusBar = ({ isSyncing, lastSynced, isOffline, theme }: { isSyncing: boolean, lastSynced: Date | null, isOffline: boolean, theme: any }) => {
-    // Determine Status Content
     let icon, message, bgColor, textColor;
 
     if (isSyncing) {
-        // Safe Native Loading Indicator
         icon = <ActivityIndicator size="small" color={theme.colors.primary} />;
         message = "Syncing data...";
         bgColor = theme.colors.background;
         textColor = theme.colors.primary;
     } else if (isOffline) {
-        // Requested: NoInternetIcon (WifiOff01Icon is the standard safe export)
         icon = <HugeiconsIcon icon={WifiOff01Icon} size={16} color={theme.colors.danger} />;
         message = "You are offline. Data may be outdated.";
         bgColor = theme.colors.danger + '10';
         textColor = theme.colors.danger;
     } else {
-        // Requested: RepeatIcon for Synced/Ready
         icon = <HugeiconsIcon icon={RepeatIcon} size={16} color={theme.colors.success} />;
         message = lastSynced ? `Data Synced • ${format(lastSynced, 'h:mm a')}` : 'Ready to Sync';
         bgColor = theme.colors.background;
@@ -77,9 +83,7 @@ const SyncStatusBar = ({ isSyncing, lastSynced, isOffline, theme }: { isSyncing:
     return (
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, backgroundColor: bgColor, borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
             <View style={{ marginRight: 8 }}>{icon}</View>
-            <Text style={{ fontSize: 11, fontWeight: '600', color: textColor }}>
-                {message}
-            </Text>
+            <Text style={{ fontSize: 11, fontWeight: '600', color: textColor }}>{message}</Text>
         </View>
     );
 };
@@ -88,24 +92,32 @@ export default function ReportsScreen() {
     const router = useRouter();
     const navigation = useNavigation();
     const theme = useAppTheme();
-    
     const { triggerSync, isSyncing, lastSynced } = useSync();
     
+    // Data State
     const [sections, setSections] = useState<any[]>([]);
+    const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+    
+    // UI State
     const [isLoading, setIsLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [loadingAction, setLoadingAction] = useState(false);
-    
-    const [activeJobId, setActiveJobId] = useState<string | null>(null);
     const [isOffline, setIsOffline] = useState(false);
-    
-    const syncButtonRotation = useSharedValue(0);
-    
+    const [activeJobId, setActiveJobId] = useState<string | null>(null);
+
+    // Selection State
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [selectionMode, setSelectionMode] = useState(false);
 
+    // Menu State
+    const [menuVisible, setMenuVisible] = useState(false);
+    const [targetSection, setTargetSection] = useState<any>(null);
+    const [menuAnchor, setMenuAnchor] = useState({ x: 0, y: 0 }); // Anchor position
+    
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
-    const [floatingAlert, setFloatingAlert] = useState({ visible: false, message: '', type: 'success' as 'success' | 'error' });
+    const [floatingAlert, setFloatingAlert] = useState({ visible: false, message: '', type: 'success' });
+
+    const syncButtonRotation = useSharedValue(0);
 
     useEffect(() => {
         const unsubscribe = NetInfo.addEventListener(state => {
@@ -114,37 +126,35 @@ export default function ReportsScreen() {
         return unsubscribe;
     }, []);
 
-    // Manual Sync Button Animation
     useEffect(() => {
         if (isSyncing) {
-            syncButtonRotation.value = withRepeat(withTiming(360, { duration: 1000, easing: Easing.linear }), -1);
+            syncButtonRotation.value = withRepeat(withTiming(360, { duration: 1000 }), -1);
         } else {
             cancelAnimation(syncButtonRotation);
             syncButtonRotation.value = withTiming(0);
         }
     }, [isSyncing]);
-
+    
     const syncButtonStyle = useAnimatedStyle(() => ({
         transform: [{ rotate: `${syncButtonRotation.value}deg` }]
     }));
 
     useEffect(() => {
-        const unsubscribe = navigation.addListener('beforeRemove', (e) => {
-            if (loadingAction) e.preventDefault();
+        const onBackPress = () => {
             if (selectionMode) {
-                e.preventDefault();
                 setSelectionMode(false);
                 setSelectedIds(new Set());
+                return true;
             }
-        });
-        return unsubscribe;
-    }, [navigation, loadingAction, selectionMode]);
+            return false;
+        };
+        const backHandler = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+        return () => backHandler.remove();
+    }, [selectionMode]);
 
     useFocusEffect(
         useCallback(() => {
             fetchReports();
-            setSelectionMode(false);
-            setSelectedIds(new Set());
         }, [])
     );
 
@@ -156,23 +166,13 @@ export default function ReportsScreen() {
             
             if (!userId) { setIsLoading(false); return; }
 
-            const profile = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [userId]);
-            const currentJobId = (profile as any)?.current_job_id;
-            setActiveJobId(currentJobId);
+            const job: any = await ReportService.getActiveJob(userId);
+            if (!job) { setSections([]); setIsLoading(false); return; }
+            
+            setActiveJobId(job.id);
 
-            let currentPayoutType = 'Bi-weekly'; 
-
-            if (currentJobId) {
-                const job: any = await db.getFirstAsync('SELECT title, payout_type FROM job_positions WHERE id = ?', [currentJobId]);
-                if (job && job.payout_type) currentPayoutType = job.payout_type;
-            } else {
-                setSections([]);
-                setIsLoading(false);
-                return;
-            }
-
-            const attendance = await db.getAllAsync('SELECT * FROM attendance WHERE user_id = ? AND job_id = ? ORDER BY date DESC', [userId, currentJobId]);
-            const tasks = await db.getAllAsync('SELECT * FROM accomplishments WHERE user_id = ? AND job_id = ?', [userId, currentJobId]);
+            const attendance = await db.getAllAsync('SELECT * FROM attendance WHERE user_id = ? AND job_id = ? ORDER BY date DESC', [userId, job.id]);
+            const tasks = await db.getAllAsync('SELECT * FROM accomplishments WHERE user_id = ? AND job_id = ?', [userId, job.id]);
             
             const allDates = new Set([ ...(attendance?.map((a: any) => a.date) || []), ...(tasks?.map((t: any) => t.date) || []) ]);
             const sortedDates = Array.from(allDates).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
@@ -190,62 +190,72 @@ export default function ReportsScreen() {
                 };
             });
 
-            const grouped = merged.reduce((acc: any, curr) => {
-                const [y, m, d] = curr.date.split('-').map(Number);
-                const date = new Date(y, m - 1, d); 
-                let groupKey = "";
-                let dateRange = {};
-                let isCurrent = false;
-                const today = new Date();
-
-                if (currentPayoutType === 'Weekly') {
-                    const weekNum = getWeek(date);
-                    const start = startOfWeek(date, { weekStartsOn: 1 });
-                    const end = endOfWeek(date, { weekStartsOn: 1 });
-                    groupKey = `Week ${weekNum} • ${format(start, 'MMM d')} - ${format(end, 'MMM d')})`;
-                    dateRange = { start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd') };
-                    if (weekNum === getWeek(today) && date.getFullYear() === today.getFullYear()) isCurrent = true;
-                } else if (currentPayoutType === 'Monthly') {
-                    groupKey = format(date, 'MMMM yyyy');
-                    const start = new Date(date.getFullYear(), date.getMonth(), 1);
-                    const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-                    dateRange = { start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd') };
-                    if (date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear()) isCurrent = true;
-                } else {
-                    const day = date.getDate();
-                    const month = date.toLocaleString('default', { month: 'long' });
-                    const year = date.getFullYear();
-                    const monthNum = date.getMonth() + 1;
-                    const monthStr = monthNum < 10 ? `0${monthNum}` : monthNum;
-                    if (day <= 15) {
-                        groupKey = `1st Cutoff ${month} ${year}`;
-                        dateRange = { start: `${year}-${monthStr}-01`, end: `${year}-${monthStr}-15` };
-                        if (today.getFullYear() === year && today.getMonth() + 1 === monthNum && today.getDate() <= 15) isCurrent = true;
-                    } else {
-                        groupKey = `2nd Cutoff ${month} ${year}`;
-                        const lastDay = new Date(year, monthNum, 0).getDate();
-                        dateRange = { start: `${year}-${monthStr}-16`, end: `${year}-${monthStr}-${lastDay}` };
-                        if (today.getFullYear() === year && today.getMonth() + 1 === monthNum && today.getDate() > 15) isCurrent = true;
-                    }
-                }
-
-                if (!acc[groupKey]) { acc[groupKey] = { title: groupKey, data: [], ...dateRange, isCurrent }; }
-                acc[groupKey].data.push(curr);
-                return acc;
-            }, {});
-
-            setSections(Object.values(grouped));
+            const grouped = ReportService.groupReportsByPayout(merged, job.payout_type || 'Bi-weekly');
+            const newSections = Object.values(grouped);
+            setSections(newSections);
 
         } catch (e) { console.log("Fetch Error", e); } finally { setRefreshing(false); setIsLoading(false); }
     };
 
-    const handleManualSync = async () => {
-        if (isOffline) { setFloatingAlert({ visible: true, message: 'You are currently offline.', type: 'error' }); return; }
-        try {
-            await triggerSync();
-            setFloatingAlert({ visible: true, message: 'Data synchronized', type: 'success' });
-            fetchReports();
-        } catch (e) { setFloatingAlert({ visible: true, message: 'Sync failed.', type: 'error' }); }
+    const toggleSection = (title: string) => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setCollapsedSections(prev => {
+            const next = new Set(prev);
+            if (next.has(title)) next.delete(title);
+            else next.add(title);
+            return next;
+        });
+    };
+
+    const handleMenuOpen = (section: any, event: any) => {
+        // Get touch coordinates for anchor
+        const { pageY } = event.nativeEvent;
+        setMenuAnchor({ x: 0, y: pageY });
+        setTargetSection(section);
+        setMenuVisible(true);
+    };
+
+    const handlePrintSection = () => {
+        if (!targetSection) return;
+        const logPrint = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user && !isOffline) {
+                supabase.from('report_history').insert({ user_id: user.id, title: targetSection.title, start_date: targetSection.start, end_date: targetSection.end }).then(() => {}); 
+            }
+        }
+        logPrint();
+        router.push({ 
+            pathname: '/reports/print', 
+            params: { mode: 'cutoff', startDate: targetSection.start, endDate: targetSection.end, title: targetSection.title, jobId: activeJobId } 
+        });
+    };
+
+    const handleDeleteSection = () => {
+        if (!targetSection) return;
+        setAlertConfig({
+            visible: true, 
+            type: 'confirm', 
+            title: 'Delete Entire Period?', 
+            message: `This will permanently delete all ${targetSection.data.length} reports in "${targetSection.title}". This cannot be undone.`,
+            confirmText: 'Delete All',
+            cancelText: 'Cancel',
+            onCancel: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
+            onConfirm: async () => {
+                setAlertConfig((prev: any) => ({ ...prev, visible: false }));
+                setLoadingAction(true);
+                try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    const userId = session?.user?.id;
+                    if (userId && activeJobId) {
+                        for (const item of targetSection.data) {
+                            await ReportService.deleteReportDay(userId, activeJobId, item.date);
+                        }
+                        await fetchReports();
+                        setFloatingAlert({ visible: true, message: 'Period deleted', type: 'success' });
+                    }
+                } catch (e) { console.log(e); } finally { setLoadingAction(false); }
+            }
+        });
     };
 
     const handleDeleteSelected = () => {
@@ -257,88 +267,94 @@ export default function ReportsScreen() {
                 setAlertConfig((prev: any) => ({ ...prev, visible: false }));
                 setLoadingAction(true);
                 try {
-                    const db = await getDB();
                     const { data: { session } } = await supabase.auth.getSession();
                     const userId = session?.user?.id;
-                    if (!userId || !activeJobId) return;
-
-                    for (const date of Array.from(selectedIds)) {
-                        const att = await db.getFirstAsync('SELECT id FROM attendance WHERE user_id = ? AND date = ?', [userId, date]);
-                        if(att) await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action) VALUES (?, ?, ?)', ['attendance', (att as any).id, 'DELETE']);
-                        
-                        const tasks = await db.getAllAsync('SELECT id FROM accomplishments WHERE user_id = ? AND date = ?', [userId, date]);
-                        for(const t of tasks as any[]) { await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action) VALUES (?, ?, ?)', ['accomplishments', t.id, 'DELETE']); }
-
-                        await db.runAsync('DELETE FROM attendance WHERE user_id = ? AND job_id = ? AND date = ?', [userId, activeJobId, date]);
-                        await db.runAsync('DELETE FROM accomplishments WHERE user_id = ? AND job_id = ? AND date = ?', [userId, activeJobId, date]);
+                    if (userId && activeJobId) {
+                        for (const date of Array.from(selectedIds)) {
+                            await ReportService.deleteReportDay(userId, activeJobId, date);
+                        }
+                        setSelectionMode(false); setSelectedIds(new Set()); await fetchReports();
+                        setFloatingAlert({ visible: true, message: 'Deleted successfully', type: 'success' });
                     }
-                    setSelectionMode(false); setSelectedIds(new Set()); await fetchReports();
-                    if (!isOffline) triggerSync(); 
-                    setFloatingAlert({ visible: true, message: 'Deleted successfully', type: 'success' });
                 } catch (e) { console.log(e); } finally { setLoadingAction(false); }
             }
         });
     };
 
-    const onPrintSection = async (section: any) => {
-        if (!section || section.data.length === 0) {
-            setFloatingAlert({ visible: true, message: 'No data to generate.', type: 'error' });
-            return;
-        }
-        if (!isOffline) {
-            const { data: { user } } = await supabase.auth.getSession();
-            if (user) { supabase.from('report_history').insert({ user_id: user.id, title: section.title, start_date: section.start, end_date: section.end }).then(() => {}); }
-        }
-        router.push({ 
-            pathname: '/reports/print', 
-            params: { mode: 'cutoff', startDate: section.start, endDate: section.end, title: section.title, jobId: activeJobId } 
-        });
+    const handleManualSync = async () => {
+        if (isOffline) { setFloatingAlert({ visible: true, message: 'You are currently offline.', type: 'error' }); return; }
+        try {
+            await triggerSync();
+            setFloatingAlert({ visible: true, message: 'Data synchronized', type: 'success' });
+            fetchReports();
+        } catch (e) { setFloatingAlert({ visible: true, message: 'Sync failed.', type: 'error' }); }
     };
 
-    const toggleSelection = (id: string) => {
-        const newSet = new Set(selectedIds);
-        if (newSet.has(id)) newSet.delete(id);
-        else newSet.add(id);
-        setSelectedIds(newSet);
-        if (newSet.size === 0) setSelectionMode(false);
-    };
-
-    const renderSectionHeader = ({ section }: any) => (
-        <View style={{ backgroundColor: theme.colors.background, paddingHorizontal: 8, paddingTop: 20, paddingBottom: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-            <View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    {section.isCurrent && <View style={{ width: 6, height: 6, borderRadius: 4, backgroundColor: theme.colors.success }} />}
-                    <Text style={{ fontSize: 14, fontWeight: '800', color: theme.colors.text, textTransform: 'uppercase' }}>
-                        {section.title}
-                    </Text>
-                </View>
-                <Text style={{ fontSize: 11, fontWeight: '600', color: theme.colors.textSecondary, marginTop: 2 }}>
-                    {format(new Date(section.start), 'MMM d')} - {format(new Date(section.end), 'MMM d')} • {section.data.length} Records
-                </Text>
-            </View>
-            
+    const renderSectionHeader = ({ section }: any) => {
+        const isCollapsed = collapsedSections.has(section.title);
+        
+        return (
             <TouchableOpacity 
-                onPress={() => onPrintSection(section)}
+                activeOpacity={0.7}
+                onPress={() => toggleSection(section.title)}
                 style={{ 
-                    padding: 8, 
-                    backgroundColor: theme.colors.card, 
-                    borderRadius: 12,
-                    borderWidth: 1,
-                    borderColor: theme.colors.border
+                    backgroundColor: theme.colors.background, 
+                    paddingHorizontal: 16, 
+                    paddingTop: 20, 
+                    paddingBottom: 8,
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center'
                 }}
             >
-                {/* Print Icon */}
-                <HugeiconsIcon icon={PrinterIcon} size={18} color={theme.colors.primary} />
+                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+                    <HugeiconsIcon 
+                        icon={isCollapsed ? ArrowRight01Icon : ArrowDown01Icon} 
+                        size={16} 
+                        color={theme.colors.textSecondary} 
+                        style={{ marginRight: 8 }}
+                    />
+                    <View>
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: theme.colors.text, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                            {section.title}
+                        </Text>
+                        <Text style={{ fontSize: 11, fontWeight: '500', color: theme.colors.textSecondary, marginTop: 2 }}>
+                            {format(new Date(section.start), 'MMM d')} — {format(new Date(section.end), 'MMM d')} • {section.data.length} Records
+                        </Text>
+                    </View>
+                </View>
+                
+                <TouchableOpacity 
+                    onPress={(e) => { e.stopPropagation(); handleMenuOpen(section, e); }}
+                    style={{ padding: 8, marginRight: -8 }}
+                >
+                    <HugeiconsIcon icon={MoreVerticalCircle01Icon} size={20} color={theme.colors.textSecondary} />
+                </TouchableOpacity>
             </TouchableOpacity>
-        </View>
-    );
+        );
+    };
 
-    const renderItem = ({ item }: any) => {
+    const renderItem = ({ item, section }: any) => {
+        if (collapsedSections.has(section.title)) return null;
+
         const isSelected = selectedIds.has(item.date);
         const hasAttendance = item.status !== 'no-attendance';
         const [y, m, d] = item.date.split('-').map(Number);
         const dateObj = new Date(y, m - 1, d);
         
+        const isCompleted = item.status === 'completed';
+        const isPending = item.status === 'pending';
+        const statusColor = isCompleted ? theme.colors.success : (isPending ? theme.colors.warning : theme.colors.textSecondary);
+        const statusText = isCompleted ? 'Completed' : (isPending ? 'Ongoing' : 'Absent');
+
+        const toggleSelection = (id: string) => {
+            const newSet = new Set(selectedIds);
+            if (newSet.has(id)) newSet.delete(id);
+            else newSet.add(id);
+            setSelectedIds(newSet);
+            if (newSet.size === 0) setSelectionMode(false);
+        };
+
         return (
             <TouchableOpacity 
                 activeOpacity={0.7}
@@ -347,38 +363,73 @@ export default function ReportsScreen() {
                 style={[
                     styles.card, 
                     { 
-                        backgroundColor: isSelected ? theme.colors.primary + '08' : theme.colors.card, 
-                        borderColor: isSelected ? theme.colors.primary : theme.colors.border 
+                        backgroundColor: theme.colors.card, 
+                        borderColor: isSelected ? theme.colors.primary : 'transparent',
+                        borderWidth: isSelected ? 2 : 0, 
+                        transform: isSelected ? [{scale: 0.98}] : [{scale: 1}]
                     }
                 ]}
             >
-                <View style={[styles.dateBadge, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
-                    <Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase' }}>{format(dateObj, 'EEE')}</Text>
-                    <Text style={{ fontSize: 18, fontWeight: '900', color: theme.colors.text }}>{format(dateObj, 'd')}</Text>
+                <View style={{ alignItems: 'center', marginRight: 16, minWidth: 44 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase' }}>
+                        {format(dateObj, 'EEE')}
+                    </Text>
+                    <Text style={{ fontSize: 22, fontWeight: '900', color: theme.colors.text, marginTop: 0 }}>
+                        {format(dateObj, 'd')}
+                    </Text>
                 </View>
 
                 <View style={{ flex: 1, justifyContent: 'center' }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-                        <HugeiconsIcon icon={Clock01Icon} size={14} color={hasAttendance ? theme.colors.primary : theme.colors.textSecondary} />
-                        <Text style={{ marginLeft: 6, fontSize: 14, fontWeight: '700', color: hasAttendance ? theme.colors.text : theme.colors.textSecondary }}>
-                            {hasAttendance && item.clock_in ? format(new Date(item.clock_in), 'h:mm a') : 'No Attendance'}
-                        </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                        {hasAttendance ? (
+                            <>
+                                <Text style={{ fontSize: 16, fontWeight: '700', color: theme.colors.text }}>
+                                    {item.clock_in ? format(new Date(item.clock_in), 'h:mm a') : '--:--'}
+                                </Text>
+                                <View style={{ width: 12, height: 2, backgroundColor: theme.colors.border, marginHorizontal: 8, opacity: 0.5 }} />
+                                <Text style={{ fontSize: 16, fontWeight: '700', color: item.clock_out ? theme.colors.text : theme.colors.textSecondary }}>
+                                    {item.clock_out ? format(new Date(item.clock_out), 'h:mm a') : '--:--'}
+                                </Text>
+                            </>
+                        ) : (
+                            <Text style={{ fontSize: 15, fontWeight: '600', color: theme.colors.textSecondary, fontStyle: 'italic' }}>
+                                No attendance record
+                            </Text>
+                        )}
                     </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', opacity: 0.8 }}>
-                        <HugeiconsIcon icon={Task01Icon} size={14} color={theme.colors.textSecondary} />
-                        <Text style={{ marginLeft: 6, fontSize: 12, fontWeight: '600', color: theme.colors.textSecondary }}>
-                            {item.accomplishments.length} Task{item.accomplishments.length !== 1 ? 's' : ''}
-                        </Text>
+
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.background, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
+                            <HugeiconsIcon icon={Task01Icon} size={12} color={theme.colors.textSecondary} />
+                            <Text style={{ marginLeft: 4, fontSize: 11, fontWeight: '700', color: theme.colors.textSecondary }}>
+                                {item.accomplishments.length}
+                            </Text>
+                        </View>
+
+                        {hasAttendance && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: statusColor + '15', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 }}>
+                                <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: statusColor, marginRight: 6 }} />
+                                <Text style={{ fontSize: 11, fontWeight: '700', color: statusColor }}>
+                                    {statusText}
+                                </Text>
+                            </View>
+                        )}
                     </View>
                 </View>
 
-                {selectionMode ? (
-                    <View style={{ width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: isSelected ? theme.colors.primary : theme.colors.border, backgroundColor: isSelected ? theme.colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                        {isSelected && <HugeiconsIcon icon={Tick02Icon} size={12} color="#fff" />}
-                    </View>
-                ) : (
-                    <HugeiconsIcon icon={item.status === 'completed' ? Tick02Icon : File02Icon} size={20} color={item.status === 'completed' ? theme.colors.success : theme.colors.border} />
-                )}
+                <View style={{ width: 24, alignItems: 'flex-end', justifyContent: 'center' }}>
+                    {selectionMode && (
+                        <View style={{ 
+                            width: 22, height: 22, borderRadius: 11, 
+                            borderWidth: isSelected ? 0 : 2, 
+                            borderColor: theme.colors.border, 
+                            backgroundColor: isSelected ? theme.colors.primary : 'transparent', 
+                            alignItems: 'center', justifyContent: 'center' 
+                        }}>
+                            {isSelected && <HugeiconsIcon icon={Tick02Icon} size={14} color="#fff" />}
+                        </View>
+                    )}
+                </View>
             </TouchableOpacity>
         );
     };
@@ -387,22 +438,36 @@ export default function ReportsScreen() {
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
             <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} translucent backgroundColor="transparent" />
             <ModernAlert {...alertConfig} />
-            <FloatingAlert visible={floatingAlert.visible} message={floatingAlert.message} type={floatingAlert.type} onHide={() => setFloatingAlert({...floatingAlert, visible: false})} />
+            <FloatingAlert visible={floatingAlert.visible} message={floatingAlert.message} type={floatingAlert.type as any} onHide={() => setFloatingAlert({...floatingAlert, visible: false})} />
             <LoadingOverlay visible={loadingAction} message="Processing..." />
+            
+            {/* Action Menu */}
+            <ActionMenu 
+                visible={menuVisible}
+                onClose={() => setMenuVisible(false)}
+                anchor={menuAnchor}
+                actions={[
+                    { label: 'Print Report', icon: PrinterIcon, onPress: handlePrintSection },
+                    { label: 'Delete Records', icon: Delete02Icon, onPress: handleDeleteSection, destructive: true }
+                ]}
+            />
 
             {selectionMode ? (
-                <View style={[styles.header, { borderBottomColor: theme.colors.border, backgroundColor: theme.colors.card }]}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                        {/* Text "X" instead of Icon for absolute safety */}
-                        <TouchableOpacity onPress={() => { setSelectionMode(false); setSelectedIds(new Set()); }} style={{ padding: 8 }}>
-                             <Text style={{ fontSize: 24, fontWeight: '800', color: theme.colors.text, lineHeight: 28 }}>×</Text>
+                <TabHeader 
+                    title={`${selectedIds.size} Selected`}
+                    leftElement={
+                        <TouchableOpacity onPress={() => { setSelectionMode(false); setSelectedIds(new Set()); }} style={{ padding: 10 }}>
+                             <HugeiconsIcon icon={Cancel01Icon} size={24} color={theme.colors.text} />
                         </TouchableOpacity>
-                        <Text style={{ fontSize: 18, fontWeight: '800', color: theme.colors.text }}>{selectedIds.size} Selected</Text>
-                    </View>
-                    <TouchableOpacity onPress={handleDeleteSelected} disabled={selectedIds.size === 0} style={{ backgroundColor: theme.colors.dangerLight, padding: 8, borderRadius: 100 }}>
-                        <HugeiconsIcon icon={Delete02Icon} size={22} color={theme.colors.danger} />
-                    </TouchableOpacity>
-                </View>
+                    }
+                    rightElement={
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                            <TouchableOpacity onPress={handleDeleteSelected} disabled={selectedIds.size === 0} style={{ backgroundColor: theme.colors.dangerLight, padding: 10, borderRadius: 100 }}>
+                                <HugeiconsIcon icon={Delete02Icon} size={20} color={theme.colors.danger} />
+                            </TouchableOpacity>
+                        </View>
+                    }
+                />
             ) : (
                 <TabHeader 
                     title="Reports" 
@@ -429,7 +494,7 @@ export default function ReportsScreen() {
                     keyExtractor={(item) => item.id}
                     renderItem={renderItem}
                     renderSectionHeader={renderSectionHeader}
-                    contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }}
+                    contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100 }}
                     showsVerticalScrollIndicator={false}
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchReports(); }} tintColor={theme.colors.primary} />}
                     stickySectionHeadersEnabled={false}
@@ -449,8 +514,17 @@ export default function ReportsScreen() {
 }
 
 const styles = StyleSheet.create({
-    header: { paddingHorizontal: 16, paddingVertical: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1 },
     iconButton: { padding: 10, borderRadius: 99, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-    card: { flexDirection: 'row', alignItems: 'center', padding: 16, marginBottom: 10, borderRadius: 18, borderWidth: 1, gap: 14, ...shadowStyle },
-    dateBadge: { width: 50, height: 54, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1 }
+    card: { 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        padding: 16, 
+        marginBottom: 10, 
+        borderRadius: 20, 
+        shadowColor: "#000", 
+        shadowOffset: { width: 0, height: 4 }, 
+        shadowOpacity: 0.05, 
+        shadowRadius: 10, 
+        elevation: 3 
+    }
 });
