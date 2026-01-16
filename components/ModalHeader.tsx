@@ -8,40 +8,47 @@ interface ModalHeaderProps {
     title: string;
     subtitle?: string;
     onClose?: () => void;
-    align?: 'left' | 'center';
+    position?: 'center' | 'bottom';
 }
 
 export default function ModalHeader({ 
     title, 
     subtitle, 
     onClose, 
-    align 
+    position = 'center' 
 }: ModalHeaderProps) {
     const theme = useAppTheme();
     
-    // Auto-determine alignment if not specified: Left if subtitle exists, Center otherwise
-    const effectiveAlign = align || (subtitle ? 'left' : 'center');
-
+    // Bottom Modals: Left aligned title, Close button on right.
+    // Center Modals: Center aligned title, No close button (usually Cancel in footer).
+    
     return (
         <View style={[
             styles.container, 
             { borderBottomColor: theme.colors.border }
         ]}>
             <View style={[
-                styles.textContainer, 
-                effectiveAlign === 'center' && styles.centeredText
+                styles.textContainer,
+                position === 'center' ? styles.centeredText : styles.leftText
             ]}>
-                <Text style={[styles.title, { color: theme.colors.text, textAlign: effectiveAlign }]}>
+                <Text style={[
+                    styles.title, 
+                    { color: theme.colors.text, textAlign: position === 'center' ? 'center' : 'left' }
+                ]}>
                     {title}
                 </Text>
                 {subtitle && (
-                    <Text style={[styles.subtitle, { color: theme.colors.textSecondary, textAlign: effectiveAlign }]}>
+                    <Text style={[
+                        styles.subtitle, 
+                        { color: theme.colors.textSecondary, textAlign: position === 'center' ? 'center' : 'left' }
+                    ]}>
                         {subtitle}
                     </Text>
                 )}
             </View>
 
-            {onClose && (
+            {/* Close Button only for Bottom Modals */}
+            {position === 'bottom' && onClose && (
                 <TouchableOpacity 
                     onPress={onClose} 
                     style={[styles.closeBtn, { backgroundColor: theme.colors.background }]}
@@ -56,34 +63,33 @@ export default function ModalHeader({
 const styles = StyleSheet.create({
     container: {
         paddingHorizontal: 24,
-        paddingVertical: 20,
+        paddingVertical: 16,
         flexDirection: 'row',
-        alignItems: 'center', // Aligns items vertically
+        alignItems: 'center',
         justifyContent: 'space-between',
         borderBottomWidth: 1,
-        minHeight: 80,
+        minHeight: 70,
     },
     textContainer: {
         flex: 1,
-        paddingRight: 10,
     },
     centeredText: {
         alignItems: 'center',
-        paddingRight: 0, 
-        // We push the close button to absolute position or just rely on flex layout
-        // For centered modals with a close button, it's often better to absolute position the close button 
-        // to ensure true center of text, but flex space-between is usually sufficient.
+        justifyContent: 'center',
+    },
+    leftText: {
+        alignItems: 'flex-start',
+        paddingRight: 16,
     },
     title: {
-        fontSize: 19,
+        fontSize: 18,
         fontWeight: '800',
         letterSpacing: -0.4,
     },
     subtitle: {
         fontSize: 13,
         fontWeight: '500',
-        marginTop: 4,
-        lineHeight: 18,
+        marginTop: 2,
     },
     closeBtn: {
         padding: 8,

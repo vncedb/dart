@@ -1,15 +1,12 @@
 import {
     Camera01Icon,
-    Cancel01Icon,
     Delete02Icon
 } from '@hugeicons/core-free-icons';
-import { HugeiconsIcon } from '@hugeicons/react-native';
 import React, { useEffect } from 'react';
 import {
     Modal,
     Platform,
     StyleSheet,
-    Text,
     TouchableOpacity,
     View
 } from 'react-native';
@@ -27,6 +24,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useAppTheme } from '../constants/theme';
 import ListButton from './ListButton';
+import ModalHeader from './ModalHeader';
 
 interface EditAvatarModalProps {
     visible: boolean;
@@ -97,19 +95,13 @@ export default function EditAvatarModal({
                             { backgroundColor: theme.colors.card },
                             animatedSheetStyle
                         ]}>
-                            {/* Header */}
-                            <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-                                <View>
-                                    <Text style={[styles.title, { color: theme.colors.text }]}>Edit Profile Picture</Text>
-                                    <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Change your look</Text>
-                                </View>
-                                <TouchableOpacity 
-                                    onPress={close} 
-                                    style={[styles.closeBtn, { backgroundColor: theme.colors.background }]}
-                                >
-                                    <HugeiconsIcon icon={Cancel01Icon} size={20} color={theme.colors.text} />
-                                </TouchableOpacity>
-                            </View>
+                            {/* Unified Modal Header */}
+                            <ModalHeader 
+                                title="Edit Profile Picture" 
+                                subtitle="Change your look" 
+                                onClose={close} 
+                                position="bottom"
+                            />
 
                             {/* Content */}
                             <View style={styles.content}>
@@ -155,16 +147,5 @@ const styles = StyleSheet.create({
         shadowRadius: 12,
         elevation: 10,
     },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 24,
-        paddingVertical: 20,
-        borderBottomWidth: 1,
-    },
-    title: { fontSize: 18, fontWeight: '700', letterSpacing: -0.3 },
-    subtitle: { fontSize: 13, fontWeight: '500', marginTop: 2 },
-    closeBtn: { padding: 8, borderRadius: 50 },
     content: { padding: 24, paddingTop: 16 },
 });

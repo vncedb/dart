@@ -23,7 +23,6 @@ export default function OvertimeModal({ visible, onClose, onConfirm, theme }: Ov
     const [endTime, setEndTime] = useState<Date>(new Date());
 
     const getFinalDuration = () => mode === 'duration' ? hours + (minutes / 60) : Math.max(0, (endTime.getTime() - new Date().getTime()) / 3600000);
-    
     const openPicker = () => mode === 'duration' ? setShowDurationPicker(true) : setShowTimePicker(true);
 
     if (!visible) return null;
@@ -33,7 +32,6 @@ export default function OvertimeModal({ visible, onClose, onConfirm, theme }: Ov
             <Pressable style={styles.overlay} onPress={onClose}>
                 <Pressable style={[styles.container, { backgroundColor: theme.colors.card }]} onPress={e => e.stopPropagation()}>
                     
-                    {/* Centered Icon Header */}
                     <View style={{ alignItems: 'center', marginBottom: 20, paddingTop: 10 }}>
                         <View style={[styles.iconWrapper, { backgroundColor: theme.colors.warning + '15' }]}>
                             <HugeiconsIcon icon={Briefcase01Icon} size={32} color={theme.colors.warning} />
@@ -65,7 +63,7 @@ export default function OvertimeModal({ visible, onClose, onConfirm, theme }: Ov
                     </View>
 
                     <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
-                        <Button title="Cancel" variant="ghost" onPress={onClose} style={{ flex: 1 }} />
+                        <Button title="Cancel" variant="neutral" onPress={onClose} style={{ flex: 1 }} />
                         <View style={{ width: 12 }} />
                         <Button title="Confirm" variant="primary" onPress={() => onConfirm(getFinalDuration())} disabled={getFinalDuration() <= 0} style={{ flex: 1 }} />
                     </View>
@@ -74,8 +72,17 @@ export default function OvertimeModal({ visible, onClose, onConfirm, theme }: Ov
                 <TimePicker 
                     visible={showTimePicker} 
                     onClose={() => setShowTimePicker(false)} 
-                    onConfirm={setEndTime} 
-                    initialValue={endTime}
+                    onConfirm={(h, m, p) => {
+                        const newDate = new Date();
+                        let hour = h;
+                        if(p === 'PM' && h < 12) hour += 12;
+                        if(p === 'AM' && h === 12) hour = 0;
+                        newDate.setHours(hour);
+                        newDate.setMinutes(m);
+                        setEndTime(newDate);
+                    }}
+                    initialHours={endTime.getHours()}
+                    initialMinutes={endTime.getMinutes()}
                     title="Set Check Out Time"
                 />
                 

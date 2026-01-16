@@ -56,7 +56,6 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
     UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-// MODIFIED: Only shows when Syncing or Offline. Hidden otherwise.
 const SyncStatusBar = ({ isSyncing, isOffline, theme }: { isSyncing: boolean, isOffline: boolean, theme: any }) => {
     if (!isSyncing && !isOffline) return null;
 
@@ -165,6 +164,10 @@ export default function ReportsScreen() {
             
             setActiveJobId(job.id);
 
+            // FIXED: Detect payout type correctly matching Profile logic
+            // Checks payout_type first, then legacy cutoff_config
+            const payoutType = job.payout_type || (job.cutoff_config && typeof job.cutoff_config === 'object' ? job.cutoff_config.type : job.cutoff_config) || 'Semi-Monthly';
+
             const attendance = await db.getAllAsync('SELECT * FROM attendance WHERE user_id = ? AND job_id = ? ORDER BY date DESC', [userId, job.id]);
             const tasks = await db.getAllAsync('SELECT * FROM accomplishments WHERE user_id = ? AND job_id = ?', [userId, job.id]);
             
@@ -184,7 +187,8 @@ export default function ReportsScreen() {
                 };
             });
 
-            const grouped = ReportService.groupReportsByPayout(merged, job.payout_type || 'Bi-weekly');
+            // Pass the detected payoutType to the grouper
+            const grouped = ReportService.groupReportsByPayout(merged, payoutType);
             const newSections = Object.values(grouped);
             setSections(newSections);
 
@@ -203,7 +207,6 @@ export default function ReportsScreen() {
 
     const handleMenuOpen = (section: any, event: GestureResponderEvent) => {
         const { pageX, pageY } = event.nativeEvent;
-        // Anchor below the touch point
         setMenuAnchor({ x: pageX, y: pageY + 15 });
         setTargetSection(section);
         setMenuVisible(true);
@@ -342,7 +345,6 @@ export default function ReportsScreen() {
         
         const isCompleted = item.status === 'completed';
         const isPending = item.status === 'pending';
-        // Status color determines the "border-left" indicator
         const statusColor = isCompleted ? theme.colors.success : (isPending ? theme.colors.warning : theme.colors.border);
 
         const toggleSelection = (id: string) => {
@@ -367,7 +369,6 @@ export default function ReportsScreen() {
                     }
                 ]}
             >
-                {/* Left: Date Block */}
                 <View style={styles.dateBlock}>
                     <Text style={{ fontSize: 11, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase' }}>
                         {format(dateObj, 'EEE')}
@@ -377,10 +378,8 @@ export default function ReportsScreen() {
                     </Text>
                 </View>
 
-                {/* Vertical Divider */}
                 <View style={{ width: 1, height: '60%', backgroundColor: theme.colors.border, marginHorizontal: 4 }} />
 
-                {/* Middle: Content */}
                 <View style={{ flex: 1, paddingLeft: 16, justifyContent: 'center' }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
                          <HugeiconsIcon icon={Clock01Icon} size={14} color={theme.colors.textSecondary} style={{ marginRight: 6 }} />
@@ -403,7 +402,6 @@ export default function ReportsScreen() {
                     </View>
                 </View>
 
-                {/* Right: Status Indicator & Selection */}
                 <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 8 }}>
                     {selectionMode ? (
                          <View style={{ 
@@ -416,7 +414,6 @@ export default function ReportsScreen() {
                             {isSelected && <HugeiconsIcon icon={Tick02Icon} size={12} color="#fff" />}
                         </View>
                     ) : (
-                        // Sleek vertical status pill
                         <View style={{ 
                             width: 4, 
                             height: 32, 
@@ -425,7 +422,6 @@ export default function ReportsScreen() {
                             opacity: hasAttendance ? 1 : 0.3 
                         }} />
                     )}
-                     {/* Chevron visual hint if not selecting */}
                     {!selectionMode && (
                         <View style={{ marginLeft: 12 }}>
                              <HugeiconsIcon icon={ArrowRight01Icon} size={16} color={theme.colors.border} />
@@ -443,7 +439,6 @@ export default function ReportsScreen() {
             <FloatingAlert visible={floatingAlert.visible} message={floatingAlert.message} type={floatingAlert.type as any} onHide={() => setFloatingAlert({...floatingAlert, visible: false})} />
             <LoadingOverlay visible={loadingAction} message="Processing..." />
             
-            {/* Action Menu */}
             <ActionMenu 
                 visible={menuVisible}
                 onClose={() => setMenuVisible(false)}
@@ -524,8 +519,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
         marginHorizontal: 16,
         marginBottom: 8, 
-        borderRadius: 16, // Modern "Squircle" radius
-        // Removed heavy shadow for clean "Bordered" look
+        borderRadius: 16, 
         borderWidth: 1, 
     },
     dateBlock: {

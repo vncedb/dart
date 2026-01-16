@@ -1,7 +1,6 @@
 import React from 'react';
 import {
     ActivityIndicator,
-    Platform,
     Pressable,
     PressableProps,
     StyleSheet,
@@ -12,7 +11,7 @@ import {
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useAppTheme } from '../constants/theme';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'cancel' | 'neutral';
+export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'neutral';
 
 interface ButtonProps extends PressableProps {
     title: string;
@@ -43,6 +42,7 @@ export default function Button({
         
         switch (variant) {
             case 'primary': 
+                // Indigo-600
                 return { bg: theme.colors.primary, text: '#ffffff', border: 'transparent' };
             case 'secondary': 
                 return { bg: theme.colors.card, text: theme.colors.text, border: theme.colors.border };
@@ -51,13 +51,14 @@ export default function Button({
             case 'ghost': 
                 return { bg: 'transparent', text: theme.colors.textSecondary, border: 'transparent' };
             case 'danger': 
-                return { bg: '#fee2e2', text: '#ef4444', border: 'transparent' };
-            case 'cancel': 
-                // Light background, Red text (Destructive Cancel)
-                return { bg: theme.colors.background, text: '#ef4444', border: 'transparent' };
+                return { bg: '#ef4444', text: '#ffffff', border: 'transparent' }; 
             case 'neutral': 
-                // Light background, Gray text (Standard Cancel like "Rename Break")
-                return { bg: theme.colors.background, text: theme.colors.textSecondary, border: 'transparent' };
+                // Matches "Cancel" in account settings (Slate-100 / Slate-700)
+                return { 
+                    bg: theme.dark ? '#334155' : '#f1f5f9', 
+                    text: theme.dark ? '#cbd5e1' : '#64748b', 
+                    border: 'transparent' 
+                };
             default: 
                 return { bg: theme.colors.primary, text: '#ffffff', border: 'transparent' };
         }
@@ -70,7 +71,7 @@ export default function Button({
     }));
 
     const handlePressIn = () => {
-        if (!disabled && !isLoading) scale.value = withSpring(0.96);
+        if (!disabled && !isLoading) scale.value = withSpring(0.98);
     };
 
     const handlePressOut = () => {
@@ -89,7 +90,6 @@ export default function Button({
                     borderColor: colors.border,
                     borderWidth: variant === 'outline' || variant === 'secondary' ? 1 : 0,
                 },
-                (variant === 'primary' && !disabled) && styles.shadow,
                 animatedStyle,
                 style
             ]}
@@ -115,29 +115,15 @@ export default function Button({
 
 const styles = StyleSheet.create({
     container: {
-        height: 52, // Standard touch height
-        borderRadius: 16, // Modern "Squircle" radius
+        height: 50, // Approx matching py-3
+        borderRadius: 12, // rounded-xl
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        paddingHorizontal: 20,
+        paddingHorizontal: 16,
     },
     text: {
-        fontSize: 16,
+        fontSize: 15,
         fontWeight: '700',
-        letterSpacing: -0.3,
-    },
-    shadow: {
-        ...Platform.select({
-            ios: { 
-                shadowColor: '#000', 
-                shadowOffset: { width: 0, height: 4 }, 
-                shadowOpacity: 0.15, 
-                shadowRadius: 8 
-            },
-            android: { 
-                elevation: 3 
-            }
-        })
     }
 });

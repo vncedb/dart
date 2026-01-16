@@ -65,7 +65,18 @@ const DetailRow = ({ label, value, icon, theme }: any) => (
 const JobCard = ({ currentJob, visibleKeys, theme, onEdit }: any) => {
     if (!currentJob) return null;
     const formatPay = (val: number | string) => { const num = Number(val); return isNaN(num) ? val : `₱${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; };
-    const getCutoffLabel = (val: string) => { if (!val) return 'Not Set'; switch(val) { case 'semi-monthly': return '15th / 30th'; case 'weekly': return 'Weekly'; case 'monthly': return 'End of Month'; default: return val; } };
+    
+    // FIXED: Updated to read 'payout_type' instead of 'cutoff_config'
+    const getCutoffLabel = (val: string) => { 
+        if (!val) return 'Not Set'; 
+        switch(val) { 
+            case 'Semi-Monthly': return '15th / 30th'; 
+            case 'Weekly': return 'Every Friday'; 
+            case 'Monthly': return 'End of Month'; 
+            case 'Bi-Weekly': return 'Every 2 Weeks';
+            default: return val; 
+        } 
+    };
     
     const getDetailValue = (key: string) => { 
         switch(key) { 
@@ -73,11 +84,15 @@ const JobCard = ({ currentJob, visibleKeys, theme, onEdit }: any) => {
             case 'rate': return formatPay(currentJob.rate || currentJob.salary); 
             case 'rate_type': return currentJob.rate_type ? currentJob.rate_type.charAt(0).toUpperCase() + currentJob.rate_type.slice(1) : 'Hourly'; 
             case 'shift': return currentJob.work_schedule ? `${currentJob.work_schedule.start} - ${currentJob.work_schedule.end}` : 'N/A'; 
-            case 'payroll': return getCutoffLabel(currentJob.cutoff_config?.type); 
+            
+            // FIXED: Using payout_type
+            case 'payroll': return getCutoffLabel(currentJob.payout_type || currentJob.cutoff_config?.type); 
+            
             case 'breaks': return currentJob.break_schedule ? `${currentJob.break_schedule.length} Break(s)` : '0'; 
             default: return 'N/A'; 
         } 
     };
+
     const getIcon = (key: string) => { 
         switch(key) { 
             case 'rate': return DollarCircleIcon; 
@@ -117,26 +132,22 @@ const JobCard = ({ currentJob, visibleKeys, theme, onEdit }: any) => {
     );
 };
 
-// Updated Empty Job Card with conditional text
 const EmptyJobCard = ({ theme, router, hasJobs }: any) => (
     <View style={[styles.emptyCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
         <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
             <HugeiconsIcon icon={Briefcase01Icon} size={32} color={theme.colors.primary} />
         </View>
         
-        {/* Dynamic Title */}
         <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>
             {hasJobs ? "No Active Job" : "No Jobs Added"}
         </Text>
         
-        {/* Dynamic Description (Removed 'and earnings') */}
         <Text style={[styles.emptyDesc, { color: theme.colors.textSecondary }]}>
             {hasJobs 
                 ? "You have saved jobs but none are set as active." 
                 : "Set up your job profile to start tracking your attendance."}
         </Text>
         
-        {/* Button redirects to Job List */}
         <TouchableOpacity 
             onPress={() => router.push('/job/job')} 
             style={[styles.primaryButton, { backgroundColor: theme.colors.primary }]}
@@ -156,7 +167,7 @@ export default function ProfileScreen() {
     const [refreshing, setRefreshing] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [viewData, setViewData] = useState<{ profile: any; job: any }>({ profile: null, job: null });
-    const [hasJobs, setHasJobs] = useState(false); // Track if user has any jobs
+    const [hasJobs, setHasJobs] = useState(false);
     const [email, setEmail] = useState('');
     const [imageError, setImageError] = useState(false);
     
@@ -213,7 +224,6 @@ export default function ProfileScreen() {
             if (state.isConnected) {
                 const { data: remoteProfile } = await supabase.from('profiles').select('*').eq('id', userId).single();
                 if (remoteProfile) {
-                    // Sync Avatar Logic
                     if (remoteProfile.avatar_url) {
                         try {
                             const rawFileName = remoteProfile.avatar_url.split('/').pop();
@@ -260,7 +270,6 @@ export default function ProfileScreen() {
 
     const onRefresh = async () => { setRefreshing(true); await triggerSync(); await loadData(true); };
 
-    // ... Avatar Helper Functions ...
     const deleteOldAvatar = async (url: string) => {
         if (!url) return;
         try {

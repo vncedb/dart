@@ -47,6 +47,8 @@ export const ReportService = {
 
   groupReportsByPayout: (data: any[], payoutType: string) => {
     const today = new Date();
+    // Default to Semi-Monthly if not provided
+    const type = payoutType || 'Semi-Monthly'; 
     
     return data.reduce((acc: any, curr) => {
         const [y, m, d] = curr.date.split('-').map(Number);
@@ -55,21 +57,22 @@ export const ReportService = {
         let dateRange = {};
         let isCurrent = false;
 
-        if (payoutType === 'Weekly') {
+        if (type === 'Weekly') {
             const weekNum = getWeek(date);
             const start = startOfWeek(date, { weekStartsOn: 1 });
             const end = endOfWeek(date, { weekStartsOn: 1 });
             groupKey = `Week ${weekNum} • ${format(start, 'MMM d')} - ${format(end, 'MMM d')}`;
             dateRange = { start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd') };
             if (weekNum === getWeek(today) && date.getFullYear() === today.getFullYear()) isCurrent = true;
-        } else if (payoutType === 'Monthly') {
+        } else if (type === 'Monthly') {
             groupKey = format(date, 'MMMM yyyy');
             const start = new Date(date.getFullYear(), date.getMonth(), 1);
             const end = new Date(date.getFullYear(), date.getMonth() + 1, 0);
             dateRange = { start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd') };
             if (date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear()) isCurrent = true;
         } else {
-            // Semi-Monthly
+            // Semi-Monthly (Handles 'Semi-Monthly', 'Bi-Weekly' as fallback, etc.)
+            // Assumes 1st-15th and 16th-End of Month logic
             const day = date.getDate();
             const month = date.toLocaleString('default', { month: 'long' });
             const year = date.getFullYear();

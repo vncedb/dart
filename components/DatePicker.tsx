@@ -49,12 +49,10 @@ export default function DatePicker({
     title = "Select Date"
 }: DatePickerProps) {
     const theme = useAppTheme();
-    // Local state for selection before confirming
     const [tempDate, setTempDate] = useState(new Date(selectedDate));
     const [currentMonth, setCurrentMonth] = useState(new Date(selectedDate));
     const [viewMode, setViewMode] = useState<ViewMode>('calendar');
 
-    // Months & Years Data
     const months = Array.from({ length: 12 }, (_, i) => new Date(0, i));
     const years = useMemo(() => {
         const currentYear = new Date().getFullYear();
@@ -70,7 +68,6 @@ export default function DatePicker({
         }
     }, [visible, selectedDate]);
 
-    // Calendar Logic
     const calendarDays = useMemo(() => {
         const monthStart = startOfMonth(currentMonth);
         const startDate = startOfWeek(monthStart);
@@ -99,7 +96,7 @@ export default function DatePicker({
                     return (
                         <TouchableOpacity
                             key={day.toISOString()}
-                            onPress={() => setTempDate(day)} // Update local state only
+                            onPress={() => setTempDate(day)}
                             style={styles.dayCell}
                         >
                             <View style={[
@@ -214,19 +211,13 @@ export default function DatePicker({
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
             <Pressable style={styles.overlay} onPress={onClose}>
                 <Pressable style={[styles.container, { backgroundColor: theme.colors.card }]} onPress={(e) => e.stopPropagation()}>
-                    
-                    {/* CENTER MODAL: No Close Button */}
-                    <ModalHeader title={title} />
-
+                    <ModalHeader title={title} position="center" />
                     {renderNavigation()}
-
                     <View style={styles.content}>
                         {viewMode === 'calendar' && renderCalendar()}
                         {viewMode === 'month' && renderMonths()}
                         {viewMode === 'year' && renderYears()}
                     </View>
-
-                    {/* Footer: Cancel + Confirm */}
                     <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
                         <Button 
                             title="Cancel" 
@@ -236,7 +227,7 @@ export default function DatePicker({
                         />
                         <View style={{ width: 12 }} />
                         <Button 
-                            title="Confirm" 
+                            title="Select" 
                             variant="primary" 
                             onPress={handleConfirm} 
                             style={{ flex: 1 }} 
@@ -250,7 +241,7 @@ export default function DatePicker({
 
 const styles = StyleSheet.create({
     overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
-    container: { width: '100%', maxWidth: 360, borderRadius: 28, overflow: 'hidden', elevation: 10 },
+    container: { width: '100%', maxWidth: 360, borderRadius: 24, overflow: 'hidden', elevation: 10 },
     navBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
     navBtn: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)' },
     dropdownBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4 },

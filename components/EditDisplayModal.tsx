@@ -110,7 +110,7 @@ export default function EditDisplayModal({
                         }
                     ]}
                 >
-                    <TouchableOpacity onPressIn={drag} style={styles.dragHandle}>
+                    <TouchableOpacity onLongPress={drag} delayLongPress={100} style={styles.dragHandle}>
                         <HugeiconsIcon icon={Menu01Icon} size={20} color={theme.colors.textSecondary} />
                     </TouchableOpacity>
                     <View style={styles.contentContainer}>
@@ -137,11 +137,12 @@ export default function EditDisplayModal({
                     <Animated.View style={[styles.modalContainer, { backgroundColor: theme.colors.card }, animatedSheetStyle]}>
                         <GestureDetector gesture={pan}>
                             <View>
-                                {/* Bottom Modal: Header HAS Close Button */}
+                                {/* Bottom Modal: Left Aligned Title, Close on Right */}
                                 <ModalHeader 
                                     title="Customize Job Card" 
-                                    subtitle="Drag to reorder active details" 
+                                    subtitle="Hold and drag to reorder" 
                                     onClose={close} 
+                                    position="bottom"
                                 />
                             </View>
                         </GestureDetector>
@@ -154,6 +155,7 @@ export default function EditDisplayModal({
                                 renderItem={renderActiveItem}
                                 showsVerticalScrollIndicator={false}
                                 contentContainerStyle={{ padding: 24, paddingBottom: 100 }}
+                                activationDistance={10}
                                 ListFooterComponent={
                                     inactiveItems.length > 0 ? (
                                         <View style={{ marginTop: 24 }}>
@@ -178,7 +180,6 @@ export default function EditDisplayModal({
                         </View>
 
                         <View style={[styles.footer, { backgroundColor: theme.colors.card, borderTopColor: theme.colors.border }]}>
-                            {/* Footer: Save Button Only */}
                             <Button title="Save Changes" variant="primary" onPress={handleSave} />
                         </View>
                     </Animated.View>

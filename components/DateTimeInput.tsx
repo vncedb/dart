@@ -27,7 +27,14 @@ export default function DateTimeInput({ type, label, value, onChange }: DateTime
             
             <Pressable 
                 onPress={() => setVisible(true)} 
-                style={[styles.input, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+                style={({ pressed }) => [
+                    styles.input, 
+                    { 
+                        backgroundColor: theme.colors.background, 
+                        borderColor: theme.colors.border,
+                        opacity: pressed ? 0.7 : 1
+                    }
+                ]}
             >
                 <HugeiconsIcon 
                     icon={type === 'date' ? Calendar03Icon : Clock01Icon} 
@@ -49,9 +56,12 @@ export default function DateTimeInput({ type, label, value, onChange }: DateTime
                 <TimePicker 
                     visible={visible}
                     onClose={() => setVisible(false)}
-                    onConfirm={(h, m) => {
+                    onConfirm={(h, m, p) => {
                         const newDate = new Date(value);
-                        newDate.setHours(h);
+                        let hours = h;
+                        if (p === 'PM' && h < 12) hours += 12;
+                        if (p === 'AM' && h === 12) hours = 0;
+                        newDate.setHours(hours);
                         newDate.setMinutes(m);
                         onChange(newDate);
                     }}
@@ -66,7 +76,7 @@ export default function DateTimeInput({ type, label, value, onChange }: DateTime
 
 const styles = StyleSheet.create({
     container: { marginBottom: 16 },
-    label: { fontSize: 11, fontWeight: '700', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
-    input: { flexDirection: 'row', alignItems: 'center', height: 52, borderRadius: 16, borderWidth: 1, paddingHorizontal: 16 },
-    value: { marginLeft: 12, fontSize: 16, fontWeight: '600' }
+    label: { fontSize: 12, fontWeight: '600', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
+    input: { flexDirection: 'row', alignItems: 'center', height: 50, borderRadius: 12, borderWidth: 1, paddingHorizontal: 16 },
+    value: { marginLeft: 12, fontSize: 16, fontWeight: '500' }
 });
