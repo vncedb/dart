@@ -1,7 +1,7 @@
 import { File02Icon, Home01Icon, UserCircleIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
-import React from 'react';
+import React, { memo } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -63,11 +63,18 @@ export default function CustomTabBar({ state, descriptors, navigation }: BottomT
   );
 }
 
-function TabIcon({ isFocused, onPress, IconComponent, theme }: any) {
+// Memoized to prevent re-renders of non-active tabs during interactions
+const TabIcon = memo(function TabIcon({ isFocused, onPress, IconComponent, theme }: any) {
   const scale = useSharedValue(1);
 
   React.useEffect(() => {
-    scale.value = withSpring(isFocused ? 1 : 0.9, { damping: 10 });
+    // Adjusted spring config for a "snappier" (faster) feel
+    // Higher stiffness = faster movement
+    scale.value = withSpring(isFocused ? 1 : 0.9, { 
+        stiffness: 300, 
+        damping: 20,
+        mass: 0.5 
+    });
   }, [isFocused]);
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -96,7 +103,7 @@ function TabIcon({ isFocused, onPress, IconComponent, theme }: any) {
       </Animated.View>
     </TouchableOpacity>
   );
-}
+});
 
 const styles = StyleSheet.create({
   glassContainer: {

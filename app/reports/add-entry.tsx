@@ -1,7 +1,7 @@
 import {
     Calendar03Icon,
     Camera01Icon,
-    CheckmarkCircle02Icon, // Icon Only
+    CheckmarkCircle02Icon,
     Delete02Icon,
     Image01Icon
 } from '@hugeicons/core-free-icons';
@@ -13,8 +13,6 @@ import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
-    Alert,
-    Dimensions,
     Image,
     KeyboardAvoidingView,
     Platform,
@@ -35,8 +33,6 @@ import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 
 const MAX_PHOTOS = 4;
-const SCREEN_WIDTH = Dimensions.get('window').width;
-const PHOTO_SIZE = (SCREEN_WIDTH - 48 - 36) / 4; 
 
 export default function AddEntry() {
     const router = useRouter();
@@ -58,8 +54,11 @@ export default function AddEntry() {
     const [loading, setLoading] = useState(false);
     const [initialLoading, setInitialLoading] = useState(true);
     const [isDirty, setIsDirty] = useState(false);
+    
+    // Alert Configuration
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
+    // 1. Navigation Guard
     useEffect(() => {
         const unsubscribe = navigation.addListener('beforeRemove', (e) => {
             if (loading || !isDirty) return;
@@ -82,6 +81,7 @@ export default function AddEntry() {
         return unsubscribe;
     }, [navigation, loading, isDirty]);
 
+    // 2. Data Loading
     useEffect(() => {
         const init = async () => {
             if (entryId) {
@@ -130,35 +130,89 @@ export default function AddEntry() {
         } catch (e) { console.error(e); } finally { setInitialLoading(false); }
     };
 
+    // 3. Image Handling
     const handleImagePick = async (source: 'camera' | 'gallery') => {
         const remaining = MAX_PHOTOS - images.length;
-        if (remaining <= 0) return;
+        if (remaining <= 0) {
+            setAlertConfig({
+                visible: true,
+                type: 'warning',
+                title: 'Limit Reached',
+                message: 'You can only add up to 4 images.',
+                confirmText: 'Okay',
+                onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
+            });
+            return;
+        }
         
         try {
             let result: ImagePicker.ImagePickerResult; 
+            const options: ImagePicker.ImagePickerOptions = {
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                quality: 0.7,
+                allowsEditing: true,
+                // FORCE 4:3 LANDSCAPE CROP (Width 4, Height 3)
+                aspect: [4, 3], 
+            };
+
             if (source === 'camera') {
                 await ImagePicker.requestCameraPermissionsAsync();
-                result = await ImagePicker.launchCameraAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.6, allowsEditing: true });
+                result = await ImagePicker.launchCameraAsync(options);
             } else {
                 await ImagePicker.requestMediaLibraryPermissionsAsync();
-                result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.6, allowsMultipleSelection: true, selectionLimit: remaining });
+                // allowsMultipleSelection disabled to enforce individual 4:3 cropping
+                result = await ImagePicker.launchImageLibraryAsync({ ...options, allowsMultipleSelection: false });
             }
 
             if (!result.canceled && result.assets) {
-                const newUris = result.assets.map(a => a.uri);
-                setImages(prev => [...prev, ...newUris].slice(0, MAX_PHOTOS));
+                const newUri = result.assets[0].uri;
+                setImages(prev => [...prev, newUri]);
                 setIsDirty(true);
             }
-        } catch (e) { Alert.alert("Error", "Could not capture image."); }
+        } catch (e) { 
+            setAlertConfig({
+                visible: true,
+                type: 'error',
+                title: 'Error',
+                message: 'Could not capture image.',
+                confirmText: 'Okay',
+                onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
+            });
+        }
     };
 
+    const confirmDeleteImage = (idx: number) => {
+        setAlertConfig({
+            visible: true,
+            type: 'confirm',
+            title: 'Remove Image',
+            message: 'Are you sure you want to remove this image?',
+            confirmText: 'Remove',
+            cancelText: 'Cancel',
+            onConfirm: () => {
+                setImages(p => p.filter((_, i) => i !== idx)); 
+                setIsDirty(true);
+                setAlertConfig((p: any) => ({ ...p, visible: false }));
+            },
+            onCancel: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
+        });
+    };
+
+    // 4. Save Entry
     const saveEntry = async () => {
         if (!description.trim()) {
             setErrors({ description: true });
             return;
         }
         if (!activeJobId) {
-            Alert.alert("Error", "No active job context found.");
+            setAlertConfig({
+                visible: true,
+                type: 'error',
+                title: 'Error',
+                message: 'No active job context found. Please ensure you have a job selected.',
+                confirmText: 'Okay',
+                onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
+            });
             return;
         }
 
@@ -210,15 +264,26 @@ export default function AddEntry() {
             setIsDirty(false);
             triggerSync(); 
             router.back(); 
-        } catch (e: any) { Alert.alert("Error", e.message); } finally { setLoading(false); }
+        } catch (e: any) { 
+            setAlertConfig({
+                visible: true,
+                type: 'error',
+                title: 'Save Failed',
+                message: e.message || 'An error occurred while saving.',
+                confirmText: 'Okay',
+                onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
+            });
+        } finally { 
+            setLoading(false); 
+        }
     };
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
+            {/* Custom Alert Component */}
             <ModernAlert {...alertConfig} />
             <LoadingOverlay visible={loading} message="Saving entry..." />
             
-            {/* UPDATED HEADER: Icon-Only Save Button */}
             <Header 
                 title={entryId ? 'Edit Task' : 'New Task'} 
                 rightElement={
@@ -227,15 +292,9 @@ export default function AddEntry() {
                         disabled={initialLoading} 
                         style={{ 
                             backgroundColor: theme.colors.primary, 
-                            width: 36, 
-                            height: 36, 
-                            borderRadius: 18, 
-                            alignItems: 'center', 
-                            justifyContent: 'center',
-                            shadowColor: theme.colors.primary,
-                            shadowOpacity: 0.3,
-                            shadowRadius: 4,
-                            elevation: 2
+                            width: 36, height: 36, borderRadius: 18, 
+                            alignItems: 'center', justifyContent: 'center',
+                            shadowColor: theme.colors.primary, shadowOpacity: 0.3, shadowRadius: 4, elevation: 2
                         }}
                     >
                         <HugeiconsIcon icon={CheckmarkCircle02Icon} size={20} color="#fff" />
@@ -267,12 +326,9 @@ export default function AddEntry() {
                                 style={{ 
                                     backgroundColor: theme.colors.card, 
                                     color: theme.colors.text, 
-                                    padding: 16, 
-                                    borderRadius: 16, 
-                                    borderWidth: 1.5, 
+                                    padding: 16, borderRadius: 16, borderWidth: 1.5, 
                                     borderColor: errors.description ? theme.colors.danger : theme.colors.border,
-                                    fontSize: 16,
-                                    fontWeight: '500'
+                                    fontSize: 16, fontWeight: '500'
                                 }}
                             />
                         </View>
@@ -289,13 +345,9 @@ export default function AddEntry() {
                                 style={{ 
                                     backgroundColor: theme.colors.card, 
                                     color: theme.colors.text, 
-                                    padding: 16, 
-                                    borderRadius: 16, 
-                                    borderWidth: 1, 
+                                    padding: 16, borderRadius: 16, borderWidth: 1, 
                                     borderColor: theme.colors.border, 
-                                    minHeight: 120,
-                                    fontSize: 15,
-                                    lineHeight: 22
+                                    minHeight: 120, fontSize: 15, lineHeight: 22
                                 }}
                             />
                         </View>
@@ -316,12 +368,28 @@ export default function AddEntry() {
                             </TouchableOpacity>
                         </View>
 
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                        {/* Large Full-Width Images with 4:3 Ratio */}
+                        <View style={{ gap: 16 }}>
                             {images.map((uri, idx) => (
-                                <View key={idx} style={{ width: PHOTO_SIZE, height: PHOTO_SIZE, borderRadius: 12, overflow: 'hidden', backgroundColor: theme.colors.card, borderWidth: 1, borderColor: theme.colors.border }}>
+                                <View 
+                                    key={idx} 
+                                    style={{ 
+                                        width: '100%', 
+                                        aspectRatio: 4/3, // MATCHES CROP (Width 4 : Height 3)
+                                        borderRadius: 16, 
+                                        overflow: 'hidden', 
+                                        backgroundColor: theme.colors.card, 
+                                        borderWidth: 1, 
+                                        borderColor: theme.colors.border, 
+                                        position: 'relative' 
+                                    }}
+                                >
                                     <Image source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-                                    <TouchableOpacity onPress={() => { setImages(p => p.filter((_, i) => i !== idx)); setIsDirty(true); }} style={{ position: 'absolute', top: 4, right: 4, backgroundColor: 'rgba(0,0,0,0.5)', padding: 4, borderRadius: 20 }}>
-                                        <HugeiconsIcon icon={Delete02Icon} size={12} color="#fff" />
+                                    <TouchableOpacity 
+                                        onPress={() => confirmDeleteImage(idx)} 
+                                        style={{ position: 'absolute', top: 12, right: 12, backgroundColor: 'rgba(0,0,0,0.6)', padding: 8, borderRadius: 20 }}
+                                    >
+                                        <HugeiconsIcon icon={Delete02Icon} size={18} color="#ef4444" />
                                     </TouchableOpacity>
                                 </View>
                             ))}

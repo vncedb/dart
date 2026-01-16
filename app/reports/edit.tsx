@@ -1,7 +1,8 @@
 import {
     Clock01Icon,
     Delete02Icon,
-    PencilEdit02Icon
+    PencilEdit02Icon,
+    Task01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
@@ -23,12 +24,16 @@ import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
 import { useAppTheme } from '../../constants/theme';
+import { useSync } from '../../context/SyncContext';
+import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
+import { ReportService } from '../../services/ReportService';
 
 export default function EditReportScreen() {
     const router = useRouter();
     const navigation = useNavigation();
     const theme = useAppTheme();
+    const { triggerSync } = useSync();
     const { date } = useLocalSearchParams();
     
     const [attendanceId, setAttendanceId] = useState<string | null>(null);
@@ -43,24 +48,30 @@ export default function EditReportScreen() {
     // Time Picker
     const [pickerVisible, setPickerVisible] = useState(false);
     const [pickerMode, setPickerMode] = useState<'in' | 'out'>('in');
+    const [isDirty, setIsDirty] = useState(false);
 
     // Navigation Protection
     useEffect(() => {
         const unsubscribe = navigation.addListener('beforeRemove', (e) => {
-            if (loading) {
-                e.preventDefault();
-                setAlertConfig({
-                    visible: true,
-                    type: 'warning',
-                    title: 'Saving in Progress',
-                    message: 'Your changes are being saved. Please wait until the process is complete.',
-                    confirmText: 'Okay',
-                    onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
-                });
-            }
+            if (loading || !isDirty) return;
+            e.preventDefault();
+            setAlertConfig({
+                visible: true,
+                type: 'warning',
+                title: 'Unsaved Changes',
+                message: 'You have unsaved changes. Are you sure you want to leave?',
+                confirmText: 'Discard',
+                cancelText: 'Keep Editing',
+                onConfirm: () => {
+                    setAlertConfig((p: any) => ({ ...p, visible: false }));
+                    setIsDirty(false);
+                    navigation.dispatch(e.data.action);
+                },
+                onCancel: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
+            });
         });
         return unsubscribe;
-    }, [navigation, loading]);
+    }, [navigation, loading, isDirty]);
 
     useFocusEffect(
         useCallback(() => {
@@ -73,24 +84,31 @@ export default function EditReportScreen() {
         if (!user || !date) return;
 
         try {
-            const { data: att } = await supabase.from('attendance')
-                .select('*')
-                .eq('user_id', user.id)
-                .eq('date', date)
-                .single();
+            // Fetch from Local DB for consistency
+            const { attendance, tasks: t } = await ReportService.getDailyReport(user.id, date as string);
 
-            if (att) {
-                setAttendanceId(att.id);
-                setClockIn(new Date(att.clock_in));
-                setClockOut(att.clock_out ? new Date(att.clock_out) : null);
+            if (attendance) {
+                setAttendanceId(attendance.id);
+                setClockIn(new Date(attendance.clock_in));
+                setClockOut(attendance.clock_out ? new Date(attendance.clock_out) : null);
             }
 
-            const { data: t } = await supabase.from('accomplishments')
-                .select('*')
-                .eq('user_id', user.id)
-                .eq('date', date);
+            // Parse images for display
+            const processedTasks = (t || []).map((task: any) => {
+                let images: string[] = [];
+                if (task.image_url) {
+                    try {
+                        const parsed = JSON.parse(task.image_url);
+                        images = Array.isArray(parsed) ? parsed : [task.image_url];
+                    } catch {
+                        images = [task.image_url];
+                    }
+                }
+                return { ...task, images };
+            });
             
-            setTasks(t || []);
+            setTasks(processedTasks || []);
+            setIsDirty(false);
         } catch (e) {
             console.log(e);
         } finally {
@@ -102,15 +120,34 @@ export default function EditReportScreen() {
         setLoading(true);
         try {
             if (attendanceId && clockIn) {
-                const updates: any = {
-                    clock_in: clockIn.toISOString(),
-                    clock_out: clockOut ? clockOut.toISOString() : null,
-                    status: clockOut ? 'completed' : 'pending'
-                };
+                const db = await getDB();
+                const now = new Date().toISOString();
+                
+                // Prepare updates
+                const clockInStr = clockIn.toISOString();
+                const clockOutStr = clockOut ? clockOut.toISOString() : null;
+                const status = clockOut ? 'completed' : 'pending';
 
-                const { error } = await supabase.from('attendance').update(updates).eq('id', attendanceId);
-                if (error) throw error;
+                // Update Local DB
+                await db.runAsync(
+                    'UPDATE attendance SET clock_in = ?, clock_out = ?, status = ?, updated_at = ? WHERE id = ?',
+                    [clockInStr, clockOutStr, status, now, attendanceId]
+                );
+
+                // Queue Sync
+                await db.runAsync(
+                    'INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)',
+                    ['attendance', attendanceId, 'UPDATE', JSON.stringify({ 
+                        clock_in: clockInStr, 
+                        clock_out: clockOutStr, 
+                        status, 
+                        updated_at: now 
+                    })]
+                );
+                
+                triggerSync();
             }
+            setIsDirty(false);
             router.back();
         } catch (e: any) {
             setAlertConfig({
@@ -142,6 +179,7 @@ export default function EditReportScreen() {
             newDate.setHours(h); newDate.setMinutes(m);
             setClockOut(newDate);
         }
+        setIsDirty(true);
     };
 
     const deleteTask = (taskId: string) => {
@@ -149,15 +187,28 @@ export default function EditReportScreen() {
             visible: true,
             type: 'warning',
             title: 'Delete Task',
-            message: 'Are you sure you want to remove this task?',
+            message: 'Are you sure you want to remove this task? This cannot be undone.',
             confirmText: 'Delete',
             cancelText: 'Cancel',
             onConfirm: async () => {
                 setAlertConfig((prev: any) => ({...prev, visible: false}));
                 setLoading(true);
-                await supabase.from('accomplishments').delete().eq('id', taskId);
-                fetchData();
-                setLoading(false);
+                try {
+                    const db = await getDB();
+                    // Local Delete
+                    await db.runAsync('DELETE FROM accomplishments WHERE id = ?', [taskId]);
+                    // Sync Queue
+                    await db.runAsync(
+                        'INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)',
+                        ['accomplishments', taskId, 'DELETE', null]
+                    );
+                    triggerSync();
+                    fetchData(); // Refresh list
+                } catch (e) {
+                    console.log(e);
+                } finally {
+                    setLoading(false);
+                }
             },
             onCancel: () => setAlertConfig((prev: any) => ({...prev, visible: false}))
         });
@@ -188,7 +239,7 @@ export default function EditReportScreen() {
                </View>
             ) : (
                <>
-                <ScrollView contentContainerStyle={{ padding: 24 }}>
+                <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 100 }}>
                     <Text style={{ fontSize: 13, fontWeight: 'bold', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 12 }}>Time Settings</Text>
                     
                     <View style={{ gap: 12, marginBottom: 32 }}>
@@ -224,28 +275,51 @@ export default function EditReportScreen() {
                     {/* Tasks */}
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
                         <Text style={{ fontSize: 13, fontWeight: 'bold', color: theme.colors.textSecondary, textTransform: 'uppercase' }}>Tasks</Text>
+                        <View style={{ backgroundColor: theme.colors.iconBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
+                            <Text style={{ fontSize: 12, fontWeight: 'bold', color: theme.colors.textSecondary }}>{tasks.length}</Text>
+                        </View>
                     </View>
 
-                    <View style={{ gap: 12 }}>
-                        {tasks.map((task) => (
-                            <View key={task.id} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.card, padding: 12, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border }}>
-                                {task.image_url ? (
-                                    <Image source={{ uri: task.image_url }} style={{ width: 48, height: 48, borderRadius: 10, marginRight: 12 }} />
-                                ) : (
-                                    <View style={{ width: 48, height: 48, borderRadius: 10, backgroundColor: theme.colors.iconBg, marginRight: 12 }} />
-                                )}
-                                
-                                <View style={{ flex: 1 }}>
-                                    <Text numberOfLines={1} style={{ fontSize: 14, fontWeight: 'bold', color: theme.colors.text }}>{task.description}</Text>
-                                    <Text numberOfLines={1} style={{ fontSize: 12, color: theme.colors.textSecondary }}>{task.remarks || 'No remarks'}</Text>
+                    <View style={{ gap: 16 }}>
+                        {tasks.length === 0 ? (
+                            <View style={{ alignItems: 'center', padding: 30, opacity: 0.5 }}>
+                                <HugeiconsIcon icon={Task01Icon} size={40} color={theme.colors.icon} />
+                                <Text style={{ marginTop: 8, color: theme.colors.textSecondary }}>No tasks found.</Text>
+                            </View>
+                        ) : tasks.map((task) => (
+                            <View key={task.id} style={{ backgroundColor: theme.colors.card, borderRadius: 20, padding: 16, borderWidth: 1, borderColor: theme.colors.border }}>
+                                <View style={{ flexDirection: 'row', gap: 12 }}>
+                                    {/* Thumbnail Image (Show first one if available) */}
+                                    {task.images && task.images.length > 0 ? (
+                                        <Image source={{ uri: task.images[0] }} style={{ width: 48, height: 48, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border }} />
+                                    ) : (
+                                        <View style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: theme.colors.iconBg, alignItems: 'center', justifyContent: 'center' }}>
+                                            <HugeiconsIcon icon={Task01Icon} size={20} color={theme.colors.icon} />
+                                        </View>
+                                    )}
+                                    
+                                    <View style={{ flex: 1 }}>
+                                        <Text numberOfLines={1} style={{ fontSize: 15, fontWeight: '700', color: theme.colors.text, marginBottom: 4 }}>{task.description}</Text>
+                                        <Text numberOfLines={2} style={{ fontSize: 13, color: theme.colors.textSecondary, lineHeight: 18 }}>{task.remarks || 'No remarks'}</Text>
+                                    </View>
                                 </View>
-
-                                <View style={{ flexDirection: 'row', gap: 8 }}>
-                                    <TouchableOpacity onPress={() => editTask(task.id)} style={{ padding: 8, backgroundColor: theme.colors.background, borderRadius: 8 }}>
-                                        <HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.icon} />
+                                
+                                {/* Edit Actions Row */}
+                                <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+                                    <TouchableOpacity 
+                                        onPress={() => editTask(task.id)} 
+                                        style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: theme.colors.background }}
+                                    >
+                                        <HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.text} />
+                                        <Text style={{ marginLeft: 6, fontSize: 13, fontWeight: '600', color: theme.colors.text }}>Edit</Text>
                                     </TouchableOpacity>
-                                    <TouchableOpacity onPress={() => deleteTask(task.id)} style={{ padding: 8, backgroundColor: theme.colors.dangerLight, borderRadius: 8 }}>
+                                    
+                                    <TouchableOpacity 
+                                        onPress={() => deleteTask(task.id)} 
+                                        style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: theme.colors.danger + '15' }}
+                                    >
                                         <HugeiconsIcon icon={Delete02Icon} size={16} color={theme.colors.danger} />
+                                        <Text style={{ marginLeft: 6, fontSize: 13, fontWeight: '600', color: theme.colors.danger }}>Delete</Text>
                                     </TouchableOpacity>
                                 </View>
                             </View>

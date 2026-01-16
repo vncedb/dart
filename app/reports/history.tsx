@@ -1,5 +1,6 @@
 import {
   Delete02Icon,
+  File02Icon,
   MoreVerticalCircle01Icon,
   PrinterIcon
 } from '@hugeicons/core-free-icons';
@@ -17,7 +18,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// Components
 import ActionMenu from '../../components/ActionMenu';
 import Header from '../../components/Header';
 import ModernAlert from '../../components/ModernAlert';
@@ -49,7 +49,6 @@ export default function HistoryScreen() {
 
   const handleMenu = (event: GestureResponderEvent, item: any) => {
     const { pageX, pageY } = event.nativeEvent;
-    // Offset Y by 20 to clear the icon height
     setMenuAnchor({ x: pageX, y: pageY + 20 });
     setSelectedItem(item);
     setMenuVisible(true);
@@ -57,6 +56,7 @@ export default function HistoryScreen() {
 
   const handleReprint = () => {
     setMenuVisible(false);
+    // Acts as "View PDF" by regenerating/navigating to print preview
     router.push({ pathname: '/reports/print', params: { mode: 'cutoff', startDate: selectedItem.start_date, endDate: selectedItem.end_date, title: selectedItem.title } });
   };
 
@@ -64,7 +64,7 @@ export default function HistoryScreen() {
     setMenuVisible(false);
     setAlertConfig({
         visible: true, type: 'confirm', title: 'Delete Record',
-        message: 'This will remove the item from your history list.',
+        message: 'This will remove this item from your history log.',
         confirmText: 'Delete', cancelText: 'Cancel',
         onConfirm: async () => {
             setAlertConfig((prev: any) => ({ ...prev, visible: false }));
@@ -94,32 +94,53 @@ export default function HistoryScreen() {
       <ActionMenu 
         visible={menuVisible} onClose={() => setMenuVisible(false)} anchor={menuAnchor}
         actions={[
-            { label: 'Reprint', icon: PrinterIcon, onPress: handleReprint },
-            { label: 'Delete Record', icon: Delete02Icon, onPress: handleDelete, color: theme.colors.danger }
+            { label: 'View / Print', icon: PrinterIcon, onPress: handleReprint },
+            { label: 'Delete Log', icon: Delete02Icon, onPress: handleDelete, color: theme.colors.danger }
         ]}
       />
 
       {loading ? (
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text style={{ marginTop: 12, color: theme.colors.textSecondary }}>Loading History...</Text>
         </View>
       ) : (
         <FlatList
             data={history}
             keyExtractor={item => item.id}
-            contentContainerStyle={{ padding: 24 }}
-            ListEmptyComponent={<Text style={{ marginTop: 40, textAlign: 'center', color: theme.colors.textSecondary }}>No history found.</Text>}
+            contentContainerStyle={{ padding: 20 }}
+            ListEmptyComponent={
+                <View style={{ alignItems: 'center', marginTop: 50 }}>
+                    <HugeiconsIcon icon={File02Icon} size={48} color={theme.colors.border} />
+                    <Text style={{ marginTop: 16, color: theme.colors.textSecondary }}>No history records.</Text>
+                </View>
+            }
             renderItem={({ item }) => (
-                <View style={{ backgroundColor: theme.colors.card, padding: 20, borderRadius: 24, marginBottom: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderColor: theme.colors.border }}>
-                    <View>
-                        <Text style={{ fontSize: 16, fontWeight: 'bold', color: theme.colors.text }}>{item.title}</Text>
-                        <Text style={{ marginTop: 4, fontSize: 12, color: theme.colors.textSecondary }}>Generated: {new Date(item.generated_at).toDateString()}</Text>
+                <TouchableOpacity 
+                    onPress={() => { setSelectedItem(item); handleReprint(); }}
+                    style={{ 
+                        backgroundColor: theme.colors.card, 
+                        padding: 16, 
+                        borderRadius: 20, 
+                        marginBottom: 12, 
+                        flexDirection: 'row', 
+                        alignItems: 'center', 
+                        borderWidth: 1, 
+                        borderColor: theme.colors.border 
+                    }}
+                >
+                    <View style={{ width: 44, height: 44, borderRadius: 12, backgroundColor: theme.colors.primary + '15', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
+                        <HugeiconsIcon icon={File02Icon} size={22} color={theme.colors.primary} />
                     </View>
+                    
+                    <View style={{ flex: 1 }}>
+                        <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '700', color: theme.colors.text }}>{item.title || 'Untitled Report'}</Text>
+                        <Text style={{ marginTop: 4, fontSize: 12, color: theme.colors.textSecondary }}>Generated on {new Date(item.generated_at).toLocaleDateString()}</Text>
+                    </View>
+
                     <TouchableOpacity onPress={(e) => handleMenu(e, item)} style={{ padding: 8 }}>
                         <HugeiconsIcon icon={MoreVerticalCircle01Icon} size={20} color={theme.colors.icon} />
                     </TouchableOpacity>
-                </View>
+                </TouchableOpacity>
             )}
         />
       )}

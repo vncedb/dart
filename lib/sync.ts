@@ -34,8 +34,19 @@ export const syncPush = async () => {
           const { error: insertError } = await supabase.from(table_name).upsert(payload);
           error = insertError;
         } else if (action === 'UPDATE') {
+          // Attempt standard update
           const { error: updateError } = await supabase.from(table_name).update(payload).eq('id', row_id);
           error = updateError;
+
+          // SPECIAL HANDLER: If column not found (PGRST204) for attendance/updated_at, retry without it
+          if (error && (error.code === 'PGRST204' || error.code === '42703') && table_name === 'attendance' && (payload as any).updated_at) {
+              console.warn(`Column missing in ${table_name}, retrying without updated_at...`);
+              const safePayload = { ...payload };
+              delete (safePayload as any).updated_at;
+              const { error: retryError } = await supabase.from(table_name).update(safePayload).eq('id', row_id);
+              error = retryError;
+          }
+
         } else if (action === 'DELETE') {
           const { error: deleteError } = await supabase.from(table_name).delete().eq('id', row_id);
           error = deleteError;
@@ -47,10 +58,16 @@ export const syncPush = async () => {
           }
         }
 
+        // Handle Success or Hard Errors
         if (!error || error.code === 'PGRST116' || error.code === '23505') {
           await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [id]);
           successCount++;
+        } else if (error.code === 'PGRST204' || error.code === '42703') {
+          // Hard Schema Error: Column doesn't exist. Delete to unblock queue.
+          console.error(`Schema mismatch for item ${id} (${table_name}). Deleting from queue to unblock.`);
+          await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [id]);
         } else {
+          // Retryable error
           console.error(`Sync error for item ${id}:`, error);
           await db.runAsync('UPDATE sync_queue SET retry_count = retry_count + 1 WHERE id = ?', [id]);
         }

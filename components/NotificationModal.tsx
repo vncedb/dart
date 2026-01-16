@@ -1,8 +1,20 @@
 import { CheckmarkCircle02Icon, Tick02Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { formatDistanceToNow } from 'date-fns';
-import React from 'react';
-import { FlatList, Modal, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect } from 'react';
+import { FlatList, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated, {
+    Easing,
+    FadeIn,
+    FadeOut,
+    runOnJS,
+    SlideInDown,
+    SlideOutDown,
+    useAnimatedStyle,
+    useSharedValue,
+    withTiming
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ModalHeader from './ModalHeader';
 
@@ -24,8 +36,36 @@ interface NotificationModalProps {
 
 export default function NotificationModal({ visible, onClose, notifications, onMarkAllRead, theme }: NotificationModalProps) {
     const insets = useSafeAreaInsets();
+    const translateY = useSharedValue(0);
 
     const unreadCount = notifications.filter(n => !n.read).length;
+
+    useEffect(() => {
+        if (visible) translateY.value = 0;
+    }, [visible]);
+
+    const close = () => {
+        onClose();
+    };
+
+    // Drag-to-dismiss gesture configuration
+    const pan = Gesture.Pan()
+        .onChange((event) => {
+            if (event.translationY > 0) {
+                translateY.value = event.translationY;
+            }
+        })
+        .onEnd((event) => {
+            if (event.translationY > 100 || event.velocityY > 500) {
+                runOnJS(close)();
+            } else {
+                translateY.value = withTiming(0, { duration: 300, easing: Easing.out(Easing.quad) });
+            }
+        });
+
+    const animatedSheetStyle = useAnimatedStyle(() => ({
+        transform: [{ translateY: translateY.value }]
+    }));
 
     const renderItem = ({ item }: { item: NotificationItem }) => (
         <TouchableOpacity 
@@ -67,7 +107,7 @@ export default function NotificationModal({ visible, onClose, notifications, onM
 
     // Footer component shown at the bottom of the list
     const renderFooter = () => {
-        if (notifications.length === 0) return null; // Empty state handles the empty case
+        if (notifications.length === 0) return null;
         
         return (
             <View style={styles.footerContainer}>
@@ -80,82 +120,111 @@ export default function NotificationModal({ visible, onClose, notifications, onM
         );
     };
 
+    // Unmount when not visible to ensure entry animations trigger correctly on re-mount
+    if (!visible) return null;
+
     return (
         <Modal 
+            transparent 
             visible={visible} 
-            animationType="slide" 
-            transparent={true} 
-            onRequestClose={onClose}
+            onRequestClose={close}
+            animationType="none" 
+            statusBarTranslucent
         >
-            <View style={styles.backdrop}>
-                {/* Close modal when tapping backdrop */}
-                <TouchableOpacity style={StyleSheet.absoluteFill} onPress={onClose} activeOpacity={1} />
-                
-                <View style={[
-                    styles.sheet, 
-                    { 
-                        backgroundColor: theme.colors.background, 
-                        paddingBottom: Math.max(insets.bottom, 20) 
-                    }
-                ]}>
-                    
-                    {/* Reusable Header */}
-                    <ModalHeader 
-                        title="Notifications"
-                        subtitle={unreadCount > 0 ? `${unreadCount} unread` : 'No new notifications'}
-                        position="bottom"
-                        onClose={onClose}
-                    />
+            <GestureHandlerRootView style={styles.overlay}>
+                {/* Backdrop Fade */}
+                <Animated.View 
+                    entering={FadeIn.duration(300)} 
+                    exiting={FadeOut.duration(300)} 
+                    style={styles.backdrop}
+                >
+                    <TouchableOpacity style={StyleSheet.absoluteFill} onPress={close} activeOpacity={1} />
+                </Animated.View>
 
-                    {/* Actions Bar */}
-                    {notifications.length > 0 && (
-                        <View style={[styles.actionBar, { borderBottomColor: theme.colors.border }]}>
-                            <TouchableOpacity 
-                                onPress={onMarkAllRead} 
-                                style={[styles.markReadBtn, { backgroundColor: theme.colors.card }]}
-                            >
-                                <HugeiconsIcon icon={Tick02Icon} size={16} color={theme.colors.primary} />
-                                <Text style={[styles.markReadText, { color: theme.colors.primary }]}>
-                                    Mark all as read
-                                </Text>
-                            </TouchableOpacity>
-                        </View>
-                    )}
+                {/* Draggable Sheet - Slide Up */}
+                <Animated.View 
+                    entering={SlideInDown.duration(400).easing(Easing.out(Easing.quad))} 
+                    exiting={SlideOutDown.duration(300)}
+                    style={styles.modalContainerWrapper}
+                >
+                    <Animated.View style={[
+                        styles.sheet, 
+                        { 
+                            backgroundColor: theme.colors.background, 
+                            paddingBottom: Math.max(insets.bottom, 20) 
+                        },
+                        animatedSheetStyle
+                    ]}>
+                        
+                        {/* Header Area - Draggable (Allows dragging the modal down without blocking list scroll) */}
+                        <GestureDetector gesture={pan}>
+                            <View style={{ backgroundColor: theme.colors.background }}>
+                                {/* Reusable Header */}
+                                <ModalHeader 
+                                    title="Notifications"
+                                    subtitle={unreadCount > 0 ? `${unreadCount} unread` : 'No new notifications'}
+                                    position="bottom"
+                                    onClose={close}
+                                />
 
-                    {/* List */}
-                    <FlatList
-                        data={notifications}
-                        keyExtractor={(item) => item.id}
-                        renderItem={renderItem}
-                        contentContainerStyle={styles.listContent}
-                        showsVerticalScrollIndicator={false}
-                        ListFooterComponent={renderFooter}
-                        ListEmptyComponent={
-                            <View style={styles.emptyState}>
-                                <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.card }]}>
-                                    <HugeiconsIcon icon={CheckmarkCircle02Icon} size={40} color={theme.colors.textSecondary} />
-                                </View>
-                                <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>All caught up!</Text>
-                                <Text style={[styles.emptySubtitle, { color: theme.colors.textSecondary }]}>
-                                    You have no new notifications at this time.
-                                </Text>
+                                {/* Actions Bar */}
+                                {notifications.length > 0 && (
+                                    <View style={[styles.actionBar, { borderBottomColor: theme.colors.border }]}>
+                                        <TouchableOpacity 
+                                            onPress={onMarkAllRead} 
+                                            style={[styles.markReadBtn, { backgroundColor: theme.colors.card }]}
+                                        >
+                                            <HugeiconsIcon icon={Tick02Icon} size={16} color={theme.colors.primary} />
+                                            <Text style={[styles.markReadText, { color: theme.colors.primary }]}>
+                                                Mark all as read
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
                             </View>
-                        }
-                    />
-                </View>
-            </View>
+                        </GestureDetector>
+
+                        {/* List */}
+                        <FlatList
+                            data={notifications}
+                            keyExtractor={(item) => item.id}
+                            renderItem={renderItem}
+                            contentContainerStyle={styles.listContent}
+                            showsVerticalScrollIndicator={false}
+                            ListFooterComponent={renderFooter}
+                            ListEmptyComponent={
+                                <View style={styles.emptyState}>
+                                    <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.card }]}>
+                                        <HugeiconsIcon icon={CheckmarkCircle02Icon} size={40} color={theme.colors.textSecondary} />
+                                    </View>
+                                    <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>All caught up!</Text>
+                                    <Text style={[styles.emptySubtitle, { color: theme.colors.textSecondary }]}>
+                                        You have no new notifications at this time.
+                                    </Text>
+                                </View>
+                            }
+                        />
+                    </Animated.View>
+                </Animated.View>
+            </GestureHandlerRootView>
         </Modal>
     );
 }
 
 const styles = StyleSheet.create({
+    overlay: { 
+        flex: 1, 
+        justifyContent: 'flex-end' 
+    },
     backdrop: {
-        flex: 1,
+        ...StyleSheet.absoluteFillObject,
         backgroundColor: 'rgba(0,0,0,0.5)',
-        justifyContent: 'flex-end',
+    },
+    modalContainerWrapper: { 
+        flex: 1, 
+        justifyContent: 'flex-end' 
     },
     sheet: {
-        marginTop: Platform.OS === 'ios' ? 60 : 80,
         borderTopLeftRadius: 28,
         borderTopRightRadius: 28,
         overflow: 'hidden',
@@ -165,6 +234,7 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.1,
         shadowRadius: 20,
         elevation: 10,
+        width: '100%',
     },
     actionBar: {
         paddingHorizontal: 20,
