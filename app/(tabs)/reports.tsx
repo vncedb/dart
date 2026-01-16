@@ -1,29 +1,22 @@
 import {
-    ArrowDown01Icon,
-    ArrowRight01Icon,
     Cancel01Icon,
-    Clock01Icon,
     Delete02Icon,
     File02Icon,
     FileVerifiedIcon,
-    MoreVerticalCircle01Icon,
     PlusSignIcon,
     RefreshIcon,
     Search01Icon,
     Share01Icon,
-    Task01Icon,
-    Tick02Icon,
     WifiOff01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import NetInfo from '@react-native-community/netinfo';
-import { endOfMonth, format, startOfMonth } from 'date-fns';
+import { endOfMonth, format } from 'date-fns';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     BackHandler,
-    LayoutAnimation,
     Platform,
     RefreshControl,
     SectionList,
@@ -35,9 +28,6 @@ import {
     View
 } from 'react-native';
 import Animated, {
-    Easing,
-    FadeInDown,
-    Layout,
     cancelAnimation,
     useAnimatedStyle,
     useSharedValue,
@@ -49,9 +39,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 // Components
 import ActionMenu from '../../components/ActionMenu';
 import CutoffSelectionModal, { DateRange } from '../../components/CutoffSelectionModal';
+import DatePicker from '../../components/DatePicker'; // USING CUSTOM PICKER
 import FloatingAlert from '../../components/FloatingAlert';
 import LoadingOverlay from '../../components/LoadingOverlay';
-import ModernAlert from '../../components/ModernAlert';
+import ReportFilterBar from '../../components/ReportFilterBar';
+import ReportItem from '../../components/ReportItem';
 import TabHeader from '../../components/TabHeader';
 import { useAppTheme } from '../../constants/theme';
 import { useSync } from '../../context/SyncContext';
@@ -67,15 +59,13 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
     }
 }
 
-const SyncStatusBar = ({ isSyncing, isOffline, theme }: { isSyncing: boolean, isOffline: boolean, theme: any }) => {
-    if (!isSyncing && !isOffline) return null;
+const OfflineIndicator = ({ isOffline, theme }: { isOffline: boolean, theme: any }) => {
+    if (!isOffline) return null;
     return (
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, backgroundColor: isSyncing ? theme.colors.background : theme.colors.danger + '10', borderBottomWidth: 1, borderBottomColor: theme.colors.border }}>
-            <View style={{ marginRight: 8 }}>
-                {isSyncing ? <ActivityIndicator size="small" color={theme.colors.primary} /> : <HugeiconsIcon icon={WifiOff01Icon} size={16} color={theme.colors.danger} />}
-            </View>
-            <Text style={{ fontSize: 11, fontWeight: '600', color: isSyncing ? theme.colors.primary : theme.colors.danger }}>
-                {isSyncing ? "Syncing data..." : "You are offline. Data may be outdated."}
+        <View style={[styles.offlineStatus, { backgroundColor: theme.colors.danger + '10', borderColor: theme.colors.danger + '20' }]}>
+            <HugeiconsIcon icon={WifiOff01Icon} size={14} color={theme.colors.danger} />
+            <Text style={{ fontSize: 11, fontWeight: '700', color: theme.colors.danger, marginLeft: 6 }}>
+                You are offline. Data may be unsynced.
             </Text>
         </View>
     );
@@ -90,7 +80,6 @@ export default function ReportsScreen() {
     // Data & UI
     const [allSections, setAllSections] = useState<any[]>([]);
     const [filteredSections, setFilteredSections] = useState<any[]>([]);
-    const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
     const [availableDates, setAvailableDates] = useState<string[]>([]);
     const [userProfile, setUserProfile] = useState<any>(null);
     
@@ -105,16 +94,20 @@ export default function ReportsScreen() {
     const [actionMenuVisible, setActionMenuVisible] = useState(false);
     const [menuAnchor, setMenuAnchor] = useState<{ x: number, y: number } | undefined>(undefined);
     
+    // Custom Date Picker State
+    const [showDatePicker, setShowDatePicker] = useState(false);
+    
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [selectionMode, setSelectionMode] = useState(false);
     
-    const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
     const [floatingAlert, setFloatingAlert] = useState({ visible: false, message: '', type: 'success' });
 
     const syncButtonRotation = useSharedValue(0);
 
     useEffect(() => {
-        const unsubscribe = NetInfo.addEventListener(state => { setIsOffline(!(state.isConnected && state.isInternetReachable)); });
+        const unsubscribe = NetInfo.addEventListener(state => { 
+            setIsOffline(!(state.isConnected && state.isInternetReachable)); 
+        });
         return unsubscribe;
     }, []);
 
@@ -125,7 +118,7 @@ export default function ReportsScreen() {
             cancelAnimation(syncButtonRotation);
             syncButtonRotation.value = withTiming(0);
         }
-    }, [isSyncing]);
+    }, [isSyncing, syncButtonRotation]);
     
     const syncButtonStyle = useAnimatedStyle(() => ({ transform: [{ rotate: `${syncButtonRotation.value}deg` }] }));
 
@@ -142,13 +135,35 @@ export default function ReportsScreen() {
         return () => subscription.remove(); 
     }, [selectionMode]);
 
-    useFocusEffect(
-        useCallback(() => {
-            fetchReports();
-        }, [])
-    );
+    const applyFilter = useCallback((range: DateRange, data: any[]) => {
+        // Handle Exact Date filtering
+        if (range.type === 'day' as any) {
+            const targetDate = range.start.split('T')[0];
+            
+            const filtered = data.map(section => {
+                const matchingItems = section.data.filter((item: any) => item.date === targetDate);
+                if (matchingItems.length > 0) {
+                    return { ...section, data: matchingItems };
+                }
+                return null;
+            }).filter(Boolean);
+            
+            setFilteredSections(filtered);
+            return;
+        }
 
-    const fetchReports = async () => {
+        // Standard Range Filtering
+        const start = new Date(range.start).getTime();
+        const end = new Date(range.end).getTime();
+        const filtered = data.filter(section => {
+            const sStart = new Date(section.start).getTime();
+            const sEnd = new Date(section.end).getTime();
+            return (sStart <= end && sEnd >= start);
+        });
+        setFilteredSections(filtered);
+    }, []);
+
+    const fetchReports = useCallback(async () => {
         try {
             const db = await getDB();
             const { data: { session } } = await supabase.auth.getSession();
@@ -160,14 +175,22 @@ export default function ReportsScreen() {
             setUserProfile(profile);
 
             const job: any = await ReportService.getActiveJob(userId);
-            if (!job) { setAllSections([]); setFilteredSections([]); setIsLoading(false); return; }
+            if (!job) { 
+                setAllSections([]); 
+                setFilteredSections([]); 
+                setIsLoading(false); 
+                return; 
+            }
             
             const payoutType = job.payout_type || 'Semi-Monthly';
 
             const attendance = await db.getAllAsync('SELECT * FROM attendance WHERE user_id = ? AND job_id = ? ORDER BY date DESC', [userId, job.id]);
             const tasks = await db.getAllAsync('SELECT * FROM accomplishments WHERE user_id = ? AND job_id = ?', [userId, job.id]);
             
-            const allDatesSet = new Set([ ...(attendance?.map((a: any) => a.date) || []), ...(tasks?.map((t: any) => t.date) || []) ]);
+            const allDatesSet = new Set([ 
+                ...(attendance?.map((a: any) => a.date) || []), 
+                ...(tasks?.map((t: any) => t.date) || []) 
+            ]);
             const allDatesArray = Array.from(allDatesSet);
             setAvailableDates(allDatesArray);
 
@@ -182,7 +205,8 @@ export default function ReportsScreen() {
                     clock_in: att?.clock_in,
                     clock_out: att?.clock_out,
                     status: att?.status || 'no-attendance',
-                    accomplishments: taskList
+                    accomplishments: taskList,
+                    is_synced: att?.is_synced ?? 0 
                 };
             });
 
@@ -192,9 +216,27 @@ export default function ReportsScreen() {
 
             if (!currentRange) {
                 const now = new Date();
-                const start = startOfMonth(now).toISOString();
-                const end = endOfMonth(now).toISOString();
-                const defaultRange: DateRange = { start, end, label: format(now, 'MMMM yyyy'), type: 'month' };
+                const year = now.getFullYear();
+                const month = now.getMonth();
+                const day = now.getDate();
+                let start, end, label;
+
+                if (day <= 15) {
+                    start = new Date(year, month, 1);
+                    end = new Date(year, month, 15);
+                    label = `${format(start, 'MMM 1')} - ${format(end, '15, yyyy')}`;
+                } else {
+                    start = new Date(year, month, 16);
+                    end = endOfMonth(now);
+                    label = `${format(start, 'MMM 16')} - ${format(end, 'd, yyyy')}`;
+                }
+
+                const defaultRange: DateRange = { 
+                    start: start.toISOString(), 
+                    end: end.toISOString(), 
+                    label, 
+                    type: 'period' 
+                };
                 setCurrentRange(defaultRange);
                 applyFilter(defaultRange, sectionsArray);
             } else {
@@ -202,31 +244,33 @@ export default function ReportsScreen() {
             }
 
         } catch (e) { console.log("Fetch Error", e); } finally { setRefreshing(false); setIsLoading(false); }
-    };
+    }, [currentRange, applyFilter]);
 
-    const applyFilter = (range: DateRange, data: any[]) => {
-        const start = new Date(range.start).getTime();
-        const end = new Date(range.end).getTime();
-        const filtered = data.filter(section => {
-            const sStart = new Date(section.start).getTime();
-            const sEnd = new Date(section.end).getTime();
-            return (sStart <= end && sEnd >= start);
-        });
-        setFilteredSections(filtered);
+    useFocusEffect(
+        useCallback(() => {
+            fetchReports();
+        }, [fetchReports])
+    );
+
+    const handleExactDateSelect = (date: Date) => {
+        // NOTE: DatePicker passes a standard JS Date object
+        if (date) {
+            const dateStr = date.toISOString(); // Full ISO for reference
+            // For label and logic we need YYYY-MM-DD sometimes, but our filter uses ISO splitting
+            const range: DateRange = {
+                start: dateStr,
+                end: dateStr,
+                label: format(date, 'MMMM d, yyyy'),
+                type: 'day' as any
+            };
+            setCurrentRange(range);
+            applyFilter(range, allSections);
+        }
     };
 
     const handleRangeSelect = (range: DateRange) => {
         setCurrentRange(range);
         applyFilter(range, allSections);
-    };
-
-    const toggleSection = (title: string) => {
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        setCollapsedSections(prev => {
-            const next = new Set(prev);
-            if (next.has(title)) next.delete(title); else next.add(title);
-            return next;
-        });
     };
 
     const handleSharePDF = async () => {
@@ -301,73 +345,28 @@ export default function ReportsScreen() {
         }
     };
 
-    const renderItem = ({ item, index, section }: any) => {
-        if (collapsedSections.has(section.title)) return null;
-        const isSelected = selectedIds.has(item.date);
-        const hasAttendance = item.status !== 'no-attendance';
-        const [y, m, d] = item.date.split('-').map(Number);
-        const dateObj = new Date(y, m - 1, d);
-        const statusColor = item.status === 'completed' ? theme.colors.success : (item.status === 'pending' ? theme.colors.warning : theme.colors.border);
-
-        const toggleSelection = () => {
-            const newSet = new Set(selectedIds);
-            if (newSet.has(item.date)) newSet.delete(item.date); else newSet.add(item.date);
-            setSelectedIds(newSet);
-            if (newSet.size === 0) setSelectionMode(false);
-        };
-
-        return (
-            <Animated.View entering={FadeInDown.delay(index * 30).duration(300).easing(Easing.out(Easing.quad))} layout={Layout.duration(200)}>
-                <TouchableOpacity 
-                    activeOpacity={0.9}
-                    onPress={() => selectionMode ? toggleSelection() : router.push({ pathname: '/reports/details', params: { date: item.date } })} 
-                    onLongPress={() => { setSelectionMode(true); toggleSelection(); }}
-                    style={[styles.card, { backgroundColor: theme.colors.card, borderColor: isSelected ? theme.colors.primary : theme.colors.border, borderWidth: isSelected ? 2 : 1 }]}
-                >
-                    <View style={styles.dateBlock}>
-                        <Text style={{ fontSize: 11, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase' }}>{format(dateObj, 'EEE')}</Text>
-                        <Text style={{ fontSize: 20, fontWeight: '900', color: theme.colors.text, marginTop: 2 }}>{format(dateObj, 'dd')}</Text>
-                    </View>
-                    <View style={{ width: 1, height: '60%', backgroundColor: theme.colors.border, marginHorizontal: 4 }} />
-                    <View style={{ flex: 1, paddingLeft: 16, justifyContent: 'center' }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                             <HugeiconsIcon icon={Clock01Icon} size={14} color={theme.colors.textSecondary} style={{ marginRight: 6 }} />
-                             {hasAttendance ? (
-                                <Text style={{ fontSize: 15, fontWeight: '700', color: theme.colors.text, letterSpacing: -0.3 }}>
-                                    {item.clock_in ? format(new Date(item.clock_in), 'HH:mm') : '--:--'} <Text style={{ color: theme.colors.textSecondary }}>—</Text> {item.clock_out ? format(new Date(item.clock_out), 'HH:mm') : '--:--'}
-                                </Text>
-                             ) : (
-                                <Text style={{ fontSize: 14, fontWeight: '500', color: theme.colors.textSecondary, fontStyle: 'italic' }}>Absent</Text>
-                             )}
-                        </View>
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <HugeiconsIcon icon={Task01Icon} size={14} color={theme.colors.textSecondary} style={{ marginRight: 6 }} />
-                            <Text style={{ fontSize: 13, fontWeight: '600', color: theme.colors.textSecondary }}>{item.accomplishments.length} Task{item.accomplishments.length !== 1 ? 's' : ''}</Text>
-                        </View>
-                    </View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingLeft: 8 }}>
-                        {selectionMode ? (
-                             <View style={{ width: 20, height: 20, borderRadius: 6, borderWidth: isSelected ? 0 : 2, borderColor: theme.colors.border, backgroundColor: isSelected ? theme.colors.primary : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
-                                {isSelected && <HugeiconsIcon icon={Tick02Icon} size={12} color="#fff" />}
-                            </View>
-                        ) : (
-                            <View style={{ width: 4, height: 32, borderRadius: 2, backgroundColor: statusColor, opacity: hasAttendance ? 1 : 0.3 }} />
-                        )}
-                        {!selectionMode && (
-                            <View style={{ marginLeft: 12 }}>
-                                 <HugeiconsIcon icon={ArrowRight01Icon} size={16} color={theme.colors.border} />
-                            </View>
-                        )}
-                    </View>
-                </TouchableOpacity>
-            </Animated.View>
-        );
+    const toggleSelection = (date: string) => {
+        const newSet = new Set(selectedIds);
+        if (newSet.has(date)) newSet.delete(date); else newSet.add(date);
+        setSelectedIds(newSet);
+        if (newSet.size === 0) setSelectionMode(false);
     };
+
+    const renderItem = ({ item, index }: any) => (
+        <ReportItem 
+            item={item} 
+            index={index} 
+            selectionMode={selectionMode}
+            isSelected={selectedIds.has(item.date)}
+            onPress={() => selectionMode ? toggleSelection(item.date) : router.push({ pathname: '/reports/details', params: { date: item.date } })}
+            onLongPress={() => { setSelectionMode(true); toggleSelection(item.date); }}
+        />
+    );
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
             <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} />
-            <ModernAlert {...alertConfig} />
+            
             <FloatingAlert visible={floatingAlert.visible} message={floatingAlert.message} type={floatingAlert.type as any} onHide={() => setFloatingAlert({...floatingAlert, visible: false})} />
             <LoadingOverlay visible={loadingAction} message="Processing..." />
             
@@ -377,6 +376,15 @@ export default function ReportsScreen() {
                 availableDates={availableDates}
                 currentRange={currentRange}
                 onSelect={handleRangeSelect}
+            />
+
+            {/* Custom Date Picker */}
+            <DatePicker
+                visible={showDatePicker}
+                onClose={() => setShowDatePicker(false)}
+                onSelect={handleExactDateSelect}
+                selectedDate={currentRange?.type === 'day' ? new Date(currentRange.start) : new Date()}
+                title="Select Specific Date"
             />
 
             <ActionMenu 
@@ -396,76 +404,83 @@ export default function ReportsScreen() {
                 rightElement={
                     <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
                         {!selectionMode && (
-                            <TouchableOpacity onPress={async () => { await triggerSync(); fetchReports(); }} disabled={isSyncing} style={[styles.iconButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                                <Animated.View style={syncButtonStyle}><HugeiconsIcon icon={RefreshIcon} size={20} color={theme.colors.text} /></Animated.View>
-                            </TouchableOpacity>
-                        )}
-                        {/* History Icon */}
-                        {!selectionMode && (
-                            <TouchableOpacity onPress={() => router.push('/reports/history')} style={[styles.iconButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                                <HugeiconsIcon icon={FileVerifiedIcon} size={20} color={theme.colors.text} />
-                            </TouchableOpacity>
+                            <>
+                                <TouchableOpacity 
+                                    onPress={async () => { await triggerSync(); fetchReports(); }} 
+                                    disabled={isSyncing} 
+                                    style={[styles.headerBtn, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+                                >
+                                    <Animated.View style={syncButtonStyle}>
+                                        <HugeiconsIcon icon={RefreshIcon} size={20} color={theme.colors.text} />
+                                    </Animated.View>
+                                </TouchableOpacity>
+                                
+                                <TouchableOpacity 
+                                    onPress={() => router.push('/reports/history')} 
+                                    style={[styles.headerBtn, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+                                >
+                                    <HugeiconsIcon icon={FileVerifiedIcon} size={20} color={theme.colors.text} />
+                                </TouchableOpacity>
+                            </>
                         )}
                         {selectionMode && (
-                            <TouchableOpacity onPress={() => {}} disabled={selectedIds.size === 0} style={{ backgroundColor: theme.colors.dangerLight, padding: 10, borderRadius: 100 }}>
+                            <TouchableOpacity onPress={() => {}} disabled={selectedIds.size === 0} style={{ backgroundColor: theme.colors.danger + '15', padding: 10, borderRadius: 22 }}>
                                 <HugeiconsIcon icon={Delete02Icon} size={20} color={theme.colors.danger} />
                             </TouchableOpacity>
                         )}
                     </View>
                 }
-                leftElement={selectionMode ? <TouchableOpacity onPress={() => { setSelectionMode(false); setSelectedIds(new Set()); }} style={{ padding: 10 }}><HugeiconsIcon icon={Cancel01Icon} size={24} color={theme.colors.text} /></TouchableOpacity> : undefined}
+                leftElement={selectionMode ? (
+                    <TouchableOpacity onPress={() => { setSelectionMode(false); setSelectedIds(new Set()); }} style={{ padding: 10 }}>
+                        <HugeiconsIcon icon={Cancel01Icon} size={24} color={theme.colors.text} />
+                    </TouchableOpacity>
+                ) : undefined}
             />
 
-            <SyncStatusBar isSyncing={isSyncing} isOffline={isOffline} theme={theme} />
+            <OfflineIndicator isOffline={isOffline} theme={theme} />
 
             {isLoading ? (
-                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={theme.colors.primary} /></View>
+                <View style={styles.centerContainer}>
+                    <ActivityIndicator size="large" color={theme.colors.primary} />
+                </View>
             ) : (
                 <View style={{ flex: 1 }}>
-                    {/* BODY SELECTION HEADER */}
-                    <View style={[styles.bodyHeaderContainer, { borderBottomColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
-                        <TouchableOpacity activeOpacity={0.7} onPress={() => setModalVisible(true)} style={styles.selectionBtn}>
-                            <View>
-                                <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontWeight: '700', textTransform: 'uppercase' }}>
-                                    {currentRange?.type === 'period' ? 'Pay Period' : currentRange?.type === 'week' ? 'This Week' : currentRange?.type === 'month' ? 'This Month' : 'Custom'}
-                                </Text>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                                    <Text style={{ fontSize: 18, fontWeight: '800', color: theme.colors.text }}>{currentRange?.label || 'Select Date'}</Text>
-                                    <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.primary} />
-                                </View>
-                            </View>
-                        </TouchableOpacity>
-                        <TouchableOpacity 
-                            onPress={(e) => { setMenuAnchor({ x: e.nativeEvent.pageX, y: e.nativeEvent.pageY + 20 }); setActionMenuVisible(true); }}
-                            style={styles.moreBtn}
-                        >
-                            <HugeiconsIcon icon={MoreVerticalCircle01Icon} size={24} color={theme.colors.textSecondary} />
-                        </TouchableOpacity>
-                    </View>
+                    {/* Filter Bar with Date Picker Trigger */}
+                    <ReportFilterBar 
+                        onPress={() => setModalVisible(true)}
+                        onCalendarPress={() => setShowDatePicker(true)}
+                        onMorePress={(e) => { 
+                            setMenuAnchor({ x: e.nativeEvent.pageX - 20, y: e.nativeEvent.pageY + 20 }); 
+                            setActionMenuVisible(true); 
+                        }}
+                        currentRange={currentRange}
+                    />
+
+                    <View style={[styles.separator, { backgroundColor: theme.colors.border }]} />
 
                     <SectionList
                         sections={filteredSections}
                         keyExtractor={(item) => item.id}
                         renderItem={renderItem}
                         renderSectionHeader={({ section }: any) => {
-                            // Smart Header: Hide duplicate title if body already shows the same period/range
-                            if (filteredSections.length === 1 && currentRange?.type !== 'custom') return null;
+                            if (filteredSections.length === 1 && currentRange?.type !== 'custom' && currentRange?.type !== 'day' as any) return null;
                             return (
-                                <TouchableOpacity activeOpacity={0.8} onPress={() => toggleSection(section.title)} style={styles.sectionHeader}>
-                                    <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{section.title}</Text>
-                                    <Text style={{ fontSize: 12, color: theme.colors.textSecondary }}>{format(new Date(section.start), 'MMM d')} — {format(new Date(section.end), 'MMM d, yyyy')}</Text>
-                                </TouchableOpacity>
+                                <View style={[styles.sectionHeader, { backgroundColor: theme.colors.background }]}>
+                                    <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>{section.title}</Text>
+                                </View>
                             );
                         }}
-                        contentContainerStyle={{ paddingBottom: 100 }}
+                        contentContainerStyle={{ paddingBottom: 120, paddingTop: 4 }}
                         showsVerticalScrollIndicator={false}
+                        stickySectionHeadersEnabled={true}
                         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchReports(); }} tintColor={theme.colors.primary} />}
                         ListEmptyComponent={
-                            <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 80 }}>
-                                <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: theme.colors.card, alignItems: 'center', justifyContent: 'center', marginBottom: 16, borderWidth: 1, borderColor: theme.colors.border }}>
+                            <View style={styles.emptyContainer}>
+                                <View style={[styles.emptyIcon, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                                     <HugeiconsIcon icon={Search01Icon} size={32} color={theme.colors.textSecondary} />
                                 </View>
-                                <Text style={{ fontSize: 16, fontWeight: '700', color: theme.colors.text }}>No reports found</Text>
+                                <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No reports found</Text>
+                                <Text style={[styles.emptySub, { color: theme.colors.textSecondary }]}>Try changing the date filter.</Text>
                             </View>
                         }
                     />
@@ -476,12 +491,37 @@ export default function ReportsScreen() {
 }
 
 const styles = StyleSheet.create({
-    iconButton: { padding: 10, borderRadius: 99, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
-    bodyHeaderContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1 },
-    selectionBtn: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-    moreBtn: { padding: 8 },
-    card: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, marginHorizontal: 16, marginBottom: 8, borderRadius: 16, borderWidth: 1 },
-    dateBlock: { alignItems: 'center', justifyContent: 'center', width: 44, marginRight: 8 },
-    sectionHeader: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 12 },
-    sectionTitle: { fontSize: 18, fontWeight: '800', letterSpacing: -0.5, textTransform: 'uppercase' }
+    centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    
+    headerBtn: { 
+        width: 44, 
+        height: 44, 
+        borderRadius: 22, 
+        borderWidth: 1, 
+        alignItems: 'center', 
+        justifyContent: 'center' 
+    },
+    
+    offlineStatus: { 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        paddingVertical: 8, 
+        borderBottomWidth: 1 
+    },
+
+    separator: {
+        height: 1,
+        marginHorizontal: 20,
+        opacity: 0.5,
+        marginBottom: 8
+    },
+
+    sectionHeader: { paddingHorizontal: 20, paddingVertical: 12 },
+    sectionTitle: { fontSize: 12, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase' },
+
+    emptyContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 100 },
+    emptyIcon: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 16, borderWidth: 1 },
+    emptyTitle: { fontSize: 16, fontWeight: '700', marginBottom: 4 },
+    emptySub: { fontSize: 14 }
 });

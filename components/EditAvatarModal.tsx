@@ -4,10 +4,11 @@ import {
 } from '@hugeicons/core-free-icons';
 import React, { useEffect } from 'react';
 import {
+    Dimensions,
     Modal,
     Platform,
+    Pressable,
     StyleSheet,
-    TouchableOpacity,
     View
 } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -16,8 +17,6 @@ import Animated, {
     FadeIn,
     FadeOut,
     runOnJS,
-    SlideInDown,
-    SlideOutDown,
     useAnimatedStyle,
     useSharedValue,
     withTiming
@@ -33,6 +32,13 @@ interface EditAvatarModalProps {
     onRemoveImage: () => void;
 }
 
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+// Smaller initial height since content is minimal
+const INITIAL_HEIGHT = SCREEN_HEIGHT * 0.40; 
+const MAX_HEIGHT = SCREEN_HEIGHT * 0.40; // No expansion needed for this modal
+const SNAP_CLOSE = MAX_HEIGHT;
+const SNAP_OPEN = MAX_HEIGHT - INITIAL_HEIGHT;
+
 export default function EditAvatarModal({
     visible,
     onClose,
@@ -40,28 +46,40 @@ export default function EditAvatarModal({
     onRemoveImage
 }: EditAvatarModalProps) {
     const theme = useAppTheme();
-    const translateY = useSharedValue(0);
+    const translateY = useSharedValue(SNAP_CLOSE);
+    const context = useSharedValue({ y: 0 });
 
     useEffect(() => {
-        if (visible) translateY.value = 0;
+        if (visible) {
+            translateY.value = SNAP_CLOSE;
+            translateY.value = withTiming(SNAP_OPEN, { 
+                duration: 350, 
+                easing: Easing.out(Easing.quad) 
+            });
+        }
     }, [visible]);
 
     const close = () => {
-        onClose();
+        translateY.value = withTiming(SNAP_CLOSE, { duration: 250 }, () => {
+            runOnJS(onClose)();
+        });
     };
 
-    // Drag-to-dismiss gesture
     const pan = Gesture.Pan()
-        .onChange((event) => {
-            if (event.translationY > 0) {
-                translateY.value = event.translationY;
-            }
+        .onStart(() => {
+            context.value = { y: translateY.value };
+        })
+        .onUpdate((event) => {
+            let newY = context.value.y + event.translationY;
+            // Elasticity at top
+            if (newY < SNAP_OPEN) newY = SNAP_OPEN + (newY - SNAP_OPEN) * 0.2;
+            translateY.value = newY;
         })
         .onEnd((event) => {
             if (event.translationY > 100 || event.velocityY > 500) {
                 runOnJS(close)();
             } else {
-                translateY.value = withTiming(0, { duration: 300, easing: Easing.out(Easing.quad) });
+                translateY.value = withTiming(SNAP_OPEN, { duration: 300, easing: Easing.out(Easing.quad) });
             }
         });
 
@@ -74,55 +92,51 @@ export default function EditAvatarModal({
     return (
         <Modal transparent visible={visible} onRequestClose={close} animationType="none" statusBarTranslucent>
             <GestureHandlerRootView style={styles.overlay}>
-                {/* Backdrop Fade */}
+                {/* Backdrop: Fade In Only */}
                 <Animated.View 
                     entering={FadeIn.duration(300)} 
                     exiting={FadeOut.duration(300)} 
-                    style={styles.backdrop}
+                    style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.5)' }]}
                 >
-                    <TouchableOpacity style={StyleSheet.absoluteFill} onPress={close} activeOpacity={1} />
+                    <Pressable style={StyleSheet.absoluteFill} onPress={close} />
                 </Animated.View>
 
-                {/* Draggable Sheet - Slide Up */}
-                <Animated.View 
-                    entering={SlideInDown.duration(400).easing(Easing.out(Easing.quad))} 
-                    exiting={SlideOutDown.duration(300)}
-                    style={styles.modalContainerWrapper}
-                >
-                    <GestureDetector gesture={pan}>
-                        <Animated.View style={[
-                            styles.modalContainer, 
-                            { backgroundColor: theme.colors.card },
-                            animatedSheetStyle
-                        ]}>
-                            {/* Unified Modal Header */}
-                            <ModalHeader 
-                                title="Edit Profile Picture" 
-                                subtitle="Change your look" 
-                                onClose={close} 
-                                position="bottom"
+                {/* Draggable Sheet */}
+                <GestureDetector gesture={pan}>
+                    <Animated.View style={[
+                        styles.sheet, 
+                        { backgroundColor: theme.colors.card, height: MAX_HEIGHT },
+                        animatedSheetStyle
+                    ]}>
+                        <View style={styles.handleContainer}>
+                            <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
+                        </View>
+
+                        <ModalHeader 
+                            title="Edit Profile Picture" 
+                            subtitle="Change your look" 
+                            onClose={close} 
+                            position="bottom"
+                        />
+
+                        <View style={styles.content}>
+                            <ListButton 
+                                title="Choose from Library"
+                                subtitle="Select a photo from your gallery"
+                                icon={Camera01Icon}
+                                onPress={onPickImage}
                             />
-
-                            {/* Content */}
-                            <View style={styles.content}>
-                                <ListButton 
-                                    title="Choose from Library"
-                                    subtitle="Select a photo from your gallery"
-                                    icon={Camera01Icon}
-                                    onPress={onPickImage}
-                                />
-                                
-                                <ListButton 
-                                    title="Remove Current Photo"
-                                    subtitle="Revert to default avatar"
-                                    icon={Delete02Icon}
-                                    iconColor="#ef4444"
-                                    onPress={onRemoveImage}
-                                />
-                            </View>
-                        </Animated.View>
-                    </GestureDetector>
-                </Animated.View>
+                            
+                            <ListButton 
+                                title="Remove Current Photo"
+                                subtitle="Revert to default avatar"
+                                icon={Delete02Icon}
+                                iconColor="#ef4444"
+                                onPress={onRemoveImage}
+                            />
+                        </View>
+                    </Animated.View>
+                </GestureDetector>
             </GestureHandlerRootView>
         </Modal>
     );
@@ -130,22 +144,21 @@ export default function EditAvatarModal({
 
 const styles = StyleSheet.create({
     overlay: { flex: 1, justifyContent: 'flex-end' },
-    backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.4)' },
-    modalContainerWrapper: { 
-        flex: 1, 
-        justifyContent: 'flex-end' 
-    },
-    modalContainer: {
+    backdrop: { ...StyleSheet.absoluteFillObject },
+    sheet: {
         width: '100%',
         borderTopLeftRadius: 28,
         borderTopRightRadius: 28,
-        paddingBottom: Platform.OS === 'ios' ? 40 : 24,
         overflow: 'hidden',
         shadowColor: "#000",
         shadowOffset: { width: 0, height: -4 },
         shadowOpacity: 0.1,
         shadowRadius: 12,
         elevation: 10,
+        position: 'absolute',
+        bottom: 0,
     },
-    content: { padding: 24, paddingTop: 16 },
+    handleContainer: { width: '100%', alignItems: 'center', paddingTop: 12, paddingBottom: 4 },
+    handle: { width: 36, height: 4, borderRadius: 2, opacity: 0.4 },
+    content: { padding: 24, paddingTop: 16, paddingBottom: Platform.OS === 'ios' ? 40 : 24 },
 });
