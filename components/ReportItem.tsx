@@ -42,7 +42,9 @@ const ReportItem = ({
     const dateObj = new Date(y, m - 1, d);
 
     // --- Status Logic ---
-    const isUnsynced = item.is_synced === 0 || item.is_synced === false; 
+    // Accurate Sync Check: Checks for explicit 0/false or null
+    const isUnsynced = item.is_synced === 0 || item.is_synced === false || item.is_synced === null;
+    const isSynced = !isUnsynced;
     const taskCount = item.accomplishments?.length || 0;
 
     // --- Time & Overtime Calculation ---
@@ -56,27 +58,29 @@ const ReportItem = ({
         const hours = Math.floor(diffMins / 60);
         const minutes = diffMins % 60;
         
+        // Thresholds: 
+        // Overtime > 9 hours (8h shift + 1h break)
+        // Goal Met >= 8 hours
         const isOT = diffMins > (9 * 60); 
         const isGoal = diffMins >= (8 * 60);
 
         return {
-            durationText: `${hours}h ${minutes > 0 ? `${minutes}m` : ''}`,
+            durationText: `${hours}h ${minutes > 0 ? ` ${minutes}m` : ''}`,
             isOvertime: isOT,
             isGoalMet: isGoal
         };
     }, [hasAttendance, item.clock_in, item.clock_out]);
 
     // --- Animation Styles ---
-    // Fix: Keep borderWidth constant to prevent layout glitch. 
-    // Animate Border Color and Opacity/Scale only.
-    const containerAnimatedStyle = useAnimatedStyle(() => ({
+    // Fix: removed Layout prop to stop jumping/glitches
+    const containerStyle = useAnimatedStyle(() => ({
         borderColor: withTiming(isSelected ? theme.colors.primary : 'transparent', { duration: 150 }),
         transform: [{ scale: withTiming(selectionMode && isSelected ? 0.98 : 1, { duration: 150 }) }]
     }));
 
     return (
         <Animated.View entering={FadeInDown.delay(index * 20).duration(300)}>
-            <Animated.View style={[styles.container, containerAnimatedStyle, { backgroundColor: theme.colors.card }]}>
+            <Animated.View style={[styles.container, containerStyle, { backgroundColor: theme.colors.card }]}>
                 <TouchableOpacity
                     activeOpacity={0.7}
                     onPress={onPress}
@@ -96,10 +100,9 @@ const ReportItem = ({
                         </Text>
                     </View>
 
-                    {/* CENTER: Details Stack */}
+                    {/* CENTER: Info Stack */}
                     <View style={styles.infoBlock}>
-                        
-                        {/* 1. Time Range (Top) */}
+                        {/* 1. Time Range */}
                         <View style={styles.row}>
                             <HugeiconsIcon icon={Clock01Icon} size={14} color={theme.colors.textSecondary} />
                             {hasAttendance ? (
@@ -115,7 +118,7 @@ const ReportItem = ({
                             )}
                         </View>
 
-                        {/* 2. Total Hours (Middle) */}
+                        {/* 2. Duration */}
                         {hasAttendance && (
                             <View style={[styles.row, { marginTop: 2 }]}>
                                 <Text style={[styles.durationLabel, { color: theme.colors.textSecondary }]}>
@@ -124,50 +127,43 @@ const ReportItem = ({
                             </View>
                         )}
 
-                        {/* 3. Activities & Status (Bottom) */}
-                        <View style={[styles.row, { marginTop: 6, justifyContent: 'space-between' }]}>
-                            
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                {/* Activity Count */}
-                                <View style={[styles.pill, { backgroundColor: theme.colors.background }]}>
-                                    <HugeiconsIcon icon={Task01Icon} size={12} color={theme.colors.textSecondary} />
-                                    <Text style={[styles.pillText, { color: theme.colors.textSecondary }]}>
-                                        {taskCount} {taskCount === 1 ? 'Activity' : 'Activities'}
-                                    </Text>
-                                </View>
-
-                                {/* Status Badges */}
-                                <View style={styles.badgesRow}>
-                                    {isUnsynced && (
-                                        <View style={[styles.statusIconBox, { backgroundColor: theme.colors.textSecondary + '15' }]}>
-                                            <HugeiconsIcon icon={WifiOff01Icon} size={12} color={theme.colors.textSecondary} />
-                                        </View>
-                                    )}
-                                    {isOvertime && (
-                                        <View style={[styles.badge, { backgroundColor: theme.colors.warning + '15', borderColor: theme.colors.warning + '30' }]}>
-                                            <Text style={[styles.badgeText, { color: theme.colors.warning }]}>OT</Text>
-                                        </View>
-                                    )}
-                                    {/* Synced Icon */}
-                                    {!isUnsynced && hasAttendance && (
-                                        <View style={[styles.statusIconBox, { backgroundColor: theme.colors.primary + '10' }]}>
-                                            <HugeiconsIcon icon={CloudValidationIcon} size={12} color={theme.colors.primary} />
-                                        </View>
-                                    )}
-                                    {/* Goal Met Icon */}
-                                    {isGoalMet && !isOvertime && (
-                                        <View style={[styles.statusIconBox, { backgroundColor: theme.colors.success + '15' }]}>
-                                            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={12} color={theme.colors.success} />
-                                        </View>
-                                    )}
-                                </View>
+                        {/* 3. Footer: Activities & Badges */}
+                        <View style={styles.footerRow}>
+                            <View style={[styles.activityPill, { backgroundColor: theme.colors.background }]}>
+                                <HugeiconsIcon icon={Task01Icon} size={12} color={theme.colors.textSecondary} />
+                                <Text style={[styles.activityText, { color: theme.colors.textSecondary }]}>
+                                    {taskCount} {taskCount === 1 ? 'Activity' : 'Activities'}
+                                </Text>
                             </View>
 
+                            <View style={styles.badgeContainer}>
+                                {/* Unsynced Indicator */}
+                                {isUnsynced && hasAttendance && (
+                                    <View style={[styles.miniBadge, { backgroundColor: theme.colors.textSecondary + '15' }]}>
+                                        <HugeiconsIcon icon={WifiOff01Icon} size={10} color={theme.colors.textSecondary} />
+                                    </View>
+                                )}
+                                
+                                {/* Overtime Indicator */}
+                                {isOvertime && (
+                                    <View style={[styles.miniBadge, { backgroundColor: theme.colors.warning + '20', paddingHorizontal: 6 }]}>
+                                        <Text style={[styles.miniBadgeText, { color: theme.colors.warning }]}>OT</Text>
+                                    </View>
+                                )}
+                                
+                                {/* Synced/Goal Met Indicator */}
+                                {!isUnsynced && hasAttendance && (
+                                    <HugeiconsIcon icon={CloudValidationIcon} size={16} color={theme.colors.primary} />
+                                )}
+                                {isGoalMet && !isOvertime && (
+                                    <HugeiconsIcon icon={CheckmarkCircle02Icon} size={16} color={theme.colors.success} />
+                                )}
+                            </View>
                         </View>
                     </View>
 
-                    {/* RIGHT: Selection / Chevron */}
-                    <View style={styles.actionBlock}>
+                    {/* RIGHT: Action */}
+                    <View style={styles.actionColumn}>
                         {selectionMode ? (
                             <View style={[
                                 styles.checkbox, 
@@ -182,6 +178,7 @@ const ReportItem = ({
                             <HugeiconsIcon icon={ArrowRight01Icon} size={20} color={theme.colors.border} />
                         )}
                     </View>
+
                 </TouchableOpacity>
             </Animated.View>
         </Animated.View>
@@ -193,7 +190,8 @@ const styles = StyleSheet.create({
         marginHorizontal: 20,
         marginBottom: 10,
         borderRadius: 18,
-        borderWidth: 1, // Constant border width to prevent glitch
+        borderWidth: 2, // Fixed border width to prevent layout shift
+        borderColor: 'transparent', 
         overflow: 'hidden',
         shadowColor: "#000",
         shadowOffset: { width: 0, height: 2 },
@@ -203,10 +201,9 @@ const styles = StyleSheet.create({
     },
     touchable: {
         flexDirection: 'row',
+        padding: 12,
         alignItems: 'center',
-        padding: 14,
     },
-    // LEFT
     dateBlock: {
         width: 60,
         height: 72,
@@ -215,103 +212,26 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         marginRight: 14,
     },
-    monthText: {
-        fontSize: 10,
-        fontWeight: '800',
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-        marginBottom: 1,
-    },
-    dayText: {
-        fontSize: 22,
-        fontWeight: '800',
-        lineHeight: 24,
-        letterSpacing: -0.5,
-    },
-    weekdayText: {
-        fontSize: 10,
-        fontWeight: '600',
-        opacity: 0.6,
-        marginTop: 2,
-        textTransform: 'uppercase',
-    },
-    // CENTER
-    infoBlock: {
-        flex: 1,
-        justifyContent: 'center',
-        gap: 2,
-    },
-    row: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    timeText: {
-        fontSize: 15,
-        fontWeight: '700',
-        color: '#000',
-        marginLeft: 6,
-        letterSpacing: -0.2,
-    },
-    absentText: {
-        fontSize: 14,
-        fontWeight: '600',
-        fontStyle: 'italic',
-        marginLeft: 6,
-    },
-    durationLabel: {
-        fontSize: 12,
-        fontWeight: '500',
-        marginLeft: 20, // Align with text above (icon width + gap)
-    },
-    // Badges & Pills
-    pill: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 8,
-        gap: 4,
-    },
-    pillText: {
-        fontSize: 11,
-        fontWeight: '600',
-    },
-    badgesRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-    },
-    statusIconBox: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    badge: {
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 6,
-        borderWidth: 1,
-    },
-    badgeText: {
-        fontSize: 9,
-        fontWeight: '700',
-        textTransform: 'uppercase',
-    },
-    // RIGHT
-    actionBlock: {
-        paddingLeft: 12,
-        justifyContent: 'center',
-    },
-    checkbox: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        borderWidth: 2,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
+    monthText: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase', marginBottom: 1 },
+    dayText: { fontSize: 22, fontWeight: '800', lineHeight: 24 },
+    weekdayText: { fontSize: 10, fontWeight: '600', opacity: 0.6, marginTop: 2, textTransform: 'uppercase' },
+    
+    infoBlock: { flex: 1, justifyContent: 'center', gap: 2 },
+    row: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    timeText: { fontSize: 14, fontWeight: '700' },
+    absentText: { fontSize: 14, fontWeight: '600', fontStyle: 'italic' },
+    durationLabel: { fontSize: 12, fontWeight: '500', marginLeft: 20 },
+    
+    footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
+    activityPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+    activityText: { fontSize: 11, fontWeight: '600' },
+    
+    badgeContainer: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    miniBadge: { height: 20, alignItems: 'center', justifyContent: 'center', borderRadius: 6, minWidth: 20 },
+    miniBadgeText: { fontSize: 9, fontWeight: '800' },
+
+    actionColumn: { marginLeft: 10, alignItems: 'center', justifyContent: 'center' },
+    checkbox: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
 });
 
 export default React.memo(ReportItem);
