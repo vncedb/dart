@@ -2,9 +2,9 @@ import {
     Calendar03Icon,
     Clock01Icon,
     Delete02Icon,
+    File02Icon,
     MoreVerticalCircle01Icon,
     PencilEdit02Icon,
-    PrinterIcon,
     Share01Icon,
     Task01Icon,
     Time02Icon
@@ -268,7 +268,8 @@ export default function ReportDetailsScreen() {
                 actions={[
                     { label: 'Edit', icon: PencilEdit02Icon, onPress: () => { setMenuVisible(false); router.push({ pathname: '/reports/edit', params: { date: date } }); }, color: theme.colors.text },
                     { label: 'Share', icon: Share01Icon, onPress: handleShare, color: theme.colors.primary },
-                    { label: 'Print', icon: PrinterIcon, onPress: () => { setMenuVisible(false); router.push({ pathname: '/reports/print', params: { mode: 'single', date: date } }); }, color: '#f97316' },
+                    // UPDATED: Points to Generate Report screen for this specific date
+                    { label: 'Generate Report', icon: File02Icon, onPress: () => { setMenuVisible(false); router.push({ pathname: '/reports/generate', params: { date: date } }); }, color: '#f97316' },
                     { label: 'Delete', icon: Delete02Icon, onPress: handleDelete, color: theme.colors.danger },
                 ]}
                 anchor={menuAnchor}

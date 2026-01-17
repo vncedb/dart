@@ -127,7 +127,9 @@ function RootLayoutNav() {
           {/* Reports */}
           <Stack.Screen name="reports/details" options={{ animation: 'slide_from_right', presentation: 'modal' }} />
           <Stack.Screen name="reports/history" options={{ animation: 'slide_from_right' }} />
-          <Stack.Screen name="reports/print" options={{ animation: 'slide_from_right', presentation: 'modal' }} />
+          {/* FIXED: Removed reports/print, Added reports/preview and reports/generate */}
+          <Stack.Screen name="reports/generate" options={{ animation: 'slide_from_right' }} />
+          <Stack.Screen name="reports/preview" options={{ animation: 'slide_from_right' }} />
         </Stack>
 
         {!isAppReady && (

@@ -1,13 +1,14 @@
 import {
     Calendar03Icon,
     Camera01Icon,
-    CheckmarkCircle02Icon,
+    CheckmarkCircle03Icon, // UPDATED ICON
     Delete02Icon,
     Image01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { format } from 'date-fns';
-import * as FileSystem from 'expo-file-system';
+// FIXED: Use legacy import to resolve readAsStringAsync deprecation
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -160,7 +161,6 @@ export default function AddEntry() {
                 result = await ImagePicker.launchCameraAsync(options);
             } else {
                 await ImagePicker.requestMediaLibraryPermissionsAsync();
-                // allowsMultipleSelection disabled to enforce individual 4:3 cropping
                 result = await ImagePicker.launchImageLibraryAsync({ ...options, allowsMultipleSelection: false });
             }
 
@@ -280,7 +280,6 @@ export default function AddEntry() {
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
-            {/* Custom Alert Component */}
             <ModernAlert {...alertConfig} />
             <LoadingOverlay visible={loading} message="Saving entry..." />
             
@@ -297,7 +296,7 @@ export default function AddEntry() {
                             shadowColor: theme.colors.primary, shadowOpacity: 0.3, shadowRadius: 4, elevation: 2
                         }}
                     >
-                        <HugeiconsIcon icon={CheckmarkCircle02Icon} size={20} color="#fff" />
+                        <HugeiconsIcon icon={CheckmarkCircle03Icon} size={20} color="#fff" />
                     </TouchableOpacity>
                 }
             />

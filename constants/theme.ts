@@ -16,9 +16,10 @@ const palette = {
   orange600: '#ea580c',
 
   // Grayscale (Clean & Neutral)
-  slate50: '#f8fafc',  // Ultra light gray (almost white)
+  slate50: '#f8fafc',
   slate100: '#f1f5f9',
   slate200: '#e2e8f0',
+  slate300: '#cbd5e1', // Added for switch off state
   slate400: '#94a3b8',
   slate500: '#64748b',
   slate800: '#1e293b',
@@ -27,7 +28,7 @@ const palette = {
   
   white: '#ffffff',
   red: '#ef4444',
-  green: '#10b981', // Emerald green (more professional than lime)
+  green: '#10b981', // Emerald green
   
   glassLight: 'rgba(255, 255, 255, 0.9)',
   glassDark: 'rgba(15, 23, 42, 0.9)',
@@ -39,7 +40,7 @@ export const AppTheme = {
     colors: {
       primary: palette.indigo600,
       primaryLight: '#e0e7ff',
-      background: palette.slate50, // Plain, clean background
+      background: palette.slate50,
       card: palette.white,
       text: palette.slate900,
       textSecondary: palette.slate500,
@@ -56,13 +57,17 @@ export const AppTheme = {
       glass: palette.glassLight,
       surface: palette.white,
       
-      // DYNAMIC HEADER (Professional Gradient)
+      // TOGGLES & INPUTS
+      toggleOn: palette.green,
+      toggleOff: palette.slate300,
+      toggleThumb: palette.white,
+      
+      // DYNAMIC HEADER
       headerStart: palette.indigo600, 
       headerEnd: palette.violet500,   
-      headerText: '#ffffff',          // High contrast white text
+      headerText: '#ffffff',
       headerBorder: 'rgba(255,255,255,0.1)',
 
-      // DEPRECATED: Gradients removed for plain background preference
       bgGradientStart: palette.slate50, 
       bgGradientEnd: palette.slate50,   
       
@@ -77,7 +82,7 @@ export const AppTheme = {
     colors: {
       primary: palette.orange500,
       primaryLight: 'rgba(249, 115, 22, 0.15)',
-      background: palette.slate950, // Deep midnight
+      background: palette.slate950,
       card: palette.slate900,
       text: palette.white,
       textSecondary: palette.slate400,
@@ -94,7 +99,12 @@ export const AppTheme = {
       glass: palette.glassDark,
       surface: palette.slate800,
 
-      // DYNAMIC HEADER (Sleek Dark)
+      // TOGGLES & INPUTS
+      toggleOn: palette.green,
+      toggleOff: palette.slate500,
+      toggleThumb: palette.white,
+
+      // DYNAMIC HEADER
       headerStart: palette.slate800, 
       headerEnd: palette.slate900, 
       headerText: '#ffffff',
