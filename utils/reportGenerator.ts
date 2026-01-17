@@ -5,6 +5,8 @@ import * as Print from 'expo-print';
 interface ReportData {
     userName: string;
     userTitle: string;
+    company?: string;
+    department?: string;
     reportTitle: string;
     period: string;
     data: any[];
@@ -13,7 +15,6 @@ interface ReportData {
     signatureUri?: string | null;
     columns?: any;
     dateFormat?: string;
-    orientation?: 'portrait' | 'landscape';
 }
 
 const convertImageToBase64 = async (uri: string): Promise<string> => {
@@ -100,7 +101,7 @@ const getDocumentationHtml = (reportData: any[]) => {
 };
 
 export const generateReport = async ({ 
-    userName, userTitle, reportTitle, period, data, style = 'corporate', paperSize = 'Letter', signatureUri, columns, orientation = 'portrait' 
+    userName, userTitle, company, department, reportTitle, period, data, style = 'corporate', paperSize = 'Letter', signatureUri, columns 
 }: ReportData) => {
     
     let safeSignature = null;
@@ -163,19 +164,13 @@ export const generateReport = async ({
 
     const t = configs[style];
 
-    // PAPER DIMENSIONS (Points 72 DPI)
-    // Letter: 612x792, A4: 595x842, Legal: 612x1008
+    // Dimensions
     const sizeMap: any = {
         'Letter': { w: 612, h: 792 },
         'A4': { w: 595, h: 842 },
         'Legal': { w: 612, h: 1008 }
     };
-
     const dims = sizeMap[paperSize] || sizeMap['Letter'];
-    // Swap for landscape
-    const finalWidth = orientation === 'landscape' ? dims.h : dims.w;
-    const finalHeight = orientation === 'landscape' ? dims.w : dims.h;
-
     const margin = '0.4in';
 
     const html = `
@@ -185,7 +180,7 @@ export const generateReport = async ({
         <meta charset="utf-8">
         <style>
             @page { 
-                size: ${paperSize} ${orientation}; 
+                size: ${paperSize}; 
                 margin: ${margin}; 
             }
             * { box-sizing: border-box; }
@@ -215,7 +210,7 @@ export const generateReport = async ({
             .meta { 
                 display: grid; 
                 grid-template-columns: 1fr 1fr 1fr; 
-                gap: 20px; 
+                gap: 15px; 
                 background: ${t.headerBg}; 
                 padding: 16px; 
                 border-radius: ${t.radius}; 
@@ -223,8 +218,9 @@ export const generateReport = async ({
                 border: 1px solid ${t.border};
                 ${style === 'creative' ? `box-shadow: ${t.shadow};` : ''}
             }
-            .meta-item label { display: block; font-size: 9px; text-transform: uppercase; color: ${t.secondary}; font-weight: 700; margin-bottom: 4px; letter-spacing: 0.5px; }
-            .meta-item span { font-size: 14px; font-weight: 700; color: ${t.primary}; display: block; }
+            .meta-item { display: flex; flex-direction: column; }
+            .meta-item label { font-size: 9px; text-transform: uppercase; color: ${t.secondary}; font-weight: 700; margin-bottom: 4px; letter-spacing: 0.5px; }
+            .meta-item span { font-size: 13px; font-weight: 700; color: ${t.primary}; }
 
             table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11px; margin-bottom: 20px; table-layout: fixed; }
             
@@ -284,10 +280,16 @@ export const generateReport = async ({
             .doc-date { font-size: 10px; font-weight: 700; color: ${t.secondary}; background: #fff; padding: 2px 6px; border-radius: 4px; border: 1px solid ${t.border}; }
             .doc-desc { font-size: 11px; font-weight: 700; color: ${t.primary}; }
 
-            .img-container { padding: 10px; display: flex; flex-wrap: wrap; gap: 10px; background: #fff; justify-content: flex-start; }
+            .img-container { 
+                padding: 10px; 
+                display: grid; 
+                grid-template-columns: 1fr 1fr; 
+                gap: 10px; 
+                background: #fff; 
+            }
             
             .img-wrapper { 
-                width: 48%; 
+                width: 100%; 
                 aspect-ratio: 4 / 3; 
                 border-radius: 4px; 
                 overflow: hidden; 
@@ -317,7 +319,9 @@ export const generateReport = async ({
 
         <div class="meta">
             <div class="meta-item"><label>Employee Name</label><span>${userName}</span></div>
-            <div class="meta-item"><label>Job Title</label><span>${userTitle}</span></div>
+            <div class="meta-item"><label>Job Position</label><span>${userTitle}</span></div>
+            ${company ? `<div class="meta-item"><label>Organization</label><span>${company}</span></div>` : ''}
+            ${department ? `<div class="meta-item"><label>Department</label><span>${department}</span></div>` : ''}
             <div class="meta-item"><label>Report Period</label><span>${period}</span></div>
         </div>
 
@@ -372,11 +376,10 @@ export const generateReport = async ({
     </html>
     `;
 
-    // Explicitly pass width/height to override Expo default
     const { uri } = await Print.printToFileAsync({ 
         html, 
-        width: finalWidth, 
-        height: finalHeight 
+        width: dims.w, 
+        height: dims.h 
     });
     return uri;
 };

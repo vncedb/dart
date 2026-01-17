@@ -2,18 +2,17 @@ import {
     ArrowRight01Icon,
     Calendar03Icon,
     CheckListIcon,
-    CheckmarkCircle02Icon,
     Clock01Icon,
     Delete02Icon,
     Image01Icon,
-    Layout01Icon,
-    Layout03Icon,
-    Note02Icon, // Updated Icon
+    Note02Icon,
     Pdf01Icon,
     PencilEdit02Icon,
     PrinterIcon,
     SignatureIcon,
-    Timer01Icon, // Updated Icon
+    Tick01Icon,
+    Timer01Icon,
+    UserGroupIcon,
     Xls01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
@@ -65,17 +64,20 @@ export default function GenerateReportScreen() {
     // --- Config State ---
     const [formatType, setFormatType] = useState<'pdf' | 'xlsx'>('pdf');
     const [paperSize, setPaperSize] = useState<'Letter' | 'A4' | 'Legal'>('Letter');
-    const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
     const [reportStyle, setReportStyle] = useState<'corporate' | 'creative' | 'minimal'>('corporate');
     const [dateFormat, setDateFormat] = useState('MM/dd/yyyy');
     const [timeFormat, setTimeFormat] = useState('exact_hm'); 
     
+    // Toggles
     const [includeDocs, setIncludeDocs] = useState(true);
     const [includeDay, setIncludeDay] = useState(false); 
+    const [includeDept, setIncludeDept] = useState(true); 
     
     // --- Meta State ---
     const [customName, setCustomName] = useState('');
     const [customTitle, setCustomTitle] = useState('');
+    const [companyName, setCompanyName] = useState('');
+    const [department, setDepartment] = useState('');
     const [signature, setSignature] = useState<string | null>(null);
     const [sigModalVisible, setSigModalVisible] = useState(false);
 
@@ -98,11 +100,14 @@ export default function GenerateReportScreen() {
     // --- NAVIGATION GUARD ---
     useEffect(() => {
         const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+            // Create a temporary object for comparison to avoid 'loading' triggering updates
             const currentSettings = JSON.stringify({
-                formatType, paperSize, orientation, reportStyle, dateFormat, timeFormat, includeDocs, includeDay, columns, signature
+                formatType, paperSize, reportStyle, dateFormat, timeFormat, 
+                includeDocs, includeDay, includeDept, columns, signature, customName, customTitle
             });
 
-            if (currentSettings === initialSettings || loading) {
+            // Prevent alert if we are still loading OR if nothing changed
+            if (loading || currentSettings === initialSettings) {
                 return;
             }
 
@@ -122,7 +127,7 @@ export default function GenerateReportScreen() {
             });
         });
         return unsubscribe;
-    }, [navigation, loading, initialSettings, formatType, paperSize, orientation, reportStyle, dateFormat, timeFormat, includeDocs, includeDay, columns, signature]);
+    }, [navigation, loading, initialSettings, formatType, paperSize, reportStyle, dateFormat, timeFormat, includeDocs, includeDay, includeDept, columns, signature, customName, customTitle]);
 
     // --- INITIALIZATION ---
     useEffect(() => {
@@ -150,25 +155,53 @@ export default function GenerateReportScreen() {
                 const profile: any = profileRes;
                 const job: any = jobRes;
 
-                setCustomName((prev) => prev || profile?.full_name || '');
-                setCustomTitle((prev) => prev || profile?.title || job?.title || '');
-
-                let loadedSettings: any = {};
-                if (settingsRes) {
-                    loadedSettings = JSON.parse(settingsRes);
-                    if (loadedSettings.formatType) setFormatType(loadedSettings.formatType);
-                    if (loadedSettings.paperSize) setPaperSize(loadedSettings.paperSize);
-                    if (loadedSettings.orientation) setOrientation(loadedSettings.orientation);
-                    if (loadedSettings.reportStyle) setReportStyle(loadedSettings.reportStyle);
-                    if (loadedSettings.dateFormat) setDateFormat(loadedSettings.dateFormat);
-                    if (loadedSettings.timeFormat) setTimeFormat(loadedSettings.timeFormat);
-                    if (loadedSettings.includeDocs !== undefined) setIncludeDocs(loadedSettings.includeDocs);
-                    if (loadedSettings.includeDay !== undefined) setIncludeDay(loadedSettings.includeDay);
-                    if (loadedSettings.columns) setColumns(loadedSettings.columns);
-                    if (loadedSettings.signature) setSignature(loadedSettings.signature);
+                // 1. Set Meta from Profile/Job
+                let currentName = profile?.full_name || '';
+                let currentTitle = profile?.title || job?.title || '';
+                
+                if (job) {
+                    setCompanyName(job.company_name || job.organization || '');
+                    setDepartment(job.department || '');
                 }
-                setInitialSettings(JSON.stringify(loadedSettings));
 
+                // 2. Load Saved Settings
+                if (settingsRes) {
+                    const loaded = JSON.parse(settingsRes);
+                    if (loaded.formatType) setFormatType(loaded.formatType);
+                    if (loaded.paperSize) setPaperSize(loaded.paperSize);
+                    if (loaded.reportStyle) setReportStyle(loaded.reportStyle);
+                    if (loaded.dateFormat) setDateFormat(loaded.dateFormat);
+                    if (loaded.timeFormat) setTimeFormat(loaded.timeFormat);
+                    if (loaded.includeDocs !== undefined) setIncludeDocs(loaded.includeDocs);
+                    if (loaded.includeDay !== undefined) setIncludeDay(loaded.includeDay);
+                    if (loaded.includeDept !== undefined) setIncludeDept(loaded.includeDept);
+                    if (loaded.columns) setColumns(loaded.columns);
+                    if (loaded.signature) setSignature(loaded.signature);
+                    
+                    if (loaded.customName) currentName = loaded.customName;
+                    if (loaded.customTitle) currentTitle = loaded.customTitle;
+                }
+
+                setCustomName(currentName);
+                setCustomTitle(currentTitle);
+
+                // 3. Snapshot for "Unsaved Changes" check
+                setInitialSettings(JSON.stringify({
+                    formatType: settingsRes ? JSON.parse(settingsRes).formatType : 'pdf',
+                    paperSize: settingsRes ? JSON.parse(settingsRes).paperSize : 'Letter',
+                    reportStyle: settingsRes ? JSON.parse(settingsRes).reportStyle : 'corporate',
+                    dateFormat: settingsRes ? JSON.parse(settingsRes).dateFormat : 'MM/dd/yyyy',
+                    timeFormat: settingsRes ? JSON.parse(settingsRes).timeFormat : 'exact_hm',
+                    includeDocs: settingsRes ? JSON.parse(settingsRes).includeDocs : true,
+                    includeDay: settingsRes ? JSON.parse(settingsRes).includeDay : false,
+                    includeDept: settingsRes ? JSON.parse(settingsRes).includeDept : true,
+                    columns: settingsRes ? JSON.parse(settingsRes).columns : { time: true, duration: true, activities: true, remarks: false },
+                    signature: settingsRes ? JSON.parse(settingsRes).signature : null,
+                    customName: currentName,
+                    customTitle: currentTitle
+                }));
+
+                // 4. Fetch Report Data
                 const { startDate, endDate, date } = params;
                 let items: any = { attendance: [], tasks: [] };
                 
@@ -181,9 +214,11 @@ export default function GenerateReportScreen() {
                     items = { attendance: res.attendance ? [res.attendance] : [], tasks: res.tasks };
                 }
 
-                // Count Reports (Days)
-                const daysCount = items.attendance ? items.attendance.length : 0;
-                setReportCount(daysCount);
+                // Count unique days
+                const uniqueDates = new Set();
+                (items.attendance || []).forEach((a: any) => uniqueDates.add(a.date));
+                (items.tasks || []).forEach((t: any) => uniqueDates.add(t.date));
+                setReportCount(uniqueDates.size);
 
                 const imagesFound: string[] = [];
                 (items.tasks || []).forEach((t: any) => {
@@ -210,13 +245,15 @@ export default function GenerateReportScreen() {
         };
 
         init();
-
         return () => { isMounted = false; };
-    }, [params.startDate, params.endDate, params.date]);
+        
+        // FIXED: Only depend on date strings to prevent infinite loop on object reference change
+    }, [params.startDate, params.endDate, params.date]); 
 
     const hasSettingsChanged = () => {
         const current = JSON.stringify({
-            formatType, paperSize, orientation, reportStyle, dateFormat, timeFormat, includeDocs, includeDay, columns, signature
+            formatType, paperSize, reportStyle, dateFormat, timeFormat, 
+            includeDocs, includeDay, includeDept, columns, signature, customName, customTitle
         });
         return current !== initialSettings;
     };
@@ -230,7 +267,8 @@ export default function GenerateReportScreen() {
         if (shouldSaveSettings && hasSettingsChanged()) {
             try {
                 const settingsToSave = {
-                    formatType, paperSize, orientation, reportStyle, dateFormat, timeFormat, includeDocs, includeDay, columns, signature
+                    formatType, paperSize, reportStyle, dateFormat, timeFormat, 
+                    includeDocs, includeDay, includeDept, columns, signature, customName, customTitle
                 };
                 await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsToSave));
                 setInitialSettings(JSON.stringify(settingsToSave));
@@ -246,16 +284,18 @@ export default function GenerateReportScreen() {
                 config: JSON.stringify({
                     format: formatType,
                     paperSize,
-                    orientation,
                     style: reportStyle,
                     includeDocs,
                     includeDay,
+                    includeDept,
                     dateFormat,
                     timeFormat,
                     columns,
                     meta: {
                         name: customName,
                         title: customTitle,
+                        company: companyName,
+                        department: department,
                         period: periodLabel,
                         signature
                     }
@@ -277,8 +317,7 @@ export default function GenerateReportScreen() {
         <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top', 'bottom']}>
             <Header title="Report Settings" />
             <ModernAlert {...alertConfig} />
-            <SignatureModal visible={sigModalVisible} onClose={() => setSigModalVisible(false)} onOK={setSignature} />
-            
+            <SignatureModal visible={sigModalVisible} onClose={() => setSigModalVisible(false)} onOK={setSignature} existingSignature={signature} />
             <ImageViewer visible={viewerVisible} imageUri={activeImage} onClose={() => setViewerVisible(false)} />
 
             <View style={{ flex: 1 }}>
@@ -357,27 +396,16 @@ export default function GenerateReportScreen() {
                                 />
 
                                 {formatType === 'pdf' && (
-                                    <>
-                                        <SelectDropdown
-                                            label="Paper Format"
-                                            value={paperSize}
-                                            onChange={setPaperSize}
-                                            options={[
-                                                { label: 'Letter (8.5" x 11")', value: 'Letter', icon: <HugeiconsIcon icon={PrinterIcon} size={18} color={theme.colors.text} /> },
-                                                { label: 'A4 (210mm x 297mm)', value: 'A4', icon: <HugeiconsIcon icon={PrinterIcon} size={18} color={theme.colors.text} /> },
-                                                { label: 'Legal (8.5" x 14")', value: 'Legal', icon: <HugeiconsIcon icon={PrinterIcon} size={18} color={theme.colors.text} /> },
-                                            ]}
-                                        />
-                                        <SelectDropdown
-                                            label="Page Orientation"
-                                            value={orientation}
-                                            onChange={setOrientation}
-                                            options={[
-                                                { label: 'Portrait', value: 'portrait', icon: <HugeiconsIcon icon={Layout01Icon} size={18} color={theme.colors.text} /> },
-                                                { label: 'Landscape', value: 'landscape', icon: <HugeiconsIcon icon={Layout03Icon} size={18} color={theme.colors.text} /> },
-                                            ]}
-                                        />
-                                    </>
+                                    <SelectDropdown
+                                        label="Paper Format"
+                                        value={paperSize}
+                                        onChange={setPaperSize}
+                                        options={[
+                                            { label: 'Letter (8.5" x 11")', value: 'Letter', icon: <HugeiconsIcon icon={PrinterIcon} size={18} color={theme.colors.text} /> },
+                                            { label: 'A4 (210mm x 297mm)', value: 'A4', icon: <HugeiconsIcon icon={PrinterIcon} size={18} color={theme.colors.text} /> },
+                                            { label: 'Legal (8.5" x 14")', value: 'Legal', icon: <HugeiconsIcon icon={PrinterIcon} size={18} color={theme.colors.text} /> },
+                                        ]}
+                                    />
                                 )}
 
                                 <SelectDropdown
@@ -400,11 +428,11 @@ export default function GenerateReportScreen() {
                                     value={timeFormat}
                                     onChange={setTimeFormat}
                                     options={[
-                                        { label: 'Exact (e.g. 8h 12m)', value: 'exact_hm', icon: <HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.text} /> },
-                                        { label: 'Decimal (e.g. 8.20h)', value: 'decimal', icon: <HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.text} /> },
-                                        { label: 'Round to 15m (e.g. 8h 15m)', value: 'round_15', icon: <HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.text} /> },
-                                        { label: 'Round to 30m (e.g. 8h 30m)', value: 'round_30', icon: <HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.text} /> },
-                                        { label: 'Round to 1h (e.g. 8h)', value: 'round_60', icon: <HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.text} /> },
+                                        { label: 'Exact Duration (8h 12m)', value: 'exact_hm', icon: <HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.text} /> },
+                                        { label: 'Decimal Hours (8.20h)', value: 'decimal', icon: <HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.text} /> },
+                                        { label: 'Round to 15 Minutes', value: 'round_15', icon: <HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.text} /> },
+                                        { label: 'Round to 30 Minutes', value: 'round_30', icon: <HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.text} /> },
+                                        { label: 'Hourly Rounding', value: 'round_60', icon: <HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.text} /> },
                                     ]}
                                 />
                             </View>
@@ -415,7 +443,6 @@ export default function GenerateReportScreen() {
                             <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>REPORT CONTENT</Text>
                             <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                                 
-                                {/* 1. Day Toggle */}
                                 <View style={[styles.checkRow, { borderBottomWidth: 1, borderBottomColor: theme.colors.border }]}>
                                     <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
                                         <HugeiconsIcon icon={Calendar03Icon} size={18} color={theme.colors.textSecondary} />
@@ -429,7 +456,6 @@ export default function GenerateReportScreen() {
                                     />
                                 </View>
 
-                                {/* 2. Time Toggle */}
                                 <View style={[styles.checkRow, { borderBottomWidth: 1, borderBottomColor: theme.colors.border }]}>
                                     <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
                                         <HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.textSecondary} />
@@ -443,7 +469,6 @@ export default function GenerateReportScreen() {
                                     />
                                 </View>
 
-                                {/* 3. Duration Toggle */}
                                 <View style={[styles.checkRow, { borderBottomWidth: 1, borderBottomColor: theme.colors.border }]}>
                                     <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
                                         <HugeiconsIcon icon={Timer01Icon} size={18} color={theme.colors.textSecondary} />
@@ -457,7 +482,6 @@ export default function GenerateReportScreen() {
                                     />
                                 </View>
 
-                                {/* 4. Activities Toggle */}
                                 <View style={[styles.checkRow, { borderBottomWidth: 1, borderBottomColor: theme.colors.border }]}>
                                     <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
                                         <HugeiconsIcon icon={CheckListIcon} size={18} color={theme.colors.textSecondary} />
@@ -471,7 +495,6 @@ export default function GenerateReportScreen() {
                                     />
                                 </View>
 
-                                {/* 5. Remarks Toggle */}
                                 <View style={[styles.checkRow, { borderBottomWidth: 1, borderBottomColor: theme.colors.border }]}>
                                     <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
                                         <HugeiconsIcon icon={Note02Icon} size={18} color={theme.colors.textSecondary} />
@@ -485,28 +508,44 @@ export default function GenerateReportScreen() {
                                     />
                                 </View>
 
-                                {/* 6. Documentation Toggle */}
-                                <View style={styles.checkRow}>
+                                {/* Department Toggle */}
+                                <View style={[styles.checkRow, formatType === 'pdf' ? { borderBottomWidth: 1, borderBottomColor: theme.colors.border } : {}]}>
                                     <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-                                        <HugeiconsIcon icon={Image01Icon} size={18} color={theme.colors.textSecondary} />
-                                        <View>
-                                            <Text style={[styles.checkLabel, { color: theme.colors.text }]}>Documentation</Text>
-                                            {previewImages.length > 0 && (
-                                                <Text style={[styles.checkSub, { color: theme.colors.textSecondary }]}>
-                                                    {previewImages.length} images found
-                                                </Text>
-                                            )}
-                                        </View>
+                                        <HugeiconsIcon icon={UserGroupIcon} size={18} color={theme.colors.textSecondary} />
+                                        <Text style={[styles.checkLabel, { color: theme.colors.text }]}>Department</Text>
                                     </View>
                                     <Switch 
-                                        value={includeDocs} 
-                                        onValueChange={setIncludeDocs} 
+                                        value={includeDept} 
+                                        onValueChange={setIncludeDept} 
                                         trackColor={{ false: theme.colors.toggleOff, true: theme.colors.toggleOn }}
                                         thumbColor={theme.colors.toggleThumb}
                                     />
                                 </View>
 
-                                {includeDocs && previewImages.length > 0 && (
+                                {/* Documentation Toggle - Only for PDF */}
+                                {formatType === 'pdf' && (
+                                    <View style={styles.checkRow}>
+                                        <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+                                            <HugeiconsIcon icon={Image01Icon} size={18} color={theme.colors.textSecondary} />
+                                            <View>
+                                                <Text style={[styles.checkLabel, { color: theme.colors.text }]}>Documentation</Text>
+                                                {previewImages.length > 0 && (
+                                                    <Text style={[styles.checkSub, { color: theme.colors.textSecondary }]}>
+                                                        {previewImages.length} images found
+                                                    </Text>
+                                                )}
+                                            </View>
+                                        </View>
+                                        <Switch 
+                                            value={includeDocs} 
+                                            onValueChange={setIncludeDocs} 
+                                            trackColor={{ false: theme.colors.toggleOff, true: theme.colors.toggleOn }}
+                                            thumbColor={theme.colors.toggleThumb}
+                                        />
+                                    </View>
+                                )}
+
+                                {formatType === 'pdf' && includeDocs && previewImages.length > 0 && (
                                     <View style={{ padding: 16, paddingTop: 0 }}>
                                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                                             {previewImages.map((uri, i) => (
@@ -524,68 +563,70 @@ export default function GenerateReportScreen() {
                             </View>
                         </View>
 
-                        {/* 4. AUTHORIZATION */}
-                        <View style={styles.section}>
-                            <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>AUTHORIZATION</Text>
-                            <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 20, gap: 16 }]}>
-                                
-                                <View>
-                                    <Text style={[styles.inputLabel, { color: theme.colors.textSecondary }]}>Printed Name</Text>
-                                    <TextInput 
-                                        value={customName} onChangeText={setCustomName}
-                                        placeholder="Enter your Name"
-                                        placeholderTextColor={theme.colors.textSecondary}
-                                        style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
-                                    />
-                                </View>
+                        {/* 4. AUTHORIZATION - Hidden for Excel */}
+                        {formatType === 'pdf' && (
+                            <View style={styles.section}>
+                                <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>AUTHORIZATION</Text>
+                                <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 20, gap: 16 }]}>
+                                    
+                                    <View>
+                                        <Text style={[styles.inputLabel, { color: theme.colors.textSecondary }]}>Printed Name</Text>
+                                        <TextInput 
+                                            value={customName} onChangeText={setCustomName}
+                                            placeholder="Enter your Name"
+                                            placeholderTextColor={theme.colors.textSecondary}
+                                            style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+                                        />
+                                    </View>
 
-                                <View>
-                                    <Text style={[styles.inputLabel, { color: theme.colors.textSecondary }]}>Job Title</Text>
-                                    <TextInput 
-                                        value={customTitle} onChangeText={setCustomTitle}
-                                        placeholder="Enter your Position"
-                                        placeholderTextColor={theme.colors.textSecondary}
-                                        style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
-                                    />
-                                </View>
-                                
-                                <View style={[styles.divider, { backgroundColor: theme.colors.border }]} />
-                                
-                                <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
-                                    <Text style={[styles.inputLabel, { color: theme.colors.textSecondary, marginBottom: 0 }]}>Digital Signature</Text>
-                                    {signature && (
-                                        <View style={{flexDirection: 'row', gap: 12}}>
-                                            <TouchableOpacity onPress={() => setSigModalVisible(true)}>
-                                                <HugeiconsIcon icon={PencilEdit02Icon} size={20} color={theme.colors.primary} />
-                                            </TouchableOpacity>
-                                            <TouchableOpacity onPress={() => setSignature(null)}>
-                                                <HugeiconsIcon icon={Delete02Icon} size={20} color={theme.colors.danger} />
-                                            </TouchableOpacity>
-                                        </View>
-                                    )}
-                                </View>
+                                    <View>
+                                        <Text style={[styles.inputLabel, { color: theme.colors.textSecondary }]}>Job Title</Text>
+                                        <TextInput 
+                                            value={customTitle} onChangeText={setCustomTitle}
+                                            placeholder="Enter your Position"
+                                            placeholderTextColor={theme.colors.textSecondary}
+                                            style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+                                        />
+                                    </View>
+                                    
+                                    <View style={[styles.divider, { backgroundColor: theme.colors.border }]} />
+                                    
+                                    <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
+                                        <Text style={[styles.inputLabel, { color: theme.colors.textSecondary, marginBottom: 0 }]}>Digital Signature</Text>
+                                        {signature && (
+                                            <View style={{flexDirection: 'row', gap: 12}}>
+                                                <TouchableOpacity onPress={() => setSigModalVisible(true)}>
+                                                    <HugeiconsIcon icon={PencilEdit02Icon} size={20} color={theme.colors.primary} />
+                                                </TouchableOpacity>
+                                                <TouchableOpacity onPress={() => setSignature(null)}>
+                                                    <HugeiconsIcon icon={Delete02Icon} size={20} color={theme.colors.danger} />
+                                                </TouchableOpacity>
+                                            </View>
+                                        )}
+                                    </View>
 
-                                <TouchableOpacity 
-                                    onPress={() => setSigModalVisible(true)} 
-                                    style={[
-                                        styles.sigBtn, 
-                                        { borderColor: theme.colors.border, backgroundColor: theme.colors.background },
-                                        signature ? { borderStyle: 'solid' } : { borderStyle: 'dashed' }
-                                    ]}
-                                >
-                                    {signature ? (
-                                        <View style={styles.sigPreviewContainer}>
-                                            <Image source={{ uri: signature }} style={styles.sigImage} resizeMode="contain" />
-                                        </View>
-                                    ) : (
-                                        <View style={{alignItems:'center', gap: 6}}>
-                                            <HugeiconsIcon icon={SignatureIcon} size={24} color={theme.colors.primary} />
-                                            <Text style={{ color: theme.colors.primary, fontWeight: '600' }}>Tap to Sign</Text>
-                                        </View>
-                                    )}
-                                </TouchableOpacity>
+                                    <TouchableOpacity 
+                                        onPress={() => setSigModalVisible(true)} 
+                                        style={[
+                                            styles.sigBtn, 
+                                            { borderColor: theme.colors.border, backgroundColor: theme.colors.background },
+                                            signature ? { borderStyle: 'solid' } : { borderStyle: 'dashed' }
+                                        ]}
+                                    >
+                                        {signature ? (
+                                            <View style={styles.sigPreviewContainer}>
+                                                <Image source={{ uri: signature }} style={styles.sigImage} resizeMode="contain" />
+                                            </View>
+                                        ) : (
+                                            <View style={{alignItems:'center', gap: 6}}>
+                                                <HugeiconsIcon icon={SignatureIcon} size={24} color={theme.colors.primary} />
+                                                <Text style={{ color: theme.colors.primary, fontWeight: '600' }}>Tap to Sign</Text>
+                                            </View>
+                                        )}
+                                    </TouchableOpacity>
+                                </View>
                             </View>
-                        </View>
+                        )}
 
                         {/* 5. SAVE SETTINGS CHECKLIST STYLE */}
                         {hasSettingsChanged() && (
@@ -594,11 +635,11 @@ export default function GenerateReportScreen() {
                                 onPress={() => setShouldSaveSettings(!shouldSaveSettings)} 
                                 style={[
                                     styles.saveSettingsRow, 
-                                    shouldSaveSettings ? { backgroundColor: theme.colors.primary + '10', borderColor: theme.colors.primary } : { borderColor: 'transparent' }
+                                    shouldSaveSettings ? { backgroundColor: theme.colors.primary + '10', borderColor: theme.colors.primary } : { borderColor: theme.colors.border }
                                 ]}
                             >
                                 <View style={[styles.checkbox, shouldSaveSettings ? { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary } : { borderColor: theme.colors.textSecondary }]}>
-                                    {shouldSaveSettings && <HugeiconsIcon icon={CheckmarkCircle02Icon} size={14} color="#fff" />}
+                                    {shouldSaveSettings && <HugeiconsIcon icon={Tick01Icon} size={14} color="#fff" />}
                                 </View>
                                 <Text style={[styles.saveSettingsText, { color: shouldSaveSettings ? theme.colors.primary : theme.colors.textSecondary }]}>
                                     Save current settings as default
@@ -642,7 +683,7 @@ const styles = StyleSheet.create({
     sigImage: { width: '60%', height: '80%' },
     
     // Save Settings Checklist Style
-    saveSettingsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 12, borderRadius: 12, borderWidth: 1, marginBottom: 20, gap: 10 },
-    checkbox: { width: 20, height: 20, borderRadius: 6, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+    saveSettingsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16, borderRadius: 12, borderWidth: 1, marginBottom: 20, gap: 12 },
+    checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
     saveSettingsText: { fontWeight: '600', fontSize: 14 }
 });

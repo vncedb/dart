@@ -1,6 +1,6 @@
 import {
     ArrowLeft01Icon,
-    CheckmarkCircle03Icon, // UPDATED ICON
+    CheckmarkCircle03Icon,
     Download01Icon,
     File02Icon,
     Share01Icon
@@ -102,13 +102,11 @@ export default function PreviewReportScreen() {
                     }
                 }
 
-                // Format Date & Day
                 const dateObj = new Date(d);
                 let formattedDate = d;
                 try {
                     formattedDate = format(dateObj, options.dateFormat || 'MM/dd/yyyy');
                     if (options.includeDay) {
-                        // Append day name with a special delimiter we can parse in HTML generator or just newline
                         formattedDate += `\n${format(dateObj, 'EEEE')}`;
                     }
                 } catch (e) { formattedDate = d; }
@@ -127,6 +125,8 @@ export default function PreviewReportScreen() {
             const meta = {
                 userName: options.meta.name,
                 userTitle: options.meta.title,
+                company: options.meta.company, // Passed
+                department: options.includeDept ? options.meta.department : undefined, // Check toggle
                 reportTitle: 'ACCOMPLISHMENT REPORT',
                 period: options.meta.period,
                 signatureUri: options.meta.signature,
