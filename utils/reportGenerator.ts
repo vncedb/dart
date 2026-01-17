@@ -1,118 +1,135 @@
 import * as Print from 'expo-print';
-import * as Sharing from 'expo-sharing';
 
-export interface ReportData {
-  userName: string;
-  userTitle: string;
-  reportTitle: string;
-  period: string;
-  data: {
-      date: string;
-      summary: string;
-      clockIn: string;
-      clockOut: string;
-  }[];
-  style: 'corporate' | 'creative' | 'minimal';
-  paperSize: 'Letter' | 'A4' | 'Legal';
-  signatureUri?: string | null; // Added
+interface ReportData {
+    userName: string;
+    userTitle: string;
+    reportTitle: string;
+    period: string;
+    data: any[];
+    style?: 'corporate' | 'creative' | 'minimal';
+    paperSize?: 'Letter' | 'A4' | 'Legal';
+    signatureUri?: string | null;
+    columns?: any;
 }
 
-export const generateReport = async (options: ReportData) => {
-  const { userName, userTitle, reportTitle, period, data, style, paperSize, signatureUri } = options;
+export const generateReport = async ({ 
+    userName, userTitle, reportTitle, period, data, style = 'corporate', paperSize = 'Letter', signatureUri, columns 
+}: ReportData) => {
+    
+    // Theme Colors
+    const colors = {
+        corporate: { header: '#2c3e50', text: '#333', accent: '#ecf0f1', thBg: '#34495e', thTxt: '#fff' },
+        creative: { header: '#6c5ce7', text: '#2d3436', accent: '#a29bfe', thBg: '#6c5ce7', thTxt: '#fff' },
+        minimal: { header: '#000', text: '#000', accent: '#fff', thBg: '#fff', thTxt: '#000' }
+    }[style];
 
-  const themes = {
-    corporate: { primary: '#1e293b', accent: '#3b82f6', bg: '#f8fafc', headerText: '#fff' },
-    creative: { primary: '#6366f1', accent: '#a855f7', bg: '#fdf4ff', headerText: '#fff' },
-    minimal: { primary: '#000000', accent: '#000000', bg: '#ffffff', headerText: '#000' }
-  };
-  const t = themes[style];
+    const borderStyle = style === 'minimal' ? '1px solid #000' : 'none';
 
-  const rows = data.map((d, i) => `
-    <tr class="${i % 2 === 0 ? 'even' : 'odd'}">
-        <td class="date-col">
-            <div class="day">${new Date(d.date).toLocaleDateString('en-US', { weekday: 'short' })}</div>
-            <div class="date">${new Date(d.date).getDate()}</div>
-        </td>
-        <td class="time-col">
-            <div class="time-in">IN: ${d.clockIn}</div>
-            <div class="time-out">OUT: ${d.clockOut}</div>
-        </td>
-        <td class="task-col">${d.summary || '<span class="empty">No tasks recorded</span>'}</td>
-    </tr>
-  `).join('');
+    // Helper: Tasks & Images
+    const getTaskHtml = (tasks: any[]) => {
+        if (!tasks || tasks.length === 0) return '<span style="color:#bdc3c7; font-style:italic;">No entries</span>';
+        return `
+            <ul class="task-list">
+                ${tasks.map((t: any) => `
+                    <li>
+                        <div class="task-desc">${t.description}</div>
+                        ${t.remarks ? `<div class="task-rem">${t.remarks}</div>` : ''}
+                        ${t.image_url ? `<div class="task-img"><img src="${t.image_url}" /></div>` : ''}
+                    </li>
+                `).join('')}
+            </ul>
+        `;
+    };
 
-  const signatureHtml = signatureUri ? 
-      `<img src="${signatureUri}" style="height: 50px; display: block; margin-bottom: 5px;" />` : 
-      `<div style="height: 40px; margin-bottom: 5px;"></div>`;
-
-  const html = `
+    const html = `
     <!DOCTYPE html>
     <html>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+    <head>
+        <meta charset="utf-8">
         <style>
-          @page { size: ${paperSize}; margin: 1.5cm; }
-          body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; margin: 0; padding: 0; color: #334155; }
-          .header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; border-bottom: 3px solid ${t.primary}; margin-bottom: 30px; }
-          .title { font-size: 26px; font-weight: 800; color: ${t.primary}; text-transform: uppercase; }
-          .subtitle { font-size: 14px; color: #64748b; margin-top: 5px; font-weight: 600; }
-          .meta-grid { display: flex; gap: 40px; margin-bottom: 40px; }
-          .meta-item { flex: 1; }
-          .label { font-size: 10px; text-transform: uppercase; color: #94a3b8; font-weight: 700; margin-bottom: 4px; }
-          .value { font-size: 16px; font-weight: 600; color: #0f172a; }
-          table { width: 100%; border-collapse: collapse; font-size: 13px; }
-          th { text-align: left; text-transform: uppercase; font-size: 10px; color: #64748b; padding: 10px; border-bottom: 2px solid #e2e8f0; }
-          td { padding: 12px 10px; vertical-align: top; border-bottom: 1px solid #e2e8f0; }
-          .date-col { width: 60px; text-align: center; border-right: 1px solid #f1f5f9; }
-          .day { font-size: 9px; font-weight: 700; text-transform: uppercase; color: ${t.accent}; }
-          .date { font-size: 18px; font-weight: 800; color: #1e293b; }
-          .time-col { width: 100px; }
-          .time-in { color: #15803d; font-weight: 600; font-size: 11px; margin-bottom: 2px; }
-          .time-out { color: #b45309; font-weight: 600; font-size: 11px; }
-          .task-col { line-height: 1.5; color: #334155; }
-          .empty { font-style: italic; color: #cbd5e1; }
-          .footer { margin-top: 50px; display: flex; gap: 40px; page-break-inside: avoid; }
-          .sign-box { flex: 1; }
-          .sign-line { border-bottom: 1px solid #000; margin-bottom: 8px; }
-          .sign-name { font-weight: bold; font-size: 14px; }
-          .sign-role { font-size: 11px; color: #64748b; text-transform: uppercase; }
+            @page { size: ${paperSize}; margin: 1.25cm; }
+            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: ${colors.text}; margin: 0; }
+            
+            .header { border-bottom: 3px solid ${colors.header}; padding-bottom: 15px; margin-bottom: 25px; display: flex; justify-content: space-between; align-items: flex-end; }
+            .title { font-size: 22px; font-weight: 900; text-transform: uppercase; color: ${colors.header}; }
+            .subtitle { font-size: 11px; color: #7f8c8d; margin-top: 4px; }
+            .brand { font-size: 9px; font-weight: 700; color: #95a5a6; text-transform: uppercase; }
+
+            .meta { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; background: ${style === 'minimal' ? '#fff' : '#f8f9fa'}; padding: 12px; border-radius: 6px; margin-bottom: 25px; border: ${borderStyle}; }
+            .meta-item label { display: block; font-size: 9px; text-transform: uppercase; color: #95a5a6; font-weight: 700; margin-bottom: 2px; }
+            .meta-item span { font-size: 13px; font-weight: 700; color: ${colors.header}; }
+
+            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            th { text-align: left; background-color: ${colors.thBg}; color: ${colors.thTxt}; padding: 10px; border-bottom: 2px solid ${colors.header}; text-transform: uppercase; font-size: 9px; }
+            td { padding: 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+            tr:nth-child(even) { background-color: ${style === 'minimal' ? '#fff' : '#fcfcfc'}; }
+
+            .task-list { margin: 0; padding-left: 15px; list-style-type: disc; }
+            .task-desc { font-weight: 600; font-size: 11px; }
+            .task-rem { font-size: 9px; color: #7f8c8d; font-style: italic; margin-top: 2px; }
+            .task-img img { max-width: 120px; max-height: 80px; margin-top: 6px; border-radius: 4px; border: 1px solid #eee; object-fit: cover; }
+
+            .signature-section { margin-top: 50px; page-break-inside: avoid; }
+            .sig-line { width: 220px; border-bottom: 1px solid #333; margin-bottom: 5px; }
+            .sig-img { height: 50px; margin-bottom: -15px; margin-left: 10px; }
+            .sig-label { font-size: 10px; text-transform: uppercase; font-weight: 700; color: ${colors.header}; }
+
+            .footer { position: fixed; bottom: 0; left: 0; right: 0; font-size: 8px; color: #bdc3c7; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }
         </style>
-      </head>
-      <body>
+    </head>
+    <body>
         <div class="header">
-          <div><div class="title">${reportTitle}</div><div class="subtitle">Generated via DART App</div></div>
-          <div style="text-align: right;"><div class="label">PERIOD</div><div style="font-size: 14px; font-weight:bold; color: ${t.primary};">${period}</div></div>
+            <div>
+                <div class="title">${reportTitle}</div>
+                <div class="subtitle">Official Record • ${new Date().toLocaleDateString()}</div>
+            </div>
+            <div class="brand">Generated via DART</div>
         </div>
 
-        <div class="meta-grid">
-           <div class="meta-item"><div class="label">EMPLOYEE</div><div class="value">${userName}</div></div>
-           <div class="meta-item"><div class="label">POSITION</div><div class="value">${userTitle}</div></div>
-           <div class="meta-item"><div class="label">DATE GENERATED</div><div class="value">${new Date().toLocaleDateString()}</div></div>
+        <div class="meta">
+            <div class="meta-item"><label>Employee</label><span>${userName}</span></div>
+            <div class="meta-item"><label>Position</label><span>${userTitle}</span></div>
+            <div class="meta-item"><label>Period</label><span>${period}</span></div>
         </div>
 
         <table>
-          <thead><tr><th>Date</th><th>Attendance</th><th>Accomplishments Summary</th></tr></thead>
-          <tbody>${rows}</tbody>
+            <thead>
+                <tr>
+                    ${columns?.date ? `<th width="12%">Date</th>` : ''}
+                    ${columns?.time ? `<th width="18%">Time Record</th>` : ''}
+                    ${columns?.duration ? `<th width="10%">Duration</th>` : ''}
+                    ${columns?.activities ? `<th>Activities / Documentation</th>` : ''}
+                    ${columns?.remarks ? `<th width="15%">Remarks</th>` : ''}
+                </tr>
+            </thead>
+            <tbody>
+                ${data.map(item => `
+                    <tr>
+                        ${columns?.date ? `<td><strong>${item.date}</strong></td>` : ''}
+                        ${columns?.time ? `<td>${item.clockIn}<br/><span style="color:#95a5a6">${item.clockOut}</span></td>` : ''}
+                        ${columns?.duration ? `<td><strong>${item.duration}</strong></td>` : ''}
+                        ${columns?.activities ? `<td>${getTaskHtml(item.summary)}</td>` : ''}
+                        ${columns?.remarks ? `<td>${item.remarks || ''}</td>` : ''}
+                    </tr>
+                `).join('')}
+            </tbody>
         </table>
 
-        <div class="footer">
-           <div class="sign-box">
-              ${signatureHtml}
-              <div class="sign-line"></div>
-              <div class="sign-name">${userName}</div>
-              <div class="sign-role">Employee Signature</div>
-           </div>
-           <div class="sign-box">
-              <div style="height: 45px;"></div>
-              <div class="sign-line"></div>
-              <div class="sign-name"></div>
-              <div class="sign-role">Supervisor Signature</div>
-           </div>
-        </div>
-      </body>
-    </html>
-  `;
+        ${signatureUri ? `
+            <div class="signature-section">
+                <img src="${signatureUri}" class="sig-img" />
+                <div class="sig-line"></div>
+                <div class="sig-label">Employee Signature</div>
+            </div>
+        ` : ''}
 
-  const { uri } = await Print.printToFileAsync({ html });
-  await Sharing.shareAsync(uri);
+        <div class="footer">
+            System Generated Report | DART App
+        </div>
+    </body>
+    </html>
+    `;
+
+    const { uri } = await Print.printToFileAsync({ html });
+    return uri;
 };

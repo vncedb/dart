@@ -7,7 +7,7 @@ import { HugeiconsIcon } from '@hugeicons/react-native';
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAppTheme } from '../constants/theme';
-import { DateRange } from './CutoffSelectionModal';
+import { DateRange } from './ReportFilterModal';
 
 interface ReportFilterBarProps {
     onPress: () => void;

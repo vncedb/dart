@@ -4,12 +4,35 @@ import { getDB } from './db-client';
 export const initDatabase = async () => {
   const database = await getDB();
 
-  // 1. Create Tables
+  // 1. Create Tables (Updated with is_synced)
   await database.execAsync(`
     PRAGMA journal_mode = WAL;
     
-    CREATE TABLE IF NOT EXISTS attendance (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL, job_id TEXT, date TEXT NOT NULL, clock_in TEXT NOT NULL, clock_out TEXT, status TEXT, remarks TEXT, updated_at TEXT DEFAULT CURRENT_TIMESTAMP);
-    CREATE TABLE IF NOT EXISTS accomplishments (id TEXT PRIMARY KEY NOT NULL, user_id TEXT NOT NULL, job_id TEXT, date TEXT NOT NULL, description TEXT NOT NULL, remarks TEXT, image_url TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
+    CREATE TABLE IF NOT EXISTS attendance (
+      id TEXT PRIMARY KEY NOT NULL, 
+      user_id TEXT NOT NULL, 
+      job_id TEXT, 
+      date TEXT NOT NULL, 
+      clock_in TEXT NOT NULL, 
+      clock_out TEXT, 
+      status TEXT, 
+      remarks TEXT, 
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      is_synced INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS accomplishments (
+      id TEXT PRIMARY KEY NOT NULL, 
+      user_id TEXT NOT NULL, 
+      job_id TEXT, 
+      date TEXT NOT NULL, 
+      description TEXT NOT NULL, 
+      remarks TEXT, 
+      image_url TEXT, 
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT,
+      is_synced INTEGER DEFAULT 0
+    );
     
     CREATE TABLE IF NOT EXISTS sync_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, table_name TEXT NOT NULL, row_id TEXT, action TEXT NOT NULL, data TEXT, status TEXT DEFAULT 'PENDING', retry_count INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT);
@@ -26,6 +49,7 @@ export const initDatabase = async () => {
     try { 
         await database.execAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${type};`); 
     } catch (e: any) { 
+        // Ignore "duplicate column" errors, meaning migration already ran
         if (!e.message?.includes('duplicate column') && !e.message?.includes('no such column')) {
             console.log(`Migration Note (${table}.${col}):`, e.message); 
         }
@@ -45,12 +69,16 @@ export const initDatabase = async () => {
   await addColumn('job_positions', 'employment_status', 'TEXT');
   await addColumn('job_positions', 'rate', 'REAL');
   await addColumn('job_positions', 'rate_type', 'TEXT');
-  await addColumn('job_positions', 'payout_type', 'TEXT'); // <--- CRITICAL FIX
+  await addColumn('job_positions', 'payout_type', 'TEXT'); 
   
   await addColumn('accomplishments', 'updated_at', 'TEXT');
 
   await addColumn('attendance', 'job_id', 'TEXT');
   await addColumn('accomplishments', 'job_id', 'TEXT');
+
+  // --- NEW CRITICAL MIGRATIONS FOR SYNC STATUS ---
+  await addColumn('attendance', 'is_synced', 'INTEGER DEFAULT 0');
+  await addColumn('accomplishments', 'is_synced', 'INTEGER DEFAULT 0');
 
   try {
       await database.execAsync(`
@@ -61,7 +89,7 @@ export const initDatabase = async () => {
       console.log("Index creation note:", e);
   }
 
-  console.log("Database initialized.");
+  console.log("Database initialized and migrated.");
 };
 
 // --- HELPERS ---
@@ -76,6 +104,13 @@ export const queueSyncItem = async (tableName: string, rowId: string, action: st
   const db = await getDB();
   if (!rowId) return;
   try {
+    // When editing locally, mark as UNSYNCED (0) immediately
+    if (tableName === 'attendance' || tableName === 'accomplishments') {
+        try {
+            await db.runAsync(`UPDATE ${tableName} SET is_synced = 0 WHERE id = ?`, [rowId]);
+        } catch (e) { /* ignore if table doesn't have col yet */ }
+    }
+
     await db.runAsync(
       `INSERT INTO sync_queue (table_name, row_id, action, data, status, retry_count) VALUES (?, ?, ?, ?, 'PENDING', 0)`,
       [tableName, rowId, action, data ? JSON.stringify(data) : null]

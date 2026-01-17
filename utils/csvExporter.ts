@@ -1,33 +1,54 @@
-import * as FileSystem from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
+import { EncodingType, cacheDirectory, writeAsStringAsync } from 'expo-file-system/legacy';
 import XLSX from 'xlsx';
 
-export const exportToExcel = async (data: any[], fileName: string) => {
+export const exportToExcel = async ({ data, fileName, userName, userTitle, period, columns }: any) => {
   try {
-    // 1. Create a Worksheet
-    const ws = XLSX.utils.json_to_sheet(data);
-    
-    // 2. Create a Workbook
+    const wsData = [
+      ["ACCOMPLISHMENT REPORT"],
+      ["Employee:", userName],
+      ["Position:", userTitle],
+      ["Period:", period],
+      ["Generated:", new Date().toLocaleString()],
+      [""],
+    ];
+
+    // Headers
+    const headers = [];
+    if (columns.date) headers.push("Date");
+    if (columns.time) headers.push("Clock In", "Clock Out");
+    if (columns.duration) headers.push("Duration");
+    if (columns.activities) headers.push("Accomplishments");
+    if (columns.remarks) headers.push("Remarks");
+    wsData.push(headers);
+
+    // Rows
+    data.forEach((item: any) => {
+        const row = [];
+        if (columns.date) row.push(item.date);
+        if (columns.time) row.push(item.clockIn, item.clockOut);
+        if (columns.duration) row.push(item.duration);
+        if (columns.activities) {
+            const tasks = item.summary ? item.summary.map((t: any) => `• ${t.description}${t.remarks?` (${t.remarks})`:''}`).join('\n') : '';
+            row.push(tasks);
+        }
+        if (columns.remarks) row.push(item.remarks || '');
+        wsData.push(row);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    const cols = headers.map(h => ({ wch: h === 'Accomplishments' ? 60 : 15 }));
+    ws['!cols'] = cols;
+
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Reports");
+    XLSX.utils.book_append_sheet(wb, ws, "Report");
 
-    // 3. Write to Base64
     const wbout = XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
-
-    // 4. Save to FileSystem
-    const uri = FileSystem.cacheDirectory + `${fileName.replace(/[^a-z0-9]/gi, '_')}.xlsx`;
-    await FileSystem.writeAsStringAsync(uri, wbout, {
-      encoding: FileSystem.EncodingType.Base64
-    });
-
-    // 5. Share
-    await Sharing.shareAsync(uri, {
-      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      dialogTitle: 'Export Data'
-    });
+    const uri = cacheDirectory + `${fileName}.xlsx`;
+    
+    await writeAsStringAsync(uri, wbout, { encoding: EncodingType.Base64 });
+    return uri;
 
   } catch (error) {
-    console.error("Export Error:", error);
     throw error;
   }
 };

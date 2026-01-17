@@ -21,7 +21,6 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
-    Alert,
     Dimensions,
     Image,
     Platform,
@@ -38,6 +37,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import EditAvatarModal from '../../components/EditAvatarModal';
 import EditDisplayModal, { AVAILABLE_JOB_FIELDS } from '../../components/EditDisplayModal';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import ModernAlert from '../../components/ModernAlert'; // Imported ModernAlert
 import { useAppTheme } from '../../constants/theme';
 import { useSync } from '../../context/SyncContext';
 import { queueSyncItem, saveJobLocal, saveProfileLocal } from '../../lib/database';
@@ -66,7 +66,6 @@ const JobCard = ({ currentJob, visibleKeys, theme, onEdit }: any) => {
     if (!currentJob) return null;
     const formatPay = (val: number | string) => { const num = Number(val); return isNaN(num) ? val : `₱${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; };
     
-    // FIXED: Updated to read 'payout_type' instead of 'cutoff_config'
     const getCutoffLabel = (val: string) => { 
         if (!val) return 'Not Set'; 
         switch(val) { 
@@ -84,10 +83,7 @@ const JobCard = ({ currentJob, visibleKeys, theme, onEdit }: any) => {
             case 'rate': return formatPay(currentJob.rate || currentJob.salary); 
             case 'rate_type': return currentJob.rate_type ? currentJob.rate_type.charAt(0).toUpperCase() + currentJob.rate_type.slice(1) : 'Hourly'; 
             case 'shift': return currentJob.work_schedule ? `${currentJob.work_schedule.start} - ${currentJob.work_schedule.end}` : 'N/A'; 
-            
-            // FIXED: Using payout_type
             case 'payroll': return getCutoffLabel(currentJob.payout_type || currentJob.cutoff_config?.type); 
-            
             case 'breaks': return currentJob.break_schedule ? `${currentJob.break_schedule.length} Break(s)` : '0'; 
             default: return 'N/A'; 
         } 
@@ -176,6 +172,9 @@ export default function ProfileScreen() {
     const [modalVisible, setModalVisible] = useState(false);
     const [avatarModalVisible, setAvatarModalVisible] = useState(false);
     const [visibleDetailKeys, setVisibleDetailKeys] = useState<string[]>(['employment_status', 'shift', 'rate', 'rate_type', 'payroll', 'breaks']);
+    
+    // Add Alert Config
+    const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
     useEffect(() => {
         if (viewData.profile?.avatar_url || viewData.profile?.local_avatar_path) {
@@ -285,16 +284,27 @@ export default function ProfileScreen() {
         const state = await NetInfo.fetch();
         if (!state.isConnected) throw new Error("Offline");
 
-        const response = await fetch(uri);
-        const arrayBuffer = await response.arrayBuffer();
-        const ext = uri.substring(uri.lastIndexOf('.') + 1);
-        const fileName = `${userId}/${Date.now()}.${ext}`;
+        // Timeout Promise (30 Seconds)
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error("Request timed out")), 30000);
+        });
 
-        const { error } = await supabase.storage.from('avatars').upload(fileName, arrayBuffer, { contentType: `image/${ext}`, upsert: true });
-        if (error) throw error;
+        // Actual Upload Task
+        const uploadTask = async () => {
+            const response = await fetch(uri);
+            const arrayBuffer = await response.arrayBuffer();
+            const ext = uri.substring(uri.lastIndexOf('.') + 1);
+            const fileName = `${userId}/${Date.now()}.${ext}`;
 
-        const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
-        return `${publicUrl}?t=${new Date().getTime()}`;
+            const { error } = await supabase.storage.from('avatars').upload(fileName, arrayBuffer, { contentType: `image/${ext}`, upsert: true });
+            if (error) throw error;
+
+            const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
+            return `${publicUrl}?t=${new Date().getTime()}`;
+        };
+
+        // Race between upload and timeout
+        return await Promise.race([uploadTask(), timeoutPromise]) as string;
     };
 
     const handleUpdateProfile = async (updates: any) => {
@@ -319,7 +329,27 @@ export default function ProfileScreen() {
                      if (oldAvatarUrl && oldAvatarUrl !== publicUrl) deleteOldAvatar(oldAvatarUrl);
                  } catch (e: any) {
                      setIsUpdating(false);
-                     Alert.alert("Upload Failed", e.message === 'Offline' ? "You are offline." : "Could not upload image.");
+                     
+                     // Determine user-friendly message
+                     let title = "Upload Failed";
+                     let message = "Could not upload image.";
+                     
+                     if (e.message === 'Offline') {
+                         message = "You are offline. Please check your internet connection.";
+                     } else if (e.message === 'Request timed out') {
+                         title = "Upload Timeout";
+                         message = "The upload took too long. Please check your internet connection and try again.";
+                     }
+
+                     // Use ModernAlert
+                     setAlertConfig({
+                        visible: true,
+                        type: 'error',
+                        title: title,
+                        message: message,
+                        confirmText: 'OK',
+                        onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false }))
+                     });
                      return; 
                  }
             } else if (updates.avatar_url === null) {
@@ -339,7 +369,14 @@ export default function ProfileScreen() {
             triggerSync();
         } catch (e: any) { 
             console.log("Update Error:", e);
-            Alert.alert("Error", "Failed to save changes.");
+            setAlertConfig({
+                visible: true,
+                type: 'error',
+                title: 'Error',
+                message: 'Failed to save changes.',
+                confirmText: 'OK',
+                onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false }))
+            });
         } finally { 
             setIsUpdating(false); 
             setAvatarModalVisible(false);
@@ -369,6 +406,9 @@ export default function ProfileScreen() {
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
             <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} translucent backgroundColor="transparent" />
+            
+            {/* Added ModernAlert Component */}
+            <ModernAlert {...alertConfig} />
             
             <EditDisplayModal visible={modalVisible} onClose={() => setModalVisible(false)} selectedKeys={visibleDetailKeys} onSave={(newKeys) => setVisibleDetailKeys(newKeys)} />
             <EditAvatarModal visible={avatarModalVisible} onClose={() => setAvatarModalVisible(false)} onPickImage={pickAvatar} onRemoveImage={removeAvatar} />

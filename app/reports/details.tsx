@@ -77,11 +77,18 @@ export default function ReportDetailsScreen() {
     );
 
     const fetchReportDetails = async () => {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user || !date) return;
+        const { data: { session } } = await supabase.auth.getSession();
+        const user = session?.user;
+        
+        if (!user || !date) {
+            setInitialLoading(false);
+            return;
+        }
 
         try {
             const db = await getDB();
+            if (!db) return;
+
             const attendance: any = await db.getFirstAsync(
                 'SELECT * FROM attendance WHERE user_id = ? AND date = ?', 
                 [user.id, date]
@@ -92,7 +99,7 @@ export default function ReportDetailsScreen() {
                 [user.id, date]
             );
 
-            const processedTasks = tasks.map((t) => {
+            const processedTasks = (tasks || []).map((t) => {
                 let images: string[] = [];
                 if (t.image_url) {
                     try {
@@ -114,7 +121,7 @@ export default function ReportDetailsScreen() {
                 accomplishments: processedTasks
             });
         } catch (e) {
-            console.log(e);
+            console.log("Error fetching details:", e);
         } finally {
             setInitialLoading(false);
         }
@@ -154,7 +161,8 @@ export default function ReportDetailsScreen() {
     const executeDelete = async () => {
         setLoadingAction(true);
         try {
-            const { data: { user } } = await supabase.auth.getUser();
+            const { data: { session } } = await supabase.auth.getSession();
+            const user = session?.user;
             if (user) {
                 const db = await getDB();
                 await db.runAsync('DELETE FROM attendance WHERE user_id = ? AND date = ?', [user.id, date]);
@@ -180,8 +188,9 @@ export default function ReportDetailsScreen() {
         } catch (e) {}
     };
 
-    // --- MORPH ANIMATION ---
-    // State 1: "Report Details" - Scales down and fades out
+    // --- MORPH ANIMATION STYLES (Must be at top level) ---
+    
+    // Header Title Animations
     const defaultTitleStyle = useAnimatedStyle(() => ({
         opacity: interpolate(scrollY.value, [20, 50], [1, 0], Extrapolation.CLAMP),
         transform: [
@@ -189,12 +198,16 @@ export default function ReportDetailsScreen() {
         ]
     }));
 
-    // State 2: "Date" - Scales up from 0.9 to 1 and fades in
     const dateTitleStyle = useAnimatedStyle(() => ({
         opacity: interpolate(scrollY.value, [30, 60], [0, 1], Extrapolation.CLAMP),
         transform: [
             { scale: interpolate(scrollY.value, [30, 60], [0.95, 1], Extrapolation.CLAMP) }
         ]
+    }));
+
+    // Date Header Fade Animation (Moved from inline to here)
+    const dateHeaderStyle = useAnimatedStyle(() => ({
+        opacity: interpolate(scrollY.value, [0, 40], [1, 0], Extrapolation.CLAMP)
     }));
 
     const renderTask = (acc: any, index: number) => (
@@ -231,12 +244,9 @@ export default function ReportDetailsScreen() {
             <Header
                 title={
                     <View style={styles.headerTitleContainer}>
-                        {/* Static Title Positioned Absolute */}
                         <Animated.Text style={[styles.headerTitleText, { color: theme.colors.text }, defaultTitleStyle]}>
                             Report Details
                         </Animated.Text>
-                        
-                        {/* Dynamic Date Title Positioned Absolute */}
                         <Animated.Text style={[styles.headerTitleText, { color: theme.colors.text }, dateTitleStyle]}>
                             {report ? format(new Date(report.date), 'MMMM d, yyyy') : ''}
                         </Animated.Text>
@@ -267,7 +277,15 @@ export default function ReportDetailsScreen() {
             {initialLoading ? (
                 <View style={styles.center}><ActivityIndicator size="large" color={theme.colors.primary} /></View>
             ) : !report ? (
-                <View style={{ flex: 1 }} />
+                <View style={[styles.center, { padding: 20 }]}>
+                    <HugeiconsIcon icon={Delete02Icon} size={48} color={theme.colors.border} />
+                    <Text style={{ marginTop: 16, color: theme.colors.textSecondary, textAlign: 'center' }}>
+                        Report not found. It may have been deleted.
+                    </Text>
+                    <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 20 }}>
+                         <Text style={{ color: theme.colors.primary, fontWeight: '700' }}>Go Back</Text>
+                    </TouchableOpacity>
+                </View>
             ) : (
                 <Animated.ScrollView
                     contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
@@ -275,8 +293,8 @@ export default function ReportDetailsScreen() {
                     scrollEventThrottle={16}
                     showsVerticalScrollIndicator={false}
                 >
-                    {/* Date Header Content - Fades out on Scroll */}
-                    <Animated.View style={[styles.dateHeader, useAnimatedStyle(() => ({ opacity: interpolate(scrollY.value, [0, 40], [1, 0], Extrapolation.CLAMP) })) ]}>
+                    {/* Date Header Content - Uses pre-defined style now */}
+                    <Animated.View style={[styles.dateHeader, dateHeaderStyle]}>
                         <View style={[styles.calendarIcon, { backgroundColor: theme.colors.primary + '15' }]}>
                             <HugeiconsIcon icon={Calendar03Icon} size={28} color={theme.colors.primary} />
                         </View>
@@ -334,7 +352,7 @@ export default function ReportDetailsScreen() {
 const styles = StyleSheet.create({
     headerTitleContainer: {
         height: 40,
-        width: 220, // Constrain width to center properly
+        width: 220,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -342,7 +360,7 @@ const styles = StyleSheet.create({
         fontSize: 17,
         fontWeight: '700',
         textAlign: 'center',
-        position: 'absolute', // Ensures morph overlay
+        position: 'absolute',
         width: '100%',
     },
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },

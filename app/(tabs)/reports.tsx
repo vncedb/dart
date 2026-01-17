@@ -6,7 +6,6 @@ import {
     PlusSignIcon,
     RefreshIcon,
     Search01Icon,
-    Share01Icon,
     WifiOff01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
@@ -38,11 +37,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 // Components
 import ActionMenu from '../../components/ActionMenu';
-import CutoffSelectionModal, { DateRange } from '../../components/CutoffSelectionModal';
-import DatePicker from '../../components/DatePicker'; // USING CUSTOM PICKER
+import DatePicker from '../../components/DatePicker';
 import FloatingAlert from '../../components/FloatingAlert';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import ModernAlert from '../../components/ModernAlert';
 import ReportFilterBar from '../../components/ReportFilterBar';
+import ReportFilterModal, { DateRange } from '../../components/ReportFilterModal';
 import ReportItem from '../../components/ReportItem';
 import TabHeader from '../../components/TabHeader';
 import { useAppTheme } from '../../constants/theme';
@@ -50,8 +50,6 @@ import { useSync } from '../../context/SyncContext';
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 import { ReportService } from '../../services/ReportService';
-import { exportToExcel } from '../../utils/csvExporter';
-import { generateReport } from '../../utils/reportGenerator';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
     if (typeof UIManager.setLayoutAnimationEnabledExperimental === 'function') {
@@ -74,7 +72,7 @@ const OfflineIndicator = ({ isOffline, theme }: { isOffline: boolean, theme: any
 export default function ReportsScreen() {
     const router = useRouter();
     const theme = useAppTheme();
-    const { triggerSync, syncStatus } = useSync();
+    const { triggerSync, syncStatus, lastSyncedAt } = useSync();
     const isSyncing = syncStatus === 'syncing';
     
     // Data & UI
@@ -94,22 +92,24 @@ export default function ReportsScreen() {
     const [actionMenuVisible, setActionMenuVisible] = useState(false);
     const [menuAnchor, setMenuAnchor] = useState<{ x: number, y: number } | undefined>(undefined);
     
-    // Custom Date Picker State
-    const [showDatePicker, setShowDatePicker] = useState(false);
-    
-    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-    const [selectionMode, setSelectionMode] = useState(false);
-    
+    // Alerts
+    const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
     const [floatingAlert, setFloatingAlert] = useState({ visible: false, message: '', type: 'success' });
 
+    const [showDatePicker, setShowDatePicker] = useState(false);
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [selectionMode, setSelectionMode] = useState(false);
     const syncButtonRotation = useSharedValue(0);
 
+    // Network Listener
     useEffect(() => {
         const unsubscribe = NetInfo.addEventListener(state => { 
             setIsOffline(!(state.isConnected && state.isInternetReachable)); 
         });
         return unsubscribe;
     }, []);
+
+    useEffect(() => { if (lastSyncedAt) fetchReports(); }, [lastSyncedAt]);
 
     useEffect(() => {
         if (isSyncing) {
@@ -135,31 +135,41 @@ export default function ReportsScreen() {
         return () => subscription.remove(); 
     }, [selectionMode]);
 
-    const applyFilter = useCallback((range: DateRange, data: any[]) => {
-        // Handle Exact Date filtering
-        if (range.type === 'day' as any) {
-            const targetDate = range.start.split('T')[0];
-            
-            const filtered = data.map(section => {
-                const matchingItems = section.data.filter((item: any) => item.date === targetDate);
-                if (matchingItems.length > 0) {
-                    return { ...section, data: matchingItems };
+    const handleManualSync = async () => {
+        if (isSyncing) return;
+        try {
+            const success = await triggerSync();
+            if (success) {
+                setFloatingAlert({ visible: true, message: 'Sync complete', type: 'success' });
+                await fetchReports();
+            } else {
+                if (isOffline) {
+                    setFloatingAlert({ visible: true, message: 'Offline: Cannot sync', type: 'error' });
+                } else {
+                    setAlertConfig({
+                        visible: true,
+                        type: 'error',
+                        title: 'Sync Failed',
+                        message: 'Could not sync data. Please check your connection and try again.',
+                        confirmText: 'OK',
+                        onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
+                    });
                 }
-                return null;
-            }).filter(Boolean);
-            
-            setFilteredSections(filtered);
-            return;
+            }
+        } catch (e) {
+            console.error(e);
         }
+    };
 
-        // Standard Range Filtering
-        const start = new Date(range.start).getTime();
-        const end = new Date(range.end).getTime();
-        const filtered = data.filter(section => {
-            const sStart = new Date(section.start).getTime();
-            const sEnd = new Date(section.end).getTime();
-            return (sStart <= end && sEnd >= start);
-        });
+    const applyFilter = useCallback((range: DateRange, data: any[]) => {
+        if (!range || !data) return;
+        const startStr = range.start.split('T')[0];
+        const endStr = range.end.split('T')[0];
+        const filtered = data.map(section => {
+            const matchingItems = section.data.filter((item: any) => item.date >= startStr && item.date <= endStr);
+            if (matchingItems.length > 0) return { ...section, data: matchingItems };
+            return null;
+        }).filter(Boolean);
         setFilteredSections(filtered);
     }, []);
 
@@ -168,7 +178,6 @@ export default function ReportsScreen() {
             const db = await getDB();
             const { data: { session } } = await supabase.auth.getSession();
             const userId = session?.user?.id;
-            
             if (!userId) { setIsLoading(false); return; }
 
             const profile = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [userId]);
@@ -183,18 +192,13 @@ export default function ReportsScreen() {
             }
             
             const payoutType = job.payout_type || 'Semi-Monthly';
-
             const attendance = await db.getAllAsync('SELECT * FROM attendance WHERE user_id = ? AND job_id = ? ORDER BY date DESC', [userId, job.id]);
             const tasks = await db.getAllAsync('SELECT * FROM accomplishments WHERE user_id = ? AND job_id = ?', [userId, job.id]);
             
-            const allDatesSet = new Set([ 
-                ...(attendance?.map((a: any) => a.date) || []), 
-                ...(tasks?.map((t: any) => t.date) || []) 
-            ]);
-            const allDatesArray = Array.from(allDatesSet);
-            setAvailableDates(allDatesArray);
+            const allDatesSet = new Set([ ...(attendance?.map((a: any) => a.date) || []), ...(tasks?.map((t: any) => t.date) || []) ]);
+            setAvailableDates(Array.from(allDatesSet));
 
-            const sortedDates = allDatesArray.sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+            const sortedDates = Array.from(allDatesSet).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
 
             const merged = sortedDates.map(dateStr => {
                 const att: any = attendance?.find((a: any) => a.date === dateStr);
@@ -206,7 +210,7 @@ export default function ReportsScreen() {
                     clock_out: att?.clock_out,
                     status: att?.status || 'no-attendance',
                     accomplishments: taskList,
-                    is_synced: att?.is_synced ?? 0 
+                    is_synced: att ? (att.is_synced ?? 0) : 0 
                 };
             });
 
@@ -220,7 +224,6 @@ export default function ReportsScreen() {
                 const month = now.getMonth();
                 const day = now.getDate();
                 let start, end, label;
-
                 if (day <= 15) {
                     start = new Date(year, month, 1);
                     end = new Date(year, month, 15);
@@ -230,39 +233,22 @@ export default function ReportsScreen() {
                     end = endOfMonth(now);
                     label = `${format(start, 'MMM 16')} - ${format(end, 'd, yyyy')}`;
                 }
-
-                const defaultRange: DateRange = { 
-                    start: start.toISOString(), 
-                    end: end.toISOString(), 
-                    label, 
-                    type: 'period' 
-                };
+                const defaultRange: DateRange = { start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd'), label, type: 'period' };
                 setCurrentRange(defaultRange);
                 applyFilter(defaultRange, sectionsArray);
             } else {
                 applyFilter(currentRange, sectionsArray);
             }
-
-        } catch (e) { console.log("Fetch Error", e); } finally { setRefreshing(false); setIsLoading(false); }
+        } catch (e) { console.log("Fetch Error", e); } 
+        finally { setRefreshing(false); setIsLoading(false); }
     }, [currentRange, applyFilter]);
 
-    useFocusEffect(
-        useCallback(() => {
-            fetchReports();
-        }, [fetchReports])
-    );
+    useFocusEffect(useCallback(() => { fetchReports(); }, [fetchReports]));
 
     const handleExactDateSelect = (date: Date) => {
-        // NOTE: DatePicker passes a standard JS Date object
         if (date) {
-            const dateStr = date.toISOString(); // Full ISO for reference
-            // For label and logic we need YYYY-MM-DD sometimes, but our filter uses ISO splitting
-            const range: DateRange = {
-                start: dateStr,
-                end: dateStr,
-                label: format(date, 'MMMM d, yyyy'),
-                type: 'day' as any
-            };
+            const dateStr = format(date, 'yyyy-MM-dd');
+            const range: DateRange = { start: dateStr, end: dateStr, label: format(date, 'MMMM d, yyyy'), type: 'day' as any };
             setCurrentRange(range);
             applyFilter(range, allSections);
         }
@@ -273,76 +259,37 @@ export default function ReportsScreen() {
         applyFilter(range, allSections);
     };
 
-    const handleSharePDF = async () => {
-        setActionMenuVisible(false);
-        if (!currentRange || filteredSections.length === 0) return;
-        setLoadingAction(true);
-        try {
-            const allItems = filteredSections.flatMap(section => section.data);
-            const reportData = allItems.map(item => ({
-                date: item.date,
-                clockIn: item.clock_in ? format(new Date(item.clock_in), 'h:mm a') : '--:--',
-                clockOut: item.clock_out ? format(new Date(item.clock_out), 'h:mm a') : '--:--',
-                summary: item.accomplishments.map((t: any) => `• ${t.description}`).join('<br/>') || 'No tasks'
-            }));
-
-            await generateReport({
-                userName: userProfile?.full_name || 'User',
-                userTitle: userProfile?.title || 'Employee',
-                reportTitle: 'Accomplishment Report',
-                period: currentRange.label,
-                data: reportData,
-                style: 'corporate',
-                paperSize: 'Letter'
-            });
-
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                await supabase.from('report_history').insert({
-                    user_id: user.id,
-                    title: `PDF: ${currentRange.label}`,
-                    start_date: currentRange.start,
-                    end_date: currentRange.end,
-                    generated_at: new Date().toISOString()
-                });
-            }
-        } catch (e) {
-            setFloatingAlert({ visible: true, message: 'Failed to generate PDF', type: 'error' });
-        } finally {
-            setLoadingAction(false);
-        }
-    };
-
-    const handleShareExcel = async () => {
-        setActionMenuVisible(false);
-        if (!currentRange || filteredSections.length === 0) return;
-        setLoadingAction(true);
-        try {
-            const allItems = filteredSections.flatMap(section => section.data);
-            const excelData = allItems.map(item => ({
-                Date: item.date,
-                Clock_In: item.clock_in ? format(new Date(item.clock_in), 'h:mm a') : '--:--',
-                Clock_Out: item.clock_out ? format(new Date(item.clock_out), 'h:mm a') : '--:--',
-                Tasks: item.accomplishments.map((t: any) => t.description).join('; ')
-            }));
-
-            await exportToExcel(excelData, `Report_${currentRange.label}`);
-            
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                await supabase.from('report_history').insert({
-                    user_id: user.id,
-                    title: `XLSX: ${currentRange.label}`,
-                    start_date: currentRange.start,
-                    end_date: currentRange.end,
-                    generated_at: new Date().toISOString()
-                });
-            }
-        } catch (e) {
-            setFloatingAlert({ visible: true, message: 'Failed to generate Excel', type: 'error' });
-        } finally {
-            setLoadingAction(false);
-        }
+    const handleDeleteSelected = () => {
+        if (selectedIds.size === 0) return;
+        setAlertConfig({
+            visible: true,
+            type: 'confirm',
+            title: 'Delete Reports',
+            message: `Delete ${selectedIds.size} selected items?`,
+            confirmText: 'Delete',
+            cancelText: 'Cancel',
+            onConfirm: async () => {
+                setAlertConfig((p:any) => ({ ...p, visible: false }));
+                setLoadingAction(true);
+                try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    const userId = session?.user?.id;
+                    if (userId) {
+                        const job = await ReportService.getActiveJob(userId);
+                        if (job) {
+                            for (const date of selectedIds) await ReportService.deleteReportDay(userId, job.id, date);
+                            triggerSync();
+                            fetchReports();
+                            setSelectionMode(false);
+                            setSelectedIds(new Set());
+                            setFloatingAlert({ visible: true, message: 'Deleted.', type: 'success' });
+                        }
+                    }
+                } catch { setFloatingAlert({ visible: true, message: 'Failed.', type: 'error' }); }
+                finally { setLoadingAction(false); }
+            },
+            onCancel: () => setAlertConfig((p:any) => ({ ...p, visible: false }))
+        });
     };
 
     const toggleSelection = (date: string) => {
@@ -366,11 +313,11 @@ export default function ReportsScreen() {
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
             <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} />
-            
             <FloatingAlert visible={floatingAlert.visible} message={floatingAlert.message} type={floatingAlert.type as any} onHide={() => setFloatingAlert({...floatingAlert, visible: false})} />
+            <ModernAlert {...alertConfig} />
             <LoadingOverlay visible={loadingAction} message="Processing..." />
             
-            <CutoffSelectionModal 
+            <ReportFilterModal 
                 visible={modalVisible} 
                 onClose={() => setModalVisible(false)} 
                 availableDates={availableDates}
@@ -378,7 +325,6 @@ export default function ReportsScreen() {
                 onSelect={handleRangeSelect}
             />
 
-            {/* Custom Date Picker */}
             <DatePicker
                 visible={showDatePicker}
                 onClose={() => setShowDatePicker(false)}
@@ -387,18 +333,36 @@ export default function ReportsScreen() {
                 title="Select Specific Date"
             />
 
+            {/* MAIN ACTION MENU */}
             <ActionMenu 
                 visible={actionMenuVisible}
                 onClose={() => setActionMenuVisible(false)}
                 anchor={menuAnchor}
                 actions={[
                     { label: 'Add Entry', icon: PlusSignIcon, onPress: () => router.push('/reports/add-entry') },
-                    { label: 'Share PDF', icon: File02Icon, onPress: handleSharePDF },
-                    { label: 'Share Excel', icon: Share01Icon, onPress: handleShareExcel },
+                    { 
+                        label: 'Generate Report', 
+                        icon: File02Icon, 
+                        onPress: () => {
+                            setActionMenuVisible(false);
+                            if (filteredSections.length > 0) {
+                                // Navigate to Configuration Screen
+                                router.push({
+                                    pathname: '/reports/generate',
+                                    params: {
+                                        startDate: currentRange?.start,
+                                        endDate: currentRange?.end,
+                                        date: currentRange?.type === 'day' ? currentRange.start : undefined
+                                    }
+                                });
+                            } else {
+                                setFloatingAlert({ visible: true, message: 'No data to generate', type: 'error' });
+                            }
+                        } 
+                    },
                 ]}
             />
 
-            {/* HEADER */}
             <TabHeader 
                 title={selectionMode ? `${selectedIds.size} Selected` : "Reports"} 
                 rightElement={
@@ -406,7 +370,7 @@ export default function ReportsScreen() {
                         {!selectionMode && (
                             <>
                                 <TouchableOpacity 
-                                    onPress={async () => { await triggerSync(); fetchReports(); }} 
+                                    onPress={handleManualSync} 
                                     disabled={isSyncing} 
                                     style={[styles.headerBtn, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
                                 >
@@ -424,7 +388,7 @@ export default function ReportsScreen() {
                             </>
                         )}
                         {selectionMode && (
-                            <TouchableOpacity onPress={() => {}} disabled={selectedIds.size === 0} style={{ backgroundColor: theme.colors.danger + '15', padding: 10, borderRadius: 22 }}>
+                            <TouchableOpacity onPress={handleDeleteSelected} disabled={selectedIds.size === 0} style={{ backgroundColor: theme.colors.danger + '15', padding: 10, borderRadius: 22 }}>
                                 <HugeiconsIcon icon={Delete02Icon} size={20} color={theme.colors.danger} />
                             </TouchableOpacity>
                         )}
@@ -445,7 +409,6 @@ export default function ReportsScreen() {
                 </View>
             ) : (
                 <View style={{ flex: 1 }}>
-                    {/* Filter Bar with Date Picker Trigger */}
                     <ReportFilterBar 
                         onPress={() => setModalVisible(true)}
                         onCalendarPress={() => setShowDatePicker(true)}
@@ -492,34 +455,11 @@ export default function ReportsScreen() {
 
 const styles = StyleSheet.create({
     centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    
-    headerBtn: { 
-        width: 44, 
-        height: 44, 
-        borderRadius: 22, 
-        borderWidth: 1, 
-        alignItems: 'center', 
-        justifyContent: 'center' 
-    },
-    
-    offlineStatus: { 
-        flexDirection: 'row', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        paddingVertical: 8, 
-        borderBottomWidth: 1 
-    },
-
-    separator: {
-        height: 1,
-        marginHorizontal: 20,
-        opacity: 0.5,
-        marginBottom: 8
-    },
-
+    headerBtn: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+    offlineStatus: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 8, borderBottomWidth: 1 },
+    separator: { height: 1, marginHorizontal: 20, opacity: 0.5, marginBottom: 8 },
     sectionHeader: { paddingHorizontal: 20, paddingVertical: 12 },
     sectionTitle: { fontSize: 12, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase' },
-
     emptyContainer: { alignItems: 'center', justifyContent: 'center', marginTop: 100 },
     emptyIcon: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 16, borderWidth: 1 },
     emptyTitle: { fontSize: 16, fontWeight: '700', marginBottom: 4 },

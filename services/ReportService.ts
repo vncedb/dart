@@ -33,21 +33,34 @@ export const ReportService = {
   deleteReportDay: async (userId: string, jobId: string, date: string) => {
     const db = await getDB();
     
-    // Get IDs first for sync queue
-    const att: any = await db.getFirstAsync('SELECT id FROM attendance WHERE user_id = ? AND job_id = ? AND date = ?', [userId, jobId, date]);
-    const tasks: any[] = await db.getAllAsync('SELECT id FROM accomplishments WHERE user_id = ? AND job_id = ? AND date = ?', [userId, jobId, date]);
+    // STEP 1: Fetch Data BEFORE Deletion (Critical for "GitHub-like" file cleanup)
+    // We need the image_url to tell Supabase to delete the actual file later.
+    const att: any = await db.getFirstAsync(
+        'SELECT id FROM attendance WHERE user_id = ? AND job_id = ? AND date = ?', 
+        [userId, jobId, date]
+    );
+    const tasks: any[] = await db.getAllAsync(
+        'SELECT id, image_url FROM accomplishments WHERE user_id = ? AND job_id = ? AND date = ?', 
+        [userId, jobId, date]
+    );
 
-    if (att) await queueSyncItem('attendance', att.id, 'DELETE');
-    for (const t of tasks) { await queueSyncItem('accomplishments', t.id, 'DELETE'); }
+    // STEP 2: Queue Deletions with Metadata
+    if (att) {
+        await queueSyncItem('attendance', att.id, 'DELETE');
+    }
+    
+    for (const t of tasks) { 
+        // Pass the image_url in the payload so syncPush can delete the file from storage
+        await queueSyncItem('accomplishments', t.id, 'DELETE', { image_url: t.image_url }); 
+    }
 
-    // Delete
+    // STEP 3: Perform Local Deletion
     await db.runAsync('DELETE FROM attendance WHERE user_id = ? AND job_id = ? AND date = ?', [userId, jobId, date]);
     await db.runAsync('DELETE FROM accomplishments WHERE user_id = ? AND job_id = ? AND date = ?', [userId, jobId, date]);
   },
 
   groupReportsByPayout: (data: any[], payoutType: string) => {
     const today = new Date();
-    // Default to Semi-Monthly if not provided
     const type = payoutType || 'Semi-Monthly'; 
     
     return data.reduce((acc: any, curr) => {
@@ -71,14 +84,11 @@ export const ReportService = {
             dateRange = { start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd') };
             if (date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear()) isCurrent = true;
         } else {
-            // Semi-Monthly (Handles 'Semi-Monthly', 'Bi-Weekly' as fallback, etc.)
-            // Assumes 1st-15th and 16th-End of Month logic
-            const day = date.getDate();
             const month = date.toLocaleString('default', { month: 'long' });
             const year = date.getFullYear();
             const monthNum = date.getMonth() + 1;
             const monthStr = monthNum < 10 ? `0${monthNum}` : monthNum;
-            if (day <= 15) {
+            if (date.getDate() <= 15) {
                 groupKey = `1st Cutoff ${month} ${year}`;
                 dateRange = { start: `${year}-${monthStr}-01`, end: `${year}-${monthStr}-15` };
                 if (today.getFullYear() === year && today.getMonth() + 1 === monthNum && today.getDate() <= 15) isCurrent = true;

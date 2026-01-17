@@ -11,13 +11,13 @@ type SyncStatus = 'idle' | 'syncing' | 'success' | 'error';
 type SyncContextType = {
   syncStatus: SyncStatus;
   lastSyncedAt: string | null;
-  triggerSync: () => Promise<void>;
+  triggerSync: () => Promise<boolean>; // Changed return type
 };
 
 const SyncContext = createContext<SyncContextType>({
   syncStatus: 'idle',
   lastSyncedAt: null,
-  triggerSync: async () => {},
+  triggerSync: async () => false,
 });
 
 export const useSync = () => useContext(SyncContext);
@@ -28,7 +28,6 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [dbReady, setDbReady] = useState(false);
   
-  // Use a ref to prevent overlapping syncs
   const isSyncing = useRef(false);
 
   useEffect(() => {
@@ -46,13 +45,12 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
     startDB();
   }, []);
 
-  const triggerSync = async () => {
-    if (!user || !dbReady || isSyncing.current) return;
+  const triggerSync = async (): Promise<boolean> => {
+    if (!user || !dbReady || isSyncing.current) return false;
     
     const state = await NetInfo.fetch();
     if (!state.isConnected || !state.isInternetReachable) {
-        // We are offline, just stay idle/pending
-        return; 
+        return false; 
     }
 
     try {
@@ -61,6 +59,9 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
       
       // 1. PUSH Local Changes -> Cloud
       const pushResult = await syncPush();
+      if (pushResult.success === false) {
+          throw new Error('Push failed');
+      }
       
       // 2. PULL Cloud Changes -> Local
       await syncPull(user.id);
@@ -70,45 +71,36 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
       if (res?.value) setLastSyncedAt(res.value);
       
       setSyncStatus('success');
-      
-      // Reset status after a delay so user sees "Success" briefly
       setTimeout(() => setSyncStatus('idle'), 3000); 
+      return true;
 
     } catch (e) {
       console.error("Sync Context Error:", e);
       setSyncStatus('error');
+      setTimeout(() => setSyncStatus('idle'), 3000); 
+      return false;
     } finally {
       isSyncing.current = false;
     }
   };
 
-  // --- AUTO SYNC TRIGGERS ---
-
-  // 1. Auto-sync when app comes to foreground
+  // Auto-sync triggers
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextAppState => {
-      if (nextAppState === 'active') {
-        triggerSync();
-      }
+      if (nextAppState === 'active') triggerSync();
     });
     return () => subscription.remove();
   }, [user, dbReady]);
 
-  // 2. Auto-sync when internet reconnects
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
-      if (state.isConnected && state.isInternetReachable) {
-        triggerSync();
-      }
+      if (state.isConnected && state.isInternetReachable) triggerSync();
     });
     return () => unsubscribe();
   }, [user, dbReady]);
 
-  // 3. Initial Sync on Load
   useEffect(() => {
-    if (user && dbReady) {
-        triggerSync();
-    }
+    if (user && dbReady) triggerSync();
   }, [user, dbReady]);
 
   return (
