@@ -40,9 +40,18 @@ interface TimePickerProps {
 const CLOCK_SIZE = 260;
 const CENTER = CLOCK_SIZE / 2;
 const RADIUS = CLOCK_SIZE / 2 - 32;
-const SMOOTH_EASING = Easing.out(Easing.cubic);
 
-const snapToClosest = (current: number, target: number) => {
+// Standardized easing
+const ANIMATION_EASING = Easing.out(Easing.quad);
+
+const normalizeAngle = (angle: number) => {
+  let a = angle % 360;
+  if (a < 0) a += 360;
+  return a;
+};
+
+// Helper to handle the 360 wrap-around smoothly for Reanimated
+const getShortestPath = (current: number, target: number) => {
   const diff = ((target - (current % 360) + 540) % 360) - 180;
   return current + diff;
 };
@@ -68,6 +77,7 @@ export default function TimePicker({
   const angle = useSharedValue(0);
   const modeRef = useRef<"HOUR" | "MINUTE">("HOUR");
   const lastHapticValue = useRef<number | null>(null);
+  const isDragging = useRef(false);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -83,38 +93,60 @@ export default function TimePicker({
       setMinutes(initialMinutes || 0);
       setPeriod(initialPeriod || "AM");
       setMode("HOUR");
+
       const startAngle = (h === 12 ? 0 : h) * 30;
       angle.value = startAngle;
 
       openAnim.value = 0;
-      openAnim.value = withTiming(1, { duration: 350, easing: SMOOTH_EASING });
-    } else {
-      openAnim.value = withTiming(
-        0,
-        { duration: 250, easing: SMOOTH_EASING },
-        (finished) => {
-          if (finished) runOnJS(setShowModal)(false);
-        },
-      );
+      openAnim.value = withTiming(1, {
+        duration: 300,
+        easing: ANIMATION_EASING,
+      });
     }
-  }, [visible]);
+  }, [visible, initialHours, initialMinutes, initialPeriod]);
 
+  const handleClose = () => {
+    openAnim.value = withTiming(
+      0,
+      { duration: 250, easing: ANIMATION_EASING },
+      (finished) => {
+        if (finished) runOnJS(onClose)();
+        if (finished) runOnJS(setShowModal)(false);
+      },
+    );
+  };
+
+  const handleConfirm = () => {
+    if (Platform.OS !== "web") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+    onConfirm(hours, minutes, period);
+    handleClose();
+  };
+
+  // Effect to snap the hand when switching modes or initial load
+  // BUT NOT when dragging
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || isDragging.current) return;
+
     let targetAngle =
       mode === "HOUR" ? (hours === 12 ? 0 : hours) * 30 : minutes * 6;
-    const current = angle.value;
-    const next = snapToClosest(current, targetAngle);
-    // Changed easing to standard cubic to remove bounce
+
+    const next = getShortestPath(angle.value, targetAngle);
+
     angle.value = withTiming(next, {
       duration: 400,
-      easing: Easing.out(Easing.cubic),
+      easing: Easing.out(Easing.back(0.8)), // Slight overshot for mechanical feel
     });
-  }, [mode, hours, minutes]);
+  }, [mode, hours, minutes, visible]);
 
   const handleTouch = (x: number, y: number, finish: boolean) => {
+    isDragging.current = !finish;
+
     const dx = x - CENTER;
     const dy = y - CENTER;
+
+    // Calculate raw angle from center (0-360)
     let theta = Math.atan2(dy, dx) * (180 / Math.PI) + 90;
     if (theta < 0) theta += 360;
 
@@ -122,11 +154,13 @@ export default function TimePicker({
     let val = 0;
     let snappedAngle = 0;
 
+    // Determine the "Value" based on the angle (for display & haptics)
     if (currentMode === "HOUR") {
       const step = 30;
       snappedAngle = Math.round(theta / step) * step;
       val = Math.round(snappedAngle / 30);
-      if (val === 0) val = 12;
+      if (val === 0 || val === 12) val = 12;
+      else if (val > 12) val -= 12;
     } else {
       const step = 6;
       snappedAngle = Math.round(theta / step) * step;
@@ -134,25 +168,32 @@ export default function TimePicker({
       if (val === 60) val = 0;
     }
 
+    // Haptics on value change
     if (val !== lastHapticValue.current) {
       if (Platform.OS !== "web") Haptics.selectionAsync();
       lastHapticValue.current = val;
+
+      // Update display state immediately
+      if (currentMode === "HOUR") setHours(val);
+      else setMinutes(val);
     }
 
-    angle.value = withTiming(snapToClosest(angle.value, snappedAngle), {
-      duration: 50,
-      easing: Easing.linear,
-    });
-
-    if (currentMode === "HOUR") {
-      if (finish) {
-        setHours(val);
-        setMode("MINUTE");
-      } else {
-        setHours(val);
-      }
+    if (!finish) {
+      // SMOOTH MOVEMENT: Follow finger exactly
+      // We use getShortestPath to ensure we don't spin 360 degrees if crossing the 0/360 boundary
+      angle.value = getShortestPath(angle.value, theta);
     } else {
-      setMinutes(val);
+      // SNAP ON RELEASE: Go to the exact tick mark
+      const finalSnap = getShortestPath(angle.value, snappedAngle);
+      angle.value = withTiming(finalSnap, {
+        duration: 300,
+        easing: Easing.out(Easing.cubic),
+      });
+
+      // Auto-advance mode on release
+      if (currentMode === "HOUR") {
+        setMode("MINUTE");
+      }
     }
   };
 
@@ -176,34 +217,43 @@ export default function TimePicker({
     }),
   ).current;
 
-  const handProps = useAnimatedProps(() => ({
-    x2: CENTER + RADIUS * Math.cos((angle.value - 90) * (Math.PI / 180)),
-    y2: CENTER + RADIUS * Math.sin((angle.value - 90) * (Math.PI / 180)),
-  }));
-  const knobProps = useAnimatedProps(() => ({
-    cx: CENTER + RADIUS * Math.cos((angle.value - 90) * (Math.PI / 180)),
-    cy: CENTER + RADIUS * Math.sin((angle.value - 90) * (Math.PI / 180)),
-  }));
+  // Animated Props for SVG elements
+  const handProps = useAnimatedProps(() => {
+    const rad = (angle.value - 90) * (Math.PI / 180);
+    return {
+      x2: CENTER + RADIUS * Math.cos(rad),
+      y2: CENTER + RADIUS * Math.sin(rad),
+    };
+  });
+
+  const knobProps = useAnimatedProps(() => {
+    const rad = (angle.value - 90) * (Math.PI / 180);
+    return {
+      cx: CENTER + RADIUS * Math.cos(rad),
+      cy: CENTER + RADIUS * Math.sin(rad),
+    };
+  });
 
   const backdropStyle = useAnimatedStyle(() => ({ opacity: openAnim.value }));
   const containerStyle = useAnimatedStyle(() => ({
     opacity: openAnim.value,
-    transform: [{ scale: interpolate(openAnim.value, [0, 1], [0.9, 1]) }],
+    transform: [{ scale: interpolate(openAnim.value, [0, 1], [0.95, 1]) }],
   }));
 
   if (!showModal) return null;
 
   return (
     <Modal
-      visible={true}
+      visible={visible}
       transparent
       animationType="none"
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
       statusBarTranslucent
     >
-      {/* Removed onPress={onClose} */}
       <View style={styles.overlay}>
         <Animated.View style={[styles.backdrop, backdropStyle]} />
+        <Pressable onPress={handleClose} style={StyleSheet.absoluteFill} />
+
         <Pressable onPress={(e) => e.stopPropagation()}>
           <Animated.View
             style={[
@@ -223,12 +273,10 @@ export default function TimePicker({
                   }}
                   style={[
                     styles.timeUnit,
-                    mode === "HOUR"
-                      ? {
-                          backgroundColor: theme.colors.primary + "15",
-                          borderRadius: 12,
-                        }
-                      : null,
+                    mode === "HOUR" && {
+                      backgroundColor: theme.colors.primary + "15",
+                      borderRadius: 12,
+                    },
                   ]}
                 >
                   <Text
@@ -256,12 +304,10 @@ export default function TimePicker({
                   }}
                   style={[
                     styles.timeUnit,
-                    mode === "MINUTE"
-                      ? {
-                          backgroundColor: theme.colors.primary + "15",
-                          borderRadius: 12,
-                        }
-                      : null,
+                    mode === "MINUTE" && {
+                      backgroundColor: theme.colors.primary + "15",
+                      borderRadius: 12,
+                    },
                   ]}
                 >
                   <Text
@@ -330,18 +376,7 @@ export default function TimePicker({
                   r={4}
                   fill={theme.colors.primary}
                 />
-                <AnimatedLine
-                  x1={CENTER}
-                  y1={CENTER}
-                  stroke={theme.colors.primary}
-                  strokeWidth="2"
-                  animatedProps={handProps}
-                />
-                <AnimatedCircle
-                  r="18"
-                  fill={theme.colors.primary}
-                  animatedProps={knobProps}
-                />
+                {/* Numbers */}
                 {mode === "HOUR" &&
                   Array.from({ length: 12 }).map((_, i) => {
                     const val = i + 1;
@@ -383,6 +418,20 @@ export default function TimePicker({
                       </G>
                     );
                   })}
+
+                {/* Hand and Knob (Drawn last to be on top) */}
+                <AnimatedLine
+                  x1={CENTER}
+                  y1={CENTER}
+                  stroke={theme.colors.primary}
+                  strokeWidth="2"
+                  animatedProps={handProps}
+                />
+                <AnimatedCircle
+                  r="18"
+                  fill={theme.colors.primary}
+                  animatedProps={knobProps}
+                />
               </Svg>
             </View>
             <View
@@ -391,21 +440,14 @@ export default function TimePicker({
               <Button
                 title="Cancel"
                 variant="neutral"
-                onPress={onClose}
+                onPress={handleClose}
                 style={{ flex: 1 }}
               />
               <View style={{ width: 16 }} />
               <Button
                 title="Confirm"
                 variant="primary"
-                onPress={() => {
-                  if (Platform.OS !== "web")
-                    Haptics.notificationAsync(
-                      Haptics.NotificationFeedbackType.Success,
-                    );
-                  onConfirm(hours, minutes, period);
-                  onClose();
-                }}
+                onPress={handleConfirm}
                 style={{ flex: 1 }}
               />
             </View>

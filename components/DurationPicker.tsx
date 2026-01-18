@@ -27,6 +27,7 @@ interface DurationPickerProps {
   initialMinutes?: number;
 }
 
+const ANIMATION_EASING = Easing.out(Easing.quad);
 const SMOOTH_EASING = Easing.out(Easing.cubic);
 
 const TickerNumber = ({ value, max }: { value: number; max: number }) => {
@@ -109,37 +110,49 @@ export default function DurationPicker({
       setDurHours(initialHours);
       setDurMins(initialMinutes);
       openAnim.value = 0;
-      openAnim.value = withTiming(1, { duration: 350, easing: SMOOTH_EASING });
-    } else {
-      openAnim.value = withTiming(
-        0,
-        { duration: 250, easing: SMOOTH_EASING },
-        (finished) => {
-          if (finished) runOnJS(setShowModal)(false);
-        },
-      );
+      openAnim.value = withTiming(1, {
+        duration: 300,
+        easing: ANIMATION_EASING,
+      });
     }
   }, [visible, initialHours, initialMinutes]);
+
+  const handleClose = () => {
+    openAnim.value = withTiming(
+      0,
+      { duration: 250, easing: ANIMATION_EASING },
+      (finished) => {
+        if (finished) runOnJS(onClose)();
+        if (finished) runOnJS(setShowModal)(false);
+      },
+    );
+  };
+
+  const handleConfirm = () => {
+    onConfirm(durHours, durMins);
+    handleClose();
+  };
 
   const backdropStyle = useAnimatedStyle(() => ({ opacity: openAnim.value }));
   const containerStyle = useAnimatedStyle(() => ({
     opacity: openAnim.value,
-    transform: [{ scale: interpolate(openAnim.value, [0, 1], [0.9, 1]) }],
+    transform: [{ scale: interpolate(openAnim.value, [0, 1], [0.95, 1]) }],
   }));
 
   if (!showModal) return null;
 
   return (
     <Modal
-      visible={true}
+      visible={visible}
       transparent
       animationType="none"
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
       statusBarTranslucent
     >
-      {/* Removed onPress={onClose} */}
       <View style={styles.overlay}>
         <Animated.View style={[styles.backdrop, backdropStyle]} />
+        <Pressable onPress={handleClose} style={StyleSheet.absoluteFill} />
+
         <Pressable onPress={(e) => e.stopPropagation()}>
           <Animated.View
             style={[
@@ -270,17 +283,14 @@ export default function DurationPicker({
               <Button
                 title="Cancel"
                 variant="neutral"
-                onPress={onClose}
+                onPress={handleClose}
                 style={{ flex: 1 }}
               />
               <View style={{ width: 12 }} />
               <Button
                 title="Confirm"
                 variant="primary"
-                onPress={() => {
-                  onConfirm(durHours, durMins);
-                  onClose();
-                }}
+                onPress={handleConfirm}
                 style={{ flex: 1 }}
               />
             </View>
@@ -322,5 +332,5 @@ const styles = StyleSheet.create({
     borderColor: "rgba(0,0,0,0.05)",
   },
   btnText: { fontSize: 24, fontWeight: "600" },
-  footer: { padding: 16, borderTopWidth: 1, flexDirection: "row" },
+  footer: { padding: 20, borderTopWidth: 1, flexDirection: "row" },
 });

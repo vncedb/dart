@@ -32,7 +32,7 @@ interface OvertimeModalProps {
   theme: any;
 }
 
-const SMOOTH_EASING = Easing.out(Easing.cubic);
+const ANIMATION_EASING = Easing.out(Easing.quad);
 
 export default function OvertimeModal({
   visible,
@@ -40,14 +40,9 @@ export default function OvertimeModal({
   onConfirm,
   theme,
 }: OvertimeModalProps) {
-  const [mode, setMode] = useState<"duration" | "time">("duration");
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [showDurationPicker, setShowDurationPicker] = useState(false);
   const [showModal, setShowModal] = useState(visible);
-
-  const [hours, setHours] = useState(0);
-  const [minutes, setMinutes] = useState(0);
-  const [endTime, setEndTime] = useState<Date>(new Date());
 
   const openAnim = useSharedValue(0);
 
@@ -55,29 +50,57 @@ export default function OvertimeModal({
     if (visible) {
       setShowModal(true);
       openAnim.value = 0;
-      openAnim.value = withTiming(1, { duration: 350, easing: SMOOTH_EASING });
-    } else {
-      openAnim.value = withTiming(
-        0,
-        { duration: 250, easing: SMOOTH_EASING },
-        (finished) => {
-          if (finished) runOnJS(setShowModal)(false);
-        },
-      );
+      openAnim.value = withTiming(1, {
+        duration: 300,
+        easing: ANIMATION_EASING,
+      });
     }
   }, [visible]);
 
-  const getFinalDuration = () =>
-    mode === "duration"
-      ? hours + minutes / 60
-      : Math.max(0, (endTime.getTime() - new Date().getTime()) / 3600000);
-  const openPicker = () =>
-    mode === "duration" ? setShowDurationPicker(true) : setShowTimePicker(true);
+  const handleClose = () => {
+    openAnim.value = withTiming(
+      0,
+      { duration: 250, easing: ANIMATION_EASING },
+      (finished) => {
+        if (finished) runOnJS(onClose)();
+        if (finished) runOnJS(setShowModal)(false);
+      },
+    );
+  };
+
+  const handleDurationConfirm = (h: number, m: number) => {
+    const totalHours = h + m / 60;
+    if (totalHours > 0) {
+      handleClose();
+      setTimeout(() => onConfirm(totalHours), 100);
+    }
+  };
+
+  const handleTimeConfirm = (h: number, m: number, p?: "AM" | "PM") => {
+    const now = new Date();
+    const targetDate = new Date();
+    let hour = h;
+
+    if (p === "PM" && h < 12) hour += 12;
+    if (p === "AM" && h === 12) hour = 0;
+
+    targetDate.setHours(hour);
+    targetDate.setMinutes(m);
+
+    // Calculate difference
+    const diff = (targetDate.getTime() - now.getTime()) / 3600000;
+    const finalHours = Math.max(0, diff);
+
+    if (finalHours >= 0) {
+      handleClose();
+      setTimeout(() => onConfirm(finalHours), 100);
+    }
+  };
 
   const backdropStyle = useAnimatedStyle(() => ({ opacity: openAnim.value }));
   const containerStyle = useAnimatedStyle(() => ({
     opacity: openAnim.value,
-    transform: [{ scale: interpolate(openAnim.value, [0, 1], [0.9, 1]) }],
+    transform: [{ scale: interpolate(openAnim.value, [0, 1], [0.95, 1]) }],
   }));
 
   if (!showModal) return null;
@@ -85,14 +108,17 @@ export default function OvertimeModal({
   return (
     <Modal
       transparent
-      visible={true}
+      visible={visible}
       animationType="none"
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
       statusBarTranslucent
     >
-      {/* Removed onPress={onClose} */}
       <View style={styles.overlay}>
         <Animated.View style={[styles.backdrop, backdropStyle]} />
+        <Pressable onPress={handleClose} style={StyleSheet.absoluteFill}>
+          <View style={styles.overlay} />
+        </Pressable>
+
         <Pressable onPress={(e) => e.stopPropagation()}>
           <Animated.View
             style={[
@@ -101,9 +127,7 @@ export default function OvertimeModal({
               containerStyle,
             ]}
           >
-            <View
-              style={{ alignItems: "center", marginBottom: 20, paddingTop: 10 }}
-            >
+            <View style={styles.headerContent}>
               <View
                 style={[
                   styles.iconWrapper,
@@ -122,51 +146,17 @@ export default function OvertimeModal({
               <Text
                 style={[styles.subtitle, { color: theme.colors.textSecondary }]}
               >
-                Checking in outside standard shift?
+                You are checking out late. How would you like to record this
+                overtime?
               </Text>
             </View>
 
-            <View style={{ paddingHorizontal: 4 }}>
-              <View
-                style={[
-                  styles.toggleContainer,
-                  { backgroundColor: theme.colors.background },
-                ]}
-              >
-                {["duration", "time"].map((m) => (
-                  <TouchableOpacity
-                    key={m}
-                    onPress={() => setMode(m as any)}
-                    style={[
-                      styles.toggleBtn,
-                      mode === m && [
-                        styles.activeToggle,
-                        { backgroundColor: theme.colors.card },
-                      ],
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.toggleText,
-                        {
-                          color:
-                            mode === m
-                              ? theme.colors.primary
-                              : theme.colors.textSecondary,
-                        },
-                      ]}
-                    >
-                      {m === "duration" ? "Duration" : "End Time"}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
+            <View style={styles.selectionGrid}>
               <TouchableOpacity
-                onPress={openPicker}
+                onPress={() => setShowDurationPicker(true)}
                 activeOpacity={0.8}
                 style={[
-                  styles.inputBtn,
+                  styles.selectionBtn,
                   {
                     backgroundColor: theme.colors.background,
                     borderColor: theme.colors.border,
@@ -175,42 +165,57 @@ export default function OvertimeModal({
               >
                 <View
                   style={[
-                    styles.inputIconBox,
-                    { backgroundColor: theme.colors.card },
+                    styles.btnIcon,
+                    { backgroundColor: theme.colors.primary + "15" },
                   ]}
                 >
                   <HugeiconsIcon
-                    icon={mode === "duration" ? HourglassIcon : Clock01Icon}
-                    size={22}
-                    color={theme.colors.text}
+                    icon={HourglassIcon}
+                    size={24}
+                    color={theme.colors.primary}
                   />
                 </View>
-                <View>
-                  <Text
-                    style={{
-                      fontSize: 11,
-                      color: theme.colors.textSecondary,
-                      fontWeight: "700",
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    {mode === "duration" ? "Add Duration" : "Ends At"}
-                  </Text>
-                  <Text
-                    style={{
-                      fontSize: 18,
-                      fontWeight: "800",
-                      color: theme.colors.text,
-                    }}
-                  >
-                    {mode === "duration"
-                      ? `${hours} hr ${minutes} min`
-                      : endTime.toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                  </Text>
+                <Text style={[styles.btnTitle, { color: theme.colors.text }]}>
+                  Set Duration
+                </Text>
+                <Text
+                  style={[styles.btnSub, { color: theme.colors.textSecondary }]}
+                >
+                  Add total hours
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setShowTimePicker(true)}
+                activeOpacity={0.8}
+                style={[
+                  styles.selectionBtn,
+                  {
+                    backgroundColor: theme.colors.background,
+                    borderColor: theme.colors.border,
+                  },
+                ]}
+              >
+                <View
+                  style={[
+                    styles.btnIcon,
+                    { backgroundColor: theme.colors.primary + "15" },
+                  ]}
+                >
+                  <HugeiconsIcon
+                    icon={Clock01Icon}
+                    size={24}
+                    color={theme.colors.primary}
+                  />
                 </View>
+                <Text style={[styles.btnTitle, { color: theme.colors.text }]}>
+                  Set End Time
+                </Text>
+                <Text
+                  style={[styles.btnSub, { color: theme.colors.textSecondary }]}
+                >
+                  Pick checkout time
+                </Text>
               </TouchableOpacity>
             </View>
 
@@ -220,47 +225,36 @@ export default function OvertimeModal({
               <Button
                 title="Cancel"
                 variant="neutral"
-                onPress={onClose}
-                style={{ flex: 1 }}
-              />
-              <View style={{ width: 12 }} />
-              <Button
-                title="Confirm"
-                variant="primary"
-                onPress={() => onConfirm(getFinalDuration())}
-                disabled={getFinalDuration() <= 0}
+                onPress={handleClose}
                 style={{ flex: 1 }}
               />
             </View>
           </Animated.View>
         </Pressable>
 
+        {/* Pickers */}
         <TimePicker
           visible={showTimePicker}
           onClose={() => setShowTimePicker(false)}
-          onConfirm={(h, m, p) => {
-            const newDate = new Date();
-            let hour = h;
-            if (p === "PM" && h < 12) hour += 12;
-            if (p === "AM" && h === 12) hour = 0;
-            newDate.setHours(hour);
-            newDate.setMinutes(m);
-            setEndTime(newDate);
-          }}
-          initialHours={endTime.getHours()}
-          initialMinutes={endTime.getMinutes()}
+          onConfirm={handleTimeConfirm}
+          initialHours={
+            new Date().getHours() > 12
+              ? new Date().getHours() - 12
+              : new Date().getHours() === 0
+                ? 12
+                : new Date().getHours()
+          }
+          initialMinutes={new Date().getMinutes()}
+          initialPeriod={new Date().getHours() >= 12 ? "PM" : "AM"}
           title="Set Check Out Time"
         />
 
         <DurationPicker
           visible={showDurationPicker}
           onClose={() => setShowDurationPicker(false)}
-          onConfirm={(h, m) => {
-            setHours(h);
-            setMinutes(m);
-          }}
-          initialHours={hours}
-          initialMinutes={minutes}
+          onConfirm={handleDurationConfirm}
+          initialHours={0}
+          initialMinutes={0}
         />
       </View>
     </Modal>
@@ -280,10 +274,15 @@ const styles = StyleSheet.create({
   },
   container: {
     width: 340,
-    borderRadius: 24,
-    padding: 20,
-    overflow: "hidden",
-    elevation: 10,
+    borderRadius: 28,
+    overflow: "hidden", // Changed back to hidden so padding applies correctly inside
+    elevation: 20,
+  },
+  headerContent: {
+    alignItems: "center",
+    paddingTop: 24, // Moved padding here to match standard modal look
+    marginBottom: 24,
+    paddingHorizontal: 24,
   },
   iconWrapper: {
     width: 64,
@@ -291,56 +290,60 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: "800",
-    marginBottom: 4,
-    letterSpacing: -0.5,
-  },
-  subtitle: { fontSize: 13, textAlign: "center" },
-  toggleContainer: {
-    flexDirection: "row",
-    borderRadius: 14,
-    padding: 4,
-    height: 48,
     marginBottom: 16,
   },
-  toggleBtn: {
+  title: {
+    fontSize: 20,
+    fontWeight: "800",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  subtitle: {
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 20,
+    paddingHorizontal: 10,
+  },
+
+  selectionGrid: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 24,
+    paddingHorizontal: 24,
+  },
+  selectionBtn: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 10,
-  },
-  activeToggle: {
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  toggleText: { fontWeight: "700", fontSize: 13, textTransform: "capitalize" },
-  inputBtn: {
-    width: "100%",
-    height: 72,
+    paddingVertical: 20,
+    paddingHorizontal: 12,
     borderRadius: 16,
-    padding: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
     borderWidth: 1,
-  },
-  inputIconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
   },
+  btnIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  btnTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  btnSub: {
+    fontSize: 11,
+    fontWeight: "500",
+    textAlign: "center",
+    opacity: 0.8,
+  },
+
   footer: {
-    flexDirection: "row",
-    marginTop: 24,
-    paddingTop: 20,
+    flexDirection: "row", // Matches TimePicker layout
+    padding: 20, // Matches TimePicker padding
     borderTopWidth: 1,
   },
 });
