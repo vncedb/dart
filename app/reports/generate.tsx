@@ -100,13 +100,11 @@ export default function GenerateReportScreen() {
     // --- NAVIGATION GUARD ---
     useEffect(() => {
         const unsubscribe = navigation.addListener('beforeRemove', (e) => {
-            // Create a temporary object for comparison to avoid 'loading' triggering updates
             const currentSettings = JSON.stringify({
                 formatType, paperSize, reportStyle, dateFormat, timeFormat, 
-                includeDocs, includeDay, includeDept, columns, signature, customName, customTitle
+                includeDocs, includeDay, includeDept, columns, signature, customName, customTitle, companyName, department
             });
 
-            // Prevent alert if we are still loading OR if nothing changed
             if (loading || currentSettings === initialSettings) {
                 return;
             }
@@ -127,7 +125,7 @@ export default function GenerateReportScreen() {
             });
         });
         return unsubscribe;
-    }, [navigation, loading, initialSettings, formatType, paperSize, reportStyle, dateFormat, timeFormat, includeDocs, includeDay, includeDept, columns, signature, customName, customTitle]);
+    }, [navigation, loading, initialSettings, formatType, paperSize, reportStyle, dateFormat, timeFormat, includeDocs, includeDay, includeDept, columns, signature, customName, customTitle, companyName, department]);
 
     // --- INITIALIZATION ---
     useEffect(() => {
@@ -158,11 +156,8 @@ export default function GenerateReportScreen() {
                 // 1. Set Meta from Profile/Job
                 let currentName = profile?.full_name || '';
                 let currentTitle = profile?.title || job?.title || '';
-                
-                if (job) {
-                    setCompanyName(job.company_name || job.organization || '');
-                    setDepartment(job.department || '');
-                }
+                let currentCompany = job?.company_name || job?.organization || '';
+                let currentDept = job?.department || '';
 
                 // 2. Load Saved Settings
                 if (settingsRes) {
@@ -180,10 +175,15 @@ export default function GenerateReportScreen() {
                     
                     if (loaded.customName) currentName = loaded.customName;
                     if (loaded.customTitle) currentTitle = loaded.customTitle;
+                    // Note: We generally don't save company/dept in local storage as it comes from DB, 
+                    // but if the user edited it manually, we might want to respect that. 
+                    // For now, we prioritize DB, but let user edit in session.
                 }
 
                 setCustomName(currentName);
                 setCustomTitle(currentTitle);
+                setCompanyName(currentCompany);
+                setDepartment(currentDept);
 
                 // 3. Snapshot for "Unsaved Changes" check
                 setInitialSettings(JSON.stringify({
@@ -198,7 +198,9 @@ export default function GenerateReportScreen() {
                     columns: settingsRes ? JSON.parse(settingsRes).columns : { time: true, duration: true, activities: true, remarks: false },
                     signature: settingsRes ? JSON.parse(settingsRes).signature : null,
                     customName: currentName,
-                    customTitle: currentTitle
+                    customTitle: currentTitle,
+                    companyName: currentCompany,
+                    department: currentDept
                 }));
 
                 // 4. Fetch Report Data
@@ -246,14 +248,12 @@ export default function GenerateReportScreen() {
 
         init();
         return () => { isMounted = false; };
-        
-        // FIXED: Only depend on date strings to prevent infinite loop on object reference change
     }, [params.startDate, params.endDate, params.date]); 
 
     const hasSettingsChanged = () => {
         const current = JSON.stringify({
             formatType, paperSize, reportStyle, dateFormat, timeFormat, 
-            includeDocs, includeDay, includeDept, columns, signature, customName, customTitle
+            includeDocs, includeDay, includeDept, columns, signature, customName, customTitle, companyName, department
         });
         return current !== initialSettings;
     };
@@ -271,7 +271,8 @@ export default function GenerateReportScreen() {
                     includeDocs, includeDay, includeDept, columns, signature, customName, customTitle
                 };
                 await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsToSave));
-                setInitialSettings(JSON.stringify(settingsToSave));
+                // Update initial settings so we don't prompt on exit
+                setInitialSettings(JSON.stringify({ ...settingsToSave, companyName, department }));
             } catch (e) { console.log("Failed to save settings"); }
         }
 
@@ -294,8 +295,8 @@ export default function GenerateReportScreen() {
                     meta: {
                         name: customName,
                         title: customTitle,
-                        company: companyName,
-                        department: department,
+                        company: companyName, // Passed from editable state
+                        department: department, // Passed from editable state
                         period: periodLabel,
                         signature
                     }
@@ -563,12 +564,35 @@ export default function GenerateReportScreen() {
                             </View>
                         </View>
 
-                        {/* 4. AUTHORIZATION - Hidden for Excel */}
+                        {/* 4. AUTHORIZATION & DETAILS - Hidden for Excel */}
                         {formatType === 'pdf' && (
                             <View style={styles.section}>
-                                <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>AUTHORIZATION</Text>
+                                <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>REPORT DETAILS & AUTHORIZATION</Text>
                                 <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 20, gap: 16 }]}>
                                     
+                                    {/* ADDED: Organization & Department Inputs */}
+                                    <View>
+                                        <Text style={[styles.inputLabel, { color: theme.colors.textSecondary }]}>Organization Name</Text>
+                                        <TextInput 
+                                            value={companyName} onChangeText={setCompanyName}
+                                            placeholder="Company/Organization"
+                                            placeholderTextColor={theme.colors.textSecondary}
+                                            style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+                                        />
+                                    </View>
+
+                                    <View>
+                                        <Text style={[styles.inputLabel, { color: theme.colors.textSecondary }]}>Department</Text>
+                                        <TextInput 
+                                            value={department} onChangeText={setDepartment}
+                                            placeholder="Department Name"
+                                            placeholderTextColor={theme.colors.textSecondary}
+                                            style={[styles.input, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+                                        />
+                                    </View>
+
+                                    <View style={[styles.divider, { backgroundColor: theme.colors.border }]} />
+
                                     <View>
                                         <Text style={[styles.inputLabel, { color: theme.colors.textSecondary }]}>Printed Name</Text>
                                         <TextInput 

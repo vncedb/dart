@@ -36,7 +36,7 @@ export const exportToExcel = async ({
     // --- Table Headers ---
     const headers = ["Date"];
     if (columns?.time) { headers.push("Time In", "Time Out"); }
-    if (columns?.duration) { headers.push("Duration"); }
+    if (columns?.duration) { headers.push("Hours"); }
     headers.push("Activities");
     if (columns?.remarks) { headers.push("Remarks"); }
     // Removed Documentation column as requested for Excel
