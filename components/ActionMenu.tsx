@@ -1,21 +1,29 @@
-import { HugeiconsIcon } from '@hugeicons/react-native';
-import React, { useEffect } from 'react';
-import { Dimensions, Modal, Pressable, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { HugeiconsIcon } from "@hugeicons/react-native";
+import React, { useEffect } from "react";
+import {
+  Dimensions,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import Animated, {
   Easing,
   interpolateColor,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
-  withTiming
-} from 'react-native-reanimated';
-import { useAppTheme } from '../constants/theme';
+  withTiming,
+} from "react-native-reanimated";
+import { useAppTheme } from "../constants/theme";
 
 interface ActionItem {
   label: string;
   icon: any;
   onPress: () => void;
-  color?: string; 
+  color?: string;
   destructive?: boolean;
 }
 
@@ -23,42 +31,48 @@ interface ActionMenuProps {
   visible: boolean;
   onClose: () => void;
   actions: ActionItem[];
-  // anchor: { x: global X of tap/element, y: global Y of bottom of element }
-  anchor?: { x: number, y: number }; 
+  /** * Exact position for the top-right corner of the menu.
+   */
+  anchor?: { x: number; y: number };
 }
 
 const AnimatedView = Animated.createAnimatedComponent(View);
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const MENU_WIDTH = 220;
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const MENU_WIDTH = 180;
 
-export default function ActionMenu({ visible, onClose, actions, anchor }: ActionMenuProps) {
+export default function ActionMenu({
+  visible,
+  onClose,
+  actions,
+  anchor,
+}: ActionMenuProps) {
   const theme = useAppTheme();
-  
-  // Animation values
+
   const opacity = useSharedValue(0);
-  const scale = useSharedValue(0.5);
-  const translateY = useSharedValue(-20);
-  const translateX = useSharedValue(20);
+  const scale = useSharedValue(0.8);
+  const translateY = useSharedValue(-10);
+  const translateX = useSharedValue(10);
 
   useEffect(() => {
     if (visible) {
-      // HyperOS 3.0 style spring physics: Snappy but fluid
       const springConfig = {
-        damping: 15,
-        mass: 0.8,
-        stiffness: 160,
+        damping: 18,
+        mass: 0.6,
+        stiffness: 220,
         overshootClamping: false,
       };
-
-      opacity.value = withTiming(1, { duration: 200 }); // Slightly slower for smoother fade
+      opacity.value = withTiming(1, { duration: 150 });
       scale.value = withSpring(1, springConfig);
       translateY.value = withSpring(0, springConfig);
       translateX.value = withSpring(0, springConfig);
     } else {
-      opacity.value = withTiming(0, { duration: 150 });
-      scale.value = withTiming(0.5, { duration: 150, easing: Easing.in(Easing.ease) });
+      opacity.value = withTiming(0, { duration: 120 });
+      scale.value = withTiming(0.8, {
+        duration: 120,
+        easing: Easing.in(Easing.quad),
+      });
     }
   }, [visible]);
 
@@ -68,72 +82,106 @@ export default function ActionMenu({ visible, onClose, actions, anchor }: Action
       { translateX: translateX.value },
       { translateY: translateY.value },
       { scale: scale.value },
-    ]
+    ],
+    transformOrigin: ["100%", "0%", 0],
   }));
 
-  // Backdrop darkening animation
   const backdropStyle = useAnimatedStyle(() => ({
     backgroundColor: interpolateColor(
       opacity.value,
       [0, 1],
-      ['rgba(0, 0, 0, 0)', 'rgba(0, 0, 0, 0.4)'] // Significantly darker (0.4) for HyperOS feel
+      ["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0.2)"],
     ),
   }));
 
   if (!visible) return null;
 
-  // Position Calculation
+  // Anchoring Logic
+  // Default to 80px top if no anchor.
+  // We place the menu *below* the anchor Y.
   const topPosition = anchor ? anchor.y : 80;
-  // Ensure menu stays within screen bounds (right edge)
-  const rightPosition = anchor ? Math.max(16, SCREEN_WIDTH - anchor.x - 10) : 20;
+
+  // We align the *right* edge of the menu with the anchor X.
+  // Ensure it doesn't go off-screen (padding 16px).
+  const rightPosition = anchor ? Math.max(16, SCREEN_WIDTH - anchor.x) : 20;
 
   return (
-    <Modal transparent visible={visible} onRequestClose={onClose} animationType="none">
-      <AnimatedPressable style={[styles.overlay, backdropStyle]} onPress={onClose}>
-        <AnimatedView 
-            style={[
-                styles.menuContainer, 
-                { 
-                  backgroundColor: theme.colors.card, 
-                  borderColor: theme.colors.border,
-                  width: MENU_WIDTH,
-                  top: topPosition,
-                  right: rightPosition,
-                },
-                animatedStyle
-            ]}
+    <Modal
+      transparent
+      visible={visible}
+      onRequestClose={onClose}
+      animationType="none"
+    >
+      <AnimatedPressable
+        style={[styles.overlay, backdropStyle]}
+        onPress={onClose}
+      >
+        <AnimatedView
+          style={[
+            styles.menuContainer,
+            {
+              backgroundColor: theme.colors.card,
+              borderColor: theme.colors.border,
+              width: MENU_WIDTH,
+              top: topPosition,
+              right: rightPosition,
+            },
+            animatedStyle,
+          ]}
         >
-            {actions.map((action, index) => (
-              <TouchableOpacity 
-                key={index} 
-                onPress={() => {
-                   // Visual feedback before closing
-                   setTimeout(() => {
-                     onClose();
-                     requestAnimationFrame(() => action.onPress());
-                   }, 80);
-                }}
+          {actions.map((action, index) => (
+            <TouchableOpacity
+              key={index}
+              onPress={() => {
+                setTimeout(() => {
+                  onClose();
+                  requestAnimationFrame(() => action.onPress());
+                }, 50);
+              }}
+              style={[
+                styles.menuItem,
+                index < actions.length - 1 && {
+                  borderBottomWidth: 1,
+                  borderBottomColor: theme.colors.border + "40",
+                },
+              ]}
+              activeOpacity={0.7}
+            >
+              <View
                 style={[
-                    styles.menuItem,
-                    index < actions.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.colors.border }
+                  styles.iconBox,
+                  {
+                    backgroundColor: action.destructive
+                      ? theme.colors.danger + "10"
+                      : theme.colors.primary + "08",
+                  },
                 ]}
-                activeOpacity={0.6}
               >
-                <View style={[styles.iconBox, { backgroundColor: action.destructive ? theme.colors.danger + '15' : theme.colors.primary + '10' }]}>
-                    <HugeiconsIcon 
-                        icon={action.icon} 
-                        size={20} 
-                        color={action.destructive ? theme.colors.danger : theme.colors.primary} 
-                    />
-                </View>
-                <Text style={[
-                    styles.menuText, 
-                    { color: action.destructive ? theme.colors.danger : theme.colors.text }
-                ]}>
-                  {action.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
+                <HugeiconsIcon
+                  icon={action.icon}
+                  size={18}
+                  color={
+                    action.destructive
+                      ? theme.colors.danger
+                      : theme.colors.primary
+                  }
+                />
+              </View>
+              <Text
+                numberOfLines={1}
+                style={[
+                  styles.menuText,
+                  {
+                    color: action.destructive
+                      ? theme.colors.danger
+                      : theme.colors.text,
+                  },
+                ]}
+              >
+                {action.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </AnimatedView>
       </AnimatedPressable>
     </Modal>
@@ -143,37 +191,37 @@ export default function ActionMenu({ visible, onClose, actions, anchor }: Action
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    // Background color is handled by animated style now
   },
   menuContainer: {
-    position: 'absolute',
-    borderRadius: 20, // HyperOS rounded corners
+    position: "absolute",
+    borderRadius: 16,
     borderWidth: 1,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.15,
-    shadowRadius: 24,
-    elevation: 20,
-    overflow: 'hidden',
-    paddingVertical: 4, 
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 10,
+    overflow: "hidden",
+    paddingVertical: 4,
   },
   menuItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
   },
   iconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 12, 
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
   },
   menuText: {
-    fontSize: 15,
-    fontWeight: '600',
-    letterSpacing: 0.2,
-  }
+    fontSize: 14,
+    fontWeight: "600",
+    letterSpacing: 0.1,
+    flex: 1,
+  },
 });

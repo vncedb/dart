@@ -23,33 +23,28 @@ import React, {
 } from "react";
 import {
   FlatList,
-  ListRenderItemInfo,
   Modal,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import Animated, {
-  Easing,
   Extrapolation,
   FadeIn,
   FadeOut,
   interpolate,
   interpolateColor,
-  runOnJS,
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
-  withTiming,
 } from "react-native-reanimated";
 import { useAppTheme } from "../constants/theme";
 import Button from "./Button";
 import ModalHeader from "./ModalHeader";
 
-// --- CONSTANTS ---
 const ITEM_HEIGHT = 60;
 const VISIBLE_ITEMS = 5;
 const CONTENT_HEIGHT = 340;
@@ -65,7 +60,7 @@ interface DatePickerProps {
 
 type ViewMode = "calendar" | "month" | "year";
 
-// --- WHEEL ITEM COMPONENT ---
+// --- WHEEL ITEM ---
 const WheelItem = React.memo(
   ({ item, index, scrollY, onPress, formatLabel, theme }: any) => {
     const animatedStyle = useAnimatedStyle(() => {
@@ -91,11 +86,7 @@ const WheelItem = React.memo(
         [theme.colors.primary, theme.colors.textSecondary],
       );
 
-      return {
-        transform: [{ scale }],
-        opacity,
-        color,
-      };
+      return { transform: [{ scale }], opacity, color };
     });
 
     return (
@@ -119,23 +110,9 @@ const WheelItem = React.memo(
 );
 WheelItem.displayName = "WheelItem";
 
-// --- WHEEL PICKER COMPONENT ---
-interface WheelPickerProps {
-  data: any[];
-  initialIndex: number;
-  onChange: (index: number) => void;
-  formatLabel: (item: any) => string;
-  onClose: () => void;
-}
-
+// --- WHEEL PICKER ---
 const WheelPicker = React.memo(
-  ({
-    data,
-    initialIndex,
-    onChange,
-    formatLabel,
-    onClose,
-  }: WheelPickerProps) => {
+  ({ data, initialIndex, onChange, formatLabel, onClose }: any) => {
     const theme = useAppTheme();
     const scrollY = useSharedValue(0);
     const [activeIndex, setActiveIndex] = useState(initialIndex);
@@ -150,7 +127,7 @@ const WheelPicker = React.memo(
         });
         scrollY.value = initialIndex * ITEM_HEIGHT;
         setIsReady(true);
-      }, 50);
+      }, 0);
       return () => clearTimeout(timer);
     }, []);
 
@@ -162,7 +139,6 @@ const WheelPicker = React.memo(
       (e: any) => {
         const index = Math.round(e.nativeEvent.contentOffset.y / ITEM_HEIGHT);
         const safeIndex = Math.max(0, Math.min(index, data.length - 1));
-
         if (safeIndex !== activeIndex) {
           setActiveIndex(safeIndex);
           onChange(safeIndex);
@@ -174,45 +150,15 @@ const WheelPicker = React.memo(
 
     const handlePress = useCallback(
       (index: number) => {
-        if (index === activeIndex) {
-          if (Platform.OS !== "web") Haptics.selectionAsync();
-          onClose();
-        } else {
-          flatListRef.current?.scrollToOffset({
-            offset: index * ITEM_HEIGHT,
-            animated: true,
-          });
-          setActiveIndex(index);
-          onChange(index);
-          if (Platform.OS !== "web") Haptics.selectionAsync();
-        }
+        flatListRef.current?.scrollToOffset({
+          offset: index * ITEM_HEIGHT,
+          animated: true,
+        });
+        setActiveIndex(index);
+        onChange(index);
+        if (Platform.OS !== "web") Haptics.selectionAsync();
       },
-      [activeIndex, onClose, onChange],
-    );
-
-    const getItemLayout = useCallback(
-      (_: any, index: number) => ({
-        length: ITEM_HEIGHT,
-        offset: ITEM_HEIGHT * index,
-        index,
-      }),
-      [],
-    );
-
-    const renderItem = useCallback(
-      ({ item, index }: ListRenderItemInfo<any>) => {
-        return (
-          <WheelItem
-            item={item}
-            index={index}
-            scrollY={scrollY}
-            onPress={handlePress}
-            formatLabel={formatLabel}
-            theme={theme}
-          />
-        );
-      },
-      [handlePress, formatLabel, theme, scrollY],
+      [onChange],
     );
 
     return (
@@ -228,12 +174,25 @@ const WheelPicker = React.memo(
           ref={flatListRef}
           data={data}
           keyExtractor={(_, i) => i.toString()}
-          renderItem={renderItem}
-          getItemLayout={getItemLayout}
+          renderItem={({ item, index }) => (
+            <WheelItem
+              item={item}
+              index={index}
+              scrollY={scrollY}
+              onPress={handlePress}
+              formatLabel={formatLabel}
+              theme={theme}
+            />
+          )}
+          getItemLayout={(_, index) => ({
+            length: ITEM_HEIGHT,
+            offset: ITEM_HEIGHT * index,
+            index,
+          })}
           initialScrollIndex={initialIndex}
           snapToInterval={ITEM_HEIGHT}
           snapToAlignment="start"
-          decelerationRate="normal"
+          decelerationRate="fast"
           bounces={false}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingVertical: PADDING_VERTICAL }}
@@ -241,20 +200,16 @@ const WheelPicker = React.memo(
           scrollEventThrottle={16}
           onMomentumScrollEnd={handleMomentumEnd}
           removeClippedSubviews={true}
-          initialNumToRender={VISIBLE_ITEMS + 4}
-          maxToRenderPerBatch={10}
+          initialNumToRender={10}
           windowSize={5}
         />
       </View>
     );
   },
-  (prev, next) => {
-    return prev.data === next.data && prev.onChange === next.onChange;
-  },
 );
 WheelPicker.displayName = "WheelPicker";
 
-// --- MAIN DATE PICKER ---
+// --- MAIN COMPONENT ---
 export default function DatePicker({
   visible,
   onClose,
@@ -267,64 +222,51 @@ export default function DatePicker({
   const [currentMonth, setCurrentMonth] = useState(new Date(selectedDate));
   const [viewMode, setViewMode] = useState<ViewMode>("calendar");
 
-  const openAnim = useSharedValue(0);
-
   const months = useMemo(
     () => Array.from({ length: 12 }, (_, i) => new Date(0, i)),
     [],
   );
   const years = useMemo(() => {
     const startYear = 1900;
-    const currentYear = new Date().getFullYear();
+    const currentYear = new Date().getFullYear() + 5;
     return Array.from(
       { length: currentYear - startYear + 1 },
       (_, i) => startYear + i,
     );
   }, []);
 
+  // Sync state when modal becomes visible
   useEffect(() => {
     if (visible) {
       setTempDate(new Date(selectedDate));
       setCurrentMonth(new Date(selectedDate));
       setViewMode("calendar");
-      openAnim.value = 0;
-      openAnim.value = withTiming(1, {
-        duration: 300,
-        easing: Easing.out(Easing.quad),
-      });
     }
-  }, [visible, selectedDate, openAnim]);
+  }, [visible, selectedDate]);
 
-  const handleClose = useCallback(() => {
-    openAnim.value = withTiming(
-      0,
-      { duration: 250, easing: Easing.out(Easing.quad) },
-      (finished) => {
-        if (finished) runOnJS(onClose)();
-      },
-    );
-  }, [onClose, openAnim]);
+  const handleClose = () => {
+    onClose();
+  };
 
   const handleConfirm = () => {
-    onSelect(tempDate);
-    handleClose();
+    // 1. Close Visually First (Instant)
+    onClose();
+
+    // 2. Defer data processing to allow the modal to disappear immediately
+    setTimeout(() => {
+      onSelect(tempDate);
+    }, 50);
   };
 
   // Helper functions
   const formatMonth = useCallback((item: Date) => format(item, "MMMM"), []);
   const formatYear = useCallback((item: number) => item.toString(), []);
 
-  // --- LOGIC FIX: Update Selection when Wheel Changes ---
   const handleMonthChange = useCallback((index: number) => {
     setCurrentMonth((prev) => {
-      const newViewDate = setMonth(prev, index);
-      // Also update the *selected* date (tempDate) so "Select" works immediately
-      setTempDate((prevTemp) => {
-        let newTemp = setYear(prevTemp, newViewDate.getFullYear());
-        newTemp = setMonth(newTemp, index);
-        return newTemp;
-      });
-      return newViewDate;
+      const newDate = setMonth(prev, index);
+      setTempDate((d) => setMonth(d, index));
+      return newDate;
     });
   }, []);
 
@@ -333,9 +275,9 @@ export default function DatePicker({
       const year = years[index];
       if (year) {
         setCurrentMonth((prev) => {
-          const newViewDate = setYear(prev, year);
-          setTempDate((prevTemp) => setYear(prevTemp, year));
-          return newViewDate;
+          const newDate = setYear(prev, year);
+          setTempDate((d) => setYear(d, year));
+          return newDate;
         });
       }
     },
@@ -351,8 +293,8 @@ export default function DatePicker({
 
   const renderCalendar = () => (
     <Animated.View
-      entering={FadeIn.duration(200)}
-      exiting={FadeOut.duration(200)}
+      entering={FadeIn}
+      exiting={FadeOut}
       style={styles.calendarContainer}
     >
       <View style={styles.weekHeader}>
@@ -365,7 +307,6 @@ export default function DatePicker({
           </Text>
         ))}
       </View>
-
       <View style={styles.daysGrid}>
         {calendarDays.map((day) => {
           const isSelected = isSameDay(day, tempDate);
@@ -386,28 +327,31 @@ export default function DatePicker({
                       ? theme.colors.primary
                       : "transparent",
                   },
+                  // If it's today but NOT selected, show border. If selected, solid background wins.
                   !isSelected &&
                     isToday && {
                       borderWidth: 1.5,
                       borderColor: theme.colors.primary,
                     },
                 ]}
-                activeOpacity={0.7}
               >
                 <Text
                   style={[
                     styles.dayText,
+                    // Base color
                     {
                       color: isCurrentMonth
                         ? theme.colors.text
                         : theme.colors.textSecondary,
                     },
-                    isSelected && { color: "#fff", fontWeight: "800" },
+                    // Today not selected (Primary Color)
                     !isSelected &&
                       isToday && {
                         color: theme.colors.primary,
                         fontWeight: "700",
                       },
+                    // Selected (White) - This MUST come last to override 'isToday' color
+                    isSelected && { color: "#fff", fontWeight: "800" },
                   ]}
                 >
                   {format(day, "d")}
@@ -420,43 +364,31 @@ export default function DatePicker({
     </Animated.View>
   );
 
-  const backdropStyle = useAnimatedStyle(() => ({ opacity: openAnim.value }));
-  const containerStyle = useAnimatedStyle(() => ({
-    opacity: openAnim.value,
-    transform: [{ scale: interpolate(openAnim.value, [0, 1], [0.95, 1]) }],
-  }));
-
   if (!visible) return null;
 
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="none"
+      animationType="none" // Disabled native animation for instant feel
       onRequestClose={handleClose}
       statusBarTranslucent
     >
       <Pressable style={styles.overlay} onPress={handleClose}>
-        <Animated.View style={[styles.backdrop, backdropStyle]} />
-
+        <View style={styles.backdrop} />
         <Pressable onPress={(e) => e.stopPropagation()}>
-          <Animated.View
-            style={[
-              styles.container,
-              { backgroundColor: theme.colors.card },
-              containerStyle,
-            ]}
+          <View
+            style={[styles.container, { backgroundColor: theme.colors.card }]}
           >
             <ModalHeader title={title} position="center" />
 
             <View style={styles.navBar}>
-              {/* Prev Button */}
               <TouchableOpacity
-                onPress={() => {
-                  if (viewMode === "calendar")
-                    setCurrentMonth(subMonths(currentMonth, 1));
-                  else setViewMode("calendar");
-                }}
+                onPress={() =>
+                  viewMode === "calendar"
+                    ? setCurrentMonth(subMonths(currentMonth, 1))
+                    : setViewMode("calendar")
+                }
                 style={styles.navBtn}
               >
                 <HugeiconsIcon
@@ -465,25 +397,14 @@ export default function DatePicker({
                   color={theme.colors.text}
                 />
               </TouchableOpacity>
-
-              {/* View Toggles - Adjusted Widths for no overlap */}
-              <View
-                style={{
-                  flexDirection: "row",
-                  gap: 6,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flex: 1,
-                  paddingHorizontal: 4,
-                }}
-              >
+              <View style={styles.viewToggleContainer}>
                 <TouchableOpacity
                   onPress={() =>
                     setViewMode(viewMode === "month" ? "calendar" : "month")
                   }
                   style={[
                     styles.dropdownBtn,
-                    { width: 110 }, // Tuned Width
+                    { width: 110 },
                     viewMode === "month" && {
                       backgroundColor: theme.colors.primary + "15",
                     },
@@ -510,7 +431,7 @@ export default function DatePicker({
                   }
                   style={[
                     styles.dropdownBtn,
-                    { width: 75 }, // Tuned Width
+                    { width: 75 },
                     viewMode === "year" && {
                       backgroundColor: theme.colors.primary + "15",
                     },
@@ -532,14 +453,12 @@ export default function DatePicker({
                   </Text>
                 </TouchableOpacity>
               </View>
-
-              {/* Next Button */}
               <TouchableOpacity
-                onPress={() => {
-                  if (viewMode === "calendar")
-                    setCurrentMonth(addMonths(currentMonth, 1));
-                  else setViewMode("calendar");
-                }}
+                onPress={() =>
+                  viewMode === "calendar"
+                    ? setCurrentMonth(addMonths(currentMonth, 1))
+                    : setViewMode("calendar")
+                }
                 style={styles.navBtn}
               >
                 <HugeiconsIcon
@@ -550,45 +469,30 @@ export default function DatePicker({
               </TouchableOpacity>
             </View>
 
-            {/* Content Frame */}
             <View style={styles.contentFrame}>
               {viewMode === "calendar" && renderCalendar()}
-
               {viewMode === "month" && (
-                <Animated.View
-                  entering={FadeIn}
-                  exiting={FadeOut}
-                  style={{ flex: 1 }}
-                >
-                  <WheelPicker
-                    data={months}
-                    initialIndex={months.findIndex(
-                      (m) => m.getMonth() === currentMonth.getMonth(),
-                    )}
-                    onChange={handleMonthChange}
-                    formatLabel={formatMonth}
-                    onClose={() => setViewMode("calendar")}
-                  />
-                </Animated.View>
+                <WheelPicker
+                  data={months}
+                  initialIndex={months.findIndex(
+                    (m) => m.getMonth() === currentMonth.getMonth(),
+                  )}
+                  onChange={handleMonthChange}
+                  formatLabel={formatMonth}
+                  onClose={() => setViewMode("calendar")}
+                />
               )}
-
               {viewMode === "year" && (
-                <Animated.View
-                  entering={FadeIn}
-                  exiting={FadeOut}
-                  style={{ flex: 1 }}
-                >
-                  <WheelPicker
-                    data={years}
-                    initialIndex={Math.max(
-                      0,
-                      years.indexOf(currentMonth.getFullYear()),
-                    )}
-                    onChange={handleYearChange}
-                    formatLabel={formatYear}
-                    onClose={() => setViewMode("calendar")}
-                  />
-                </Animated.View>
+                <WheelPicker
+                  data={years}
+                  initialIndex={Math.max(
+                    0,
+                    years.indexOf(currentMonth.getFullYear()),
+                  )}
+                  onChange={handleYearChange}
+                  formatLabel={formatYear}
+                  onClose={() => setViewMode("calendar")}
+                />
               )}
             </View>
 
@@ -609,7 +513,7 @@ export default function DatePicker({
                 style={{ flex: 1 }}
               />
             </View>
-          </Animated.View>
+          </View>
         </Pressable>
       </Pressable>
     </Modal>
@@ -633,8 +537,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     elevation: 20,
   },
-
-  // Header Layout
   navBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -650,7 +552,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.03)",
   },
-
+  viewToggleContainer: {
+    flexDirection: "row",
+    gap: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    flex: 1,
+    paddingHorizontal: 4,
+  },
   dropdownBtn: {
     paddingVertical: 6,
     paddingHorizontal: 4,
@@ -660,9 +569,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   dropdownText: { fontSize: 16, fontWeight: "700", letterSpacing: 0.3 },
-
   contentFrame: { height: CONTENT_HEIGHT, overflow: "hidden" },
-
   calendarContainer: { flex: 1, paddingHorizontal: 16 },
   weekHeader: {
     flexDirection: "row",
@@ -679,7 +586,6 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     opacity: 0.6,
   },
-
   daysGrid: { flexDirection: "row", flexWrap: "wrap", rowGap: 4 },
   dayCellWrapper: {
     width: "14.28%",
@@ -696,6 +602,5 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   dayText: { fontSize: 15, fontWeight: "500" },
-
   footer: { flexDirection: "row", padding: 20, borderTopWidth: 1 },
 });

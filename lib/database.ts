@@ -4,7 +4,6 @@ import { getDB } from "./db-client";
 export const initDatabase = async () => {
   const database = await getDB();
 
-  // 1. Create Tables (Updated with is_synced)
   await database.execAsync(`
     PRAGMA journal_mode = WAL;
     
@@ -34,17 +33,18 @@ export const initDatabase = async () => {
       is_synced INTEGER DEFAULT 0
     );
     
-    CREATE TABLE IF NOT EXISTS generated_reports (
-      id TEXT PRIMARY KEY,
+    -- NEW: Saved Reports Table
+    CREATE TABLE IF NOT EXISTS saved_reports (
+      id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
-      file_name TEXT NOT NULL,
-      storage_path TEXT NOT NULL,
-      file_type TEXT NOT NULL,
-      file_size INTEGER NOT NULL,
-      local_uri TEXT, -- Path on the device
-      sync_status TEXT DEFAULT 'PENDING', -- PENDING, SYNCED, DELETE_PENDING, RENAME_PENDING
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
+      title TEXT NOT NULL,
+      file_path TEXT NOT NULL, -- Local URI
+      file_type TEXT NOT NULL, -- 'pdf' or 'xlsx'
+      file_size INTEGER DEFAULT 0,
+      remote_url TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      is_synced INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS sync_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, table_name TEXT NOT NULL, row_id TEXT, action TEXT NOT NULL, data TEXT, status TEXT DEFAULT 'PENDING', retry_count INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
@@ -64,7 +64,6 @@ export const initDatabase = async () => {
         `ALTER TABLE ${table} ADD COLUMN ${col} ${type};`,
       );
     } catch (e: any) {
-      // Ignore "duplicate column" errors, meaning migration already ran
       if (
         !e.message?.includes("duplicate column") &&
         !e.message?.includes("no such column")
@@ -75,37 +74,22 @@ export const initDatabase = async () => {
   };
 
   await addColumn("sync_queue", "retry_count", "INTEGER DEFAULT 0");
-
   await addColumn("profiles", "middle_name", "TEXT");
   await addColumn("profiles", "professional_suffix", "TEXT");
   await addColumn("profiles", "full_name", "TEXT");
   await addColumn("profiles", "avatar_url", "TEXT");
   await addColumn("profiles", "local_avatar_path", "TEXT");
-
   await addColumn("job_positions", "company", "TEXT");
   await addColumn("job_positions", "department", "TEXT");
   await addColumn("job_positions", "employment_status", "TEXT");
   await addColumn("job_positions", "rate", "REAL");
   await addColumn("job_positions", "rate_type", "TEXT");
   await addColumn("job_positions", "payout_type", "TEXT");
-
   await addColumn("accomplishments", "updated_at", "TEXT");
-
   await addColumn("attendance", "job_id", "TEXT");
   await addColumn("accomplishments", "job_id", "TEXT");
-
-  // --- NEW CRITICAL MIGRATIONS FOR SYNC STATUS ---
   await addColumn("attendance", "is_synced", "INTEGER DEFAULT 0");
   await addColumn("accomplishments", "is_synced", "INTEGER DEFAULT 0");
-
-  try {
-    await database.execAsync(`
-        CREATE INDEX IF NOT EXISTS idx_attendance_job ON attendance(job_id);
-        CREATE INDEX IF NOT EXISTS idx_accomplishments_job ON accomplishments(job_id);
-      `);
-  } catch (e) {
-    console.log("Index creation note:", e);
-  }
 
   console.log("Database initialized and migrated.");
 };
@@ -128,15 +112,16 @@ export const queueSyncItem = async (
   const db = await getDB();
   if (!rowId) return;
   try {
-    // When editing locally, mark as UNSYNCED (0) immediately
-    if (tableName === "attendance" || tableName === "accomplishments") {
+    if (
+      ["attendance", "accomplishments", "saved_reports"].includes(tableName)
+    ) {
       try {
         await db.runAsync(
           `UPDATE ${tableName} SET is_synced = 0 WHERE id = ?`,
           [rowId],
         );
       } catch (e) {
-        /* ignore if table doesn't have col yet */
+        /* ignore */
       }
     }
 
@@ -162,9 +147,7 @@ export const getPendingSyncCount = async () => {
 export const saveProfileLocal = async (profile: any) => {
   const db = await getDB();
   await db.runAsync(
-    `INSERT OR REPLACE INTO profiles (
-            id, email, first_name, last_name, middle_name, title, professional_suffix, current_job_id, full_name, avatar_url, local_avatar_path, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO profiles (id, email, first_name, last_name, middle_name, title, professional_suffix, current_job_id, full_name, avatar_url, local_avatar_path, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       profile.id,
       profile.email || "",
@@ -214,7 +197,6 @@ export const deleteJobLocal = async (id: string) => {
     `UPDATE profiles SET current_job_id = NULL WHERE current_job_id = ?`,
     [id],
   );
-
   const job: any = await db.getFirstAsync(
     "SELECT user_id FROM job_positions WHERE id = ?",
     [id],
@@ -224,7 +206,39 @@ export const deleteJobLocal = async (id: string) => {
       current_job_id: null,
     });
   }
-
   await db.runAsync("DELETE FROM job_positions WHERE id = ?", [id]);
   await queueSyncItem("job_positions", id, "DELETE");
+};
+
+// --- REPORT FUNCTIONS ---
+
+export const saveReportLocal = async (report: any) => {
+  const db = await getDB();
+  await db.runAsync(
+    `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, remote_url, created_at, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [
+      report.id,
+      report.user_id,
+      report.title,
+      report.file_path,
+      report.file_type,
+      report.file_size,
+      report.remote_url,
+      report.created_at,
+      new Date().toISOString(),
+    ],
+  );
+};
+
+export const deleteReportLocal = async (id: string) => {
+  const db = await getDB();
+  await db.runAsync("DELETE FROM saved_reports WHERE id = ?", [id]);
+};
+
+export const renameReportLocal = async (id: string, newTitle: string) => {
+  const db = await getDB();
+  await db.runAsync(
+    "UPDATE saved_reports SET title = ?, updated_at = ?, is_synced = 0 WHERE id = ?",
+    [newTitle, new Date().toISOString(), id],
+  );
 };
