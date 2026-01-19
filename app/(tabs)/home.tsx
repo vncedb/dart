@@ -1,4 +1,5 @@
 import {
+    ArrowDown01Icon,
     Briefcase01Icon,
     Notification01Icon,
     PlusSignIcon,
@@ -6,13 +7,14 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { addHours, addSeconds, endOfMonth, format, isAfter, isToday, startOfMonth } from 'date-fns';
+import { addHours, addSeconds, format, isAfter, isToday } from 'date-fns';
 import { useAudioPlayer } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+    ActivityIndicator,
     Alert,
     RefreshControl,
     ScrollView,
@@ -28,9 +30,11 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import ActivityTimeline from '../../components/ActivityTimeline';
 import BiometricButton from '../../components/BiometricButton';
+import BreakModeAlert from '../../components/BreakModeAlert';
 import DailySummaryCard from '../../components/DailySummaryCard';
+import DatePicker from '../../components/DatePicker';
 import DynamicBar from '../../components/DynamicBar';
-import DynamicDateHeader from '../../components/DynamicDateHeader';
+import DynamicHeader from '../../components/DynamicHeader';
 import ModernAlert from '../../components/ModernAlert';
 import NotificationModal from '../../components/NotificationModal';
 import OvertimeModal from '../../components/OvertimeModal';
@@ -39,7 +43,12 @@ import { useSync } from '../../context/SyncContext';
 import { generateUUID } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
-import { registerForPushNotificationsAsync, setupNotificationCategories } from '../../utils/NotificationService';
+import {
+    clearAttendanceNotification,
+    registerForPushNotificationsAsync,
+    setupNotificationCategories,
+    updateAttendanceNotification
+} from '../../utils/NotificationService';
 
 configureReanimatedLogger({ level: ReanimatedLogLevel.warn, strict: false });
 
@@ -87,25 +96,72 @@ const getLocalDate = (d = new Date()) => {
     return format(d, 'yyyy-MM-dd');
 };
 
-// --- SKELETONS ---
+// --- SKELETON COMPONENTS ---
 const SkeletonItem = ({ style, borderRadius = 12 }: { style?: any, borderRadius?: number }) => {
     const theme = useAppTheme();
-    return <View style={[{ backgroundColor: theme.colors.border, borderRadius, opacity: 0.3 }, style]} />;
+    return <View style={[{ backgroundColor: theme.colors.border, borderRadius, opacity: 0.15 }, style]} />;
 };
 
-const HomeSkeleton = () => {
-    const insets = useSafeAreaInsets();
+const HomeSkeleton = ({ insetTop }: { insetTop: number }) => {
     const theme = useAppTheme();
     return (
-        <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-            <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} translucent backgroundColor="transparent" />
-            <View style={{ paddingHorizontal: 24, paddingTop: 120 + insets.top }}>
-                <View style={{ alignItems: 'center', marginBottom: 40, gap: 24 }}>
-                    <SkeletonItem style={{ width: 220, height: 24, borderRadius: 12 }} />
-                    <SkeletonItem style={{ width: 160, height: 160, borderRadius: 80 }} /> 
+        <View style={{ flex: 1, paddingHorizontal: 24, paddingTop: 120 + insetTop }}>
+            <View style={{ marginBottom: 40, alignItems: 'center', width: '100%' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%', justifyContent: 'space-between', marginBottom: 20 }}>
+                    <View style={{gap: 8}}>
+                        <SkeletonItem style={{ width: 100, height: 14 }} />
+                        <SkeletonItem style={{ width: 180, height: 24 }} />
+                    </View>
+                    <SkeletonItem style={{ width: 44, height: 44, borderRadius: 22 }} />
                 </View>
-                <View style={{ marginBottom: 24 }}>
-                    <SkeletonItem style={{ width: '100%', height: 200, borderRadius: 24 }} />
+                <SkeletonItem style={{ width: 160, height: 160, borderRadius: 80 }} />
+            </View>
+
+            <View style={{ marginBottom: 24, height: 120, backgroundColor: theme.colors.card, borderRadius: 24, padding: 20, borderWidth: 1, borderColor: theme.colors.border, justifyContent: 'space-between' }}>
+                <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
+                    <SkeletonItem style={{ width: 80, height: 14 }} />
+                    <SkeletonItem style={{ width: 40, height: 20 }} />
+                </View>
+                <View style={{flexDirection: 'row', justifyContent: 'space-between', marginTop: 10}}>
+                    <View style={{alignItems: 'center', gap: 6}}>
+                        <SkeletonItem style={{ width: 60, height: 24 }} />
+                        <SkeletonItem style={{ width: 40, height: 12 }} />
+                    </View>
+                    <View style={{alignItems: 'center', gap: 6}}>
+                        <SkeletonItem style={{ width: 60, height: 24 }} />
+                        <SkeletonItem style={{ width: 40, height: 12 }} />
+                    </View>
+                    <View style={{alignItems: 'center', gap: 6}}>
+                        <SkeletonItem style={{ width: 60, height: 24 }} />
+                        <SkeletonItem style={{ width: 40, height: 12 }} />
+                    </View>
+                </View>
+            </View>
+
+            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16}}>
+                <SkeletonItem style={{ width: 140, height: 20 }} />
+                <View style={{flexDirection: 'row', gap: 12}}>
+                    <SkeletonItem style={{ width: 36, height: 36, borderRadius: 18 }} />
+                    <SkeletonItem style={{ width: 36, height: 36, borderRadius: 18 }} />
+                </View>
+            </View>
+            
+            <View style={{ padding: 20, backgroundColor: theme.colors.card, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, height: 200 }}>
+                <View style={{flexDirection: 'row', marginBottom: 20}}>
+                    <SkeletonItem style={{ width: 50, height: 14, marginRight: 20 }} />
+                    <SkeletonItem style={{ width: 12, height: 12, borderRadius: 6, marginRight: 20 }} />
+                    <View style={{gap: 6}}>
+                        <SkeletonItem style={{ width: 120, height: 16 }} />
+                        <SkeletonItem style={{ width: 80, height: 12 }} />
+                    </View>
+                </View>
+                <View style={{flexDirection: 'row'}}>
+                    <SkeletonItem style={{ width: 50, height: 14, marginRight: 20 }} />
+                    <SkeletonItem style={{ width: 12, height: 12, borderRadius: 6, marginRight: 20 }} />
+                    <View style={{gap: 6}}>
+                        <SkeletonItem style={{ width: 120, height: 16 }} />
+                        <SkeletonItem style={{ width: 80, height: 12 }} />
+                    </View>
                 </View>
             </View>
         </View>
@@ -148,25 +204,34 @@ export default function Home() {
     const [isInitialLoading, setIsInitialLoading] = useState(true); 
     const [refreshing, setRefreshing] = useState(false);
     
+    // UI State
+    const [timelineLoading, setTimelineLoading] = useState(false);
+    const [calendarLoading, setCalendarLoading] = useState(false);
+    const [isBreakMode, setIsBreakMode] = useState(false); 
+    
     const [profile, setProfile] = useState<any>(null);
     const [activeJobId, setActiveJobId] = useState<string | null>(null);
     const [jobSettings, setJobSettings] = useState<any>(null); 
     const [todaysRecords, setTodaysRecords] = useState<any[]>([]);
-    const [monthRecords, setMonthRecords] = useState<any[]>([]);
+    
     const [tasks, setTasks] = useState<any[]>([]);
     
     const [notifications, setNotifications] = useState<any[]>([]);
     const [notifModalVisible, setNotifModalVisible] = useState(false);
-    const notificationListener = useRef<any>();
+    const notificationListener = useRef<any>(null);
     
     const [dailyGoal, setDailyGoal] = useState(8); 
     const [timelineData, setTimelineData] = useState<any[]>([]);
-    const [appSettings, setAppSettings] = useState({ vibrationEnabled: true, soundEnabled: true });
+    const [appSettings, setAppSettings] = useState({ vibrationEnabled: true, soundEnabled: true, notificationsEnabled: true });
     
     const [workedMinutes, setWorkedMinutes] = useState(0);
     const [selectedDate, setSelectedDate] = useState(new Date());
     const [isBreak, setIsBreak] = useState(false);
     const [otExpiry, setOtExpiry] = useState<string | null>(null);
+    
+    // Timeline Picker State
+    const [timelinePickerVisible, setTimelinePickerVisible] = useState(false);
+    const [markedDates, setMarkedDates] = useState<string[]>([]);
     
     const [alertVisible, setAlertVisible] = useState(false);
     const [alertMessage, setAlertMessage] = useState("");
@@ -180,6 +245,9 @@ export default function Home() {
     const isSessionOvertime = latestRecord?.remarks?.includes('Overtime');
     const unreadNotifsCount = notifications.filter(n => !n.read).length;
 
+    // Track if we have shown the initial banner for this session
+    const [hasShownInitialNotif, setHasShownInitialNotif] = useState(false);
+
     const displayName = profile ? (() => {
         const titlePart = profile.title ? `${profile.title.trim()} ` : '';
         const firstName = profile.first_name ? profile.first_name.trim() : (profile.full_name ? profile.full_name.split(' ')[0] : 'User');
@@ -190,114 +258,25 @@ export default function Home() {
 
     const handleHideAlert = useCallback(() => { setAlertVisible(false); }, []);
 
-    useEffect(() => {
-        registerForPushNotificationsAsync();
-        setupNotificationCategories();
-        loadNotifications();
-
-        notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
-            const content = notification.request.content;
-            const newNotif = {
-                id: notification.request.identifier,
-                title: content.title || 'Notification',
-                body: content.body || '',
-                date: Date.now(),
-                read: false
-            };
-            
-            setNotifications(prev => {
-                const updated = [newNotif, ...prev];
-                saveNotifications(updated);
-                return updated;
-            });
-        });
-
-        const subscription = Notifications.addNotificationResponseReceivedListener(response => {
-            const actionId = response.actionIdentifier;
-            if (actionId === 'time_out_now') {
-                processClockAction(false);
-            } else if (actionId === 'extend_shift') {
-                const now = new Date();
-                const todayKey = `extended_${now.toISOString().split('T')[0]}`;
-                AsyncStorage.setItem(todayKey, 'true');
-                Alert.alert("Shift Extended", "Auto-checkout has been disabled for today's shift.");
-            }
-        });
-
-        return () => {
-            if (subscription) subscription.remove();
-            if (notificationListener.current) notificationListener.current.remove();
-        };
-    }, []);
-
-    const loadNotifications = async () => {
+    const loadNotifications = useCallback(async () => {
         try {
             const json = await AsyncStorage.getItem('local_notifications');
             if (json) setNotifications(JSON.parse(json));
         } catch (e) { console.log('Err loading notifs', e); }
-    };
+    }, []);
 
-    const saveNotifications = async (newNotifs: any[]) => {
+    const saveNotifications = useCallback(async (newNotifs: any[]) => {
         try {
             await AsyncStorage.setItem('local_notifications', JSON.stringify(newNotifs.slice(0, 50))); 
         } catch (e) { console.log('Err saving notifs', e); }
-    };
+    }, []);
 
-    const markAllNotificationsRead = () => {
-        const updated = notifications.map(n => ({ ...n, read: true }));
-        setNotifications(updated);
-        saveNotifications(updated);
-    };
-
-    useEffect(() => {
-        const timer = setInterval(async () => {
-            let totalMs = 0;
-            todaysRecords.forEach((record) => {
-                const start = new Date(record.clock_in).getTime();
-                const end = record.clock_out ? new Date(record.clock_out).getTime() : new Date().getTime();
-                totalMs += Math.max(0, end - start);
-            });
-            setWorkedMinutes(totalMs / (1000 * 60));
-
-            if (jobSettings && jobSettings.break_schedule) setIsBreak(checkIsBreakTime(jobSettings.break_schedule));
-
-            if (isClockedIn && isSessionOvertime) {
-                const otEndTimeStr = await AsyncStorage.getItem('active_ot_expiry');
-                if (otEndTimeStr) {
-                    setOtExpiry(otEndTimeStr);
-                    const otEndTime = new Date(otEndTimeStr);
-                    const now = new Date();
-                    
-                    if (isAfter(now, otEndTime)) {
-                        processClockAction(false); 
-                        await AsyncStorage.removeItem('active_ot_expiry');
-                        setOtExpiry(null);
-                        
-                        await Notifications.scheduleNotificationAsync({
-                             content: { title: "Overtime Finished", body: "You have been automatically checked out.", sound: true },
-                             trigger: null,
-                         });
-                        setModernAlertConfig({ visible: true, type: 'info', title: 'Overtime Finished', message: 'You have been automatically checked out.', confirmText: 'Okay', onConfirm: () => setModernAlertConfig((prev: any) => ({ ...prev, visible: false })) });
-                    }
-                }
-            } else {
-                setOtExpiry(null);
-            }
-            
-            if (isClockedIn && !isSessionOvertime && jobSettings) {
-                checkAutoCheckout(jobSettings, latestRecord);
-            }
-
-        }, 1000); 
-
-        return () => clearInterval(timer);
-    }, [todaysRecords, jobSettings, isClockedIn, isSessionOvertime]);
-
-    const checkAutoCheckout = async (currentJob: any, lastRecord: any) => {
+    const checkAutoCheckout = useCallback(async (currentJob: any, lastRecord: any) => {
         if (!lastRecord || lastRecord.status !== 'pending' || !currentJob?.work_schedule?.end) return;
         if (lastRecord.remarks && lastRecord.remarks.includes('Overtime')) return;
 
-        const dateKey = `extended_${getLocalDate()}`;
+        const dateStr = format(new Date(), 'yyyy-MM-dd');
+        const dateKey = `extended_${dateStr}`;
         const isExtended = await AsyncStorage.getItem(dateKey);
         if (isExtended === 'true') return;
 
@@ -307,7 +286,7 @@ export default function Home() {
         shiftEnd.setHours(endH, endM, 0, 0);
 
         if (isAfter(now, shiftEnd) && !isAfter(now, addSeconds(shiftEnd, 30))) {
-            const warningKey = `shift_end_notif_${getLocalDate()}`;
+            const warningKey = `shift_end_notif_${dateStr}`;
             const hasWarned = await AsyncStorage.getItem(warningKey);
             if (!hasWarned) {
                  await Notifications.scheduleNotificationAsync({
@@ -325,21 +304,18 @@ export default function Home() {
             await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', ['attendance', lastRecord.id, 'UPDATE', JSON.stringify({ clock_out: endIso, status: 'completed', remarks: 'Auto-checkout: Shift End' })]);
             await Notifications.scheduleNotificationAsync({ content: { title: "Auto Checked Out", body: "You have been checked out.", sound: true }, trigger: null });
             setModernAlertConfig({ visible: true, type: 'info', title: 'Auto Checked Out', message: `You were automatically checked out at ${format(shiftEnd, 'h:mm a')}.`, confirmText: 'Okay', onConfirm: () => setModernAlertConfig((prev:any) => ({...prev, visible: false})) });
-            await loadData();
             triggerSync();
         }
-    };
+    }, [triggerSync]);
 
     const loadData = useCallback(async () => {
+        if (!isInitialLoading) setTimelineLoading(true);
         try {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session?.user) return;
             const user = session.user;
             const db = await getDB();
-            
             const dateStr = format(selectedDate, 'yyyy-MM-dd');
-            const startMonth = startOfMonth(selectedDate).toISOString().split('T')[0];
-            const endMonth = endOfMonth(selectedDate).toISOString().split('T')[0];
 
             const localProfile: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
             setProfile(localProfile);
@@ -351,14 +327,12 @@ export default function Home() {
                 setJobSettings(null);
                 setTodaysRecords([]);
                 setTasks([]);
-                setMonthRecords([]);
                 setLoading(false);
                 setIsInitialLoading(false);
                 return;
             }
 
             const activeJob = await db.getFirstAsync('SELECT * FROM job_positions WHERE id = ?', [currentJobId]);
-            
             if (activeJob) {
                 const aj: any = activeJob;
                 const parsedJob = {
@@ -369,80 +343,39 @@ export default function Home() {
                 setJobSettings(parsedJob);
                 setDailyGoal(calculateDailyGoal(parsedJob));
 
-                const [attendance, dailyTasks, monthlyAtt] = await Promise.all([
+                const [attendance, dailyTasks] = await Promise.all([
                     db.getAllAsync('SELECT * FROM attendance WHERE user_id = ? AND job_id = ? AND date = ? ORDER BY clock_in DESC', [user.id, currentJobId, dateStr]),
                     db.getAllAsync('SELECT * FROM accomplishments WHERE user_id = ? AND job_id = ? AND date = ?', [user.id, currentJobId, dateStr]),
-                    db.getAllAsync('SELECT id, date, clock_in, clock_out FROM attendance WHERE user_id = ? AND job_id = ? AND date >= ? AND date <= ?', [user.id, currentJobId, startMonth, endMonth]),
                 ]);
-                
                 setTodaysRecords(attendance as any[]);
                 setTasks(dailyTasks as any[]);
-                setMonthRecords(monthlyAtt as any[]);
+
+                const [allAttendance, allTasks] = await Promise.all([
+                    db.getAllAsync('SELECT DISTINCT date FROM attendance WHERE user_id = ? AND job_id = ?', [user.id, currentJobId]),
+                    db.getAllAsync('SELECT DISTINCT date FROM accomplishments WHERE user_id = ? AND job_id = ?', [user.id, currentJobId])
+                ]);
+                const uniqueDates = new Set([
+                    ...(allAttendance as any[]).map(r => r.date),
+                    ...(allTasks as any[]).map(r => r.date)
+                ]);
+                setMarkedDates(Array.from(uniqueDates));
 
                 if (attendance && (attendance as any[]).length > 0) {
-                        checkAutoCheckout(parsedJob, (attendance as any[])[0]);
+                    checkAutoCheckout(parsedJob, (attendance as any[])[0]);
                 }
             } else {
                 setJobSettings(null); 
             }
-
         } catch (e: any) { 
             console.log("Load Data Error:", e);
         } finally { 
             setRefreshing(false); 
+            setTimelineLoading(false);
             setTimeout(() => setIsInitialLoading(false), 300); 
         }
-    }, [selectedDate]);
+    }, [selectedDate, checkAutoCheckout, isInitialLoading]);
 
-    useFocusEffect(useCallback(() => {
-        loadData();
-        AsyncStorage.getItem('appSettings').then(s => { if (s) setAppSettings(JSON.parse(s)); });
-        AsyncStorage.getItem('active_ot_expiry').then(val => setOtExpiry(val));
-    }, [loadData]));
-
-    const onRefresh = async () => {
-        setRefreshing(true);
-        await triggerSync(); 
-        await loadData();
-    };
-
-    useEffect(() => {
-        let timeline: any[] = [];
-        
-        todaysRecords.forEach(record => {
-            const isOT = record.remarks && record.remarks.includes('Overtime');
-            timeline.push({ 
-                type: 'check-in', 
-                time: record.clock_in, 
-                id: record.id, 
-                isOvertime: isOT,
-                sortTime: new Date(record.clock_in).getTime()
-            });
-
-            if (record.clock_out) {
-                timeline.push({ 
-                    type: 'check-out', 
-                    time: record.clock_out, 
-                    id: record.id, 
-                    isOvertime: isOT,
-                    sortTime: new Date(record.clock_out).getTime()
-                });
-            }
-        });
-
-        tasks.forEach(task => {
-            timeline.push({
-                type: 'task',
-                data: task,
-                sortTime: new Date(task.created_at).getTime()
-            });
-        });
-
-        timeline.sort((a, b) => a.sortTime - b.sortTime);
-        setTimelineData(timeline);
-    }, [todaysRecords, tasks]);
-
-    const processClockAction = async (isOvertime = false, duration = 0) => {
+    const processClockAction = useCallback(async (isOvertime = false, duration = 0) => {
         if (!activeJobId) {
             setModernAlertConfig({ visible: true, type: 'warning', title: 'No Job Active', message: 'Please set an active job in your profile first.', confirmText: 'Manage Jobs', onConfirm: () => { setModernAlertConfig((prev:any)=>({...prev, visible:false})); router.push('/job/job'); } });
             return;
@@ -458,14 +391,25 @@ export default function Home() {
             const todayStr = format(new Date(), 'yyyy-MM-dd');
 
             if (isClockedIn) {
+                // Checkout Logic
                 const now = new Date().toISOString();
-                await db.runAsync('UPDATE attendance SET clock_out = ?, status = ? WHERE id = ?', [now, 'completed', latestRecord.id]);
-                await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', ['attendance', latestRecord.id, 'UPDATE', JSON.stringify({ clock_out: now, status: 'completed' })]);
+                if (latestRecord) {
+                    await db.runAsync('UPDATE attendance SET clock_out = ?, status = ? WHERE id = ?', [now, 'completed', latestRecord.id]);
+                    await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', ['attendance', latestRecord.id, 'UPDATE', JSON.stringify({ clock_out: now, status: 'completed' })]);
+                }
+                
                 await AsyncStorage.removeItem('active_ot_expiry');
                 setOtExpiry(null);
+                
+                // Clear persistent notification & Reset flags
+                await clearAttendanceNotification();
+                setHasShownInitialNotif(false); 
+                setIsBreakMode(false);
+
                 setAlertMessage("See you later!"); 
                 setAlertType('check-out');
             } else {
+                // Checkin Logic
                 const now = new Date();
                 let remarks = null;
                 if (isOvertime) {
@@ -492,6 +436,8 @@ export default function Home() {
                 
                 await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', ['attendance', record.id, 'INSERT', JSON.stringify(record)]);
                 
+                // Reset so banner shows again
+                setHasShownInitialNotif(false);
                 setAlertMessage(isOvertime ? "Overtime Started!" : "Welcome In!"); 
                 setAlertType('check-in');
             }
@@ -508,11 +454,12 @@ export default function Home() {
             }
             if (appSettings.vibrationEnabled) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             
+            setSelectedDate(new Date()); 
             setAlertVisible(true);
             await loadData();
             triggerSync(); 
         } catch (e: any) { Alert.alert("Error", e.message); } finally { setLoading(false); }
-    };
+    }, [activeJobId, isClockedIn, latestRecord, appSettings, loadData, triggerSync, successPlayer, router]);
 
     const handleClockButtonPress = () => {
         if (!jobSettings || !activeJobId) {
@@ -535,15 +482,138 @@ export default function Home() {
                 }
             }
         }
-        
         processClockAction(false);
     };
+
+    // Notification Setup
+    useEffect(() => {
+        registerForPushNotificationsAsync();
+        setupNotificationCategories();
+        loadNotifications();
+
+        notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
+            const content = notification.request.content;
+            
+            // Ignore our persistent notification from showing in the local app list
+            if (notification.request.identifier === 'attendance_persistent') return;
+
+            const newNotif = {
+                id: notification.request.identifier,
+                title: content.title || 'Notification',
+                body: content.body || '',
+                date: Date.now(),
+                read: false
+            };
+            
+            setNotifications(prev => {
+                const filtered = prev.filter(n => n.id !== newNotif.id);
+                const updated = [newNotif, ...filtered];
+                saveNotifications(updated);
+                return updated;
+            });
+        });
+
+        const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+            const actionId = response.actionIdentifier;
+            if (actionId === 'action_break_start') setIsBreakMode(true);
+            else if (actionId === 'action_break_end') setIsBreakMode(false);
+            else if (actionId === 'action_checkout' || actionId === 'time_out_now') {
+                processClockAction(false);
+            }
+        });
+
+        return () => {
+            if (subscription) subscription.remove();
+            if (notificationListener.current) notificationListener.current.remove();
+        };
+    }, [loadNotifications, saveNotifications, processClockAction]);
+
+    const markAllNotificationsRead = () => {
+        const updated = notifications.map(n => ({ ...n, read: true }));
+        setNotifications(updated);
+        saveNotifications(updated);
+    };
+
+    // Main Timer Loop
+    useEffect(() => {
+        const timer = setInterval(async () => {
+            // Worked Minutes
+            if (!isBreakMode) {
+                let totalMs = 0;
+                todaysRecords.forEach((record) => {
+                    const start = new Date(record.clock_in).getTime();
+                    const end = record.clock_out ? new Date(record.clock_out).getTime() : new Date().getTime();
+                    totalMs += Math.max(0, end - start);
+                });
+                setWorkedMinutes(totalMs / (1000 * 60));
+            }
+
+            // Notification Update Logic
+            if (isClockedIn && latestRecord?.clock_in) {
+                if (appSettings.notificationsEnabled !== false) {
+                    const shouldBanner = !hasShownInitialNotif;
+                    
+                    await updateAttendanceNotification(
+                        latestRecord.clock_in, 
+                        isSessionOvertime, 
+                        isBreakMode, 
+                        shouldBanner 
+                    );
+
+                    if (shouldBanner) setHasShownInitialNotif(true);
+                }
+            }
+
+            if (jobSettings && jobSettings.break_schedule) setIsBreak(checkIsBreakTime(jobSettings.break_schedule));
+
+            if (isClockedIn && !isSessionOvertime && jobSettings) {
+                checkAutoCheckout(jobSettings, latestRecord);
+            }
+        }, 1000); 
+
+        return () => clearInterval(timer);
+    }, [todaysRecords, jobSettings, isClockedIn, isSessionOvertime, processClockAction, latestRecord, appSettings, isBreakMode, hasShownInitialNotif, checkAutoCheckout]);
+
+    useFocusEffect(useCallback(() => {
+        loadData();
+        AsyncStorage.getItem('appSettings').then(s => { if (s) setAppSettings(JSON.parse(s)); });
+        AsyncStorage.getItem('active_ot_expiry').then(val => setOtExpiry(val));
+    }, [loadData]));
+
+    const onRefresh = async () => {
+        setRefreshing(true);
+        await triggerSync(); 
+        await loadData();
+    };
+
+    // Timeline construction
+    useEffect(() => {
+        let timeline: any[] = [];
+        todaysRecords.forEach(record => {
+            const isOT = record.remarks && record.remarks.includes('Overtime');
+            timeline.push({ type: 'check-in', time: record.clock_in, id: record.id, isOvertime: isOT, sortTime: new Date(record.clock_in).getTime() });
+            if (record.clock_out) timeline.push({ type: 'check-out', time: record.clock_out, id: record.id, isOvertime: isOT, sortTime: new Date(record.clock_out).getTime() });
+        });
+        tasks.forEach(task => {
+            timeline.push({ type: 'task', data: task, sortTime: new Date(task.created_at).getTime() });
+        });
+        timeline.sort((a, b) => a.sortTime - b.sortTime);
+        setTimelineData(timeline);
+    }, [todaysRecords, tasks]);
 
     const handleEdit = (t: any) => { router.push({ pathname: '/reports/add-entry', params: { id: t.id } }); };
     const handleDeleteTask = (t: any) => { setModernAlertConfig({ visible: true, type: 'warning', title: 'Delete Entry?', message: 'This will remove the entry from your history.', confirmText: 'Delete', cancelText: 'Cancel', onConfirm: async () => { setModernAlertConfig((prev: any) => ({ ...prev, visible: false })); setLoading(true); try { const db = await getDB(); await db.runAsync('DELETE FROM accomplishments WHERE id = ?', [t.id]); await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action) VALUES (?, ?, ?)', ['accomplishments', t.id, 'DELETE']); await loadData(); triggerSync(); setAlertMessage("Entry deleted"); setAlertType('success'); setAlertVisible(true); } catch (e) { console.log(e); } finally { setLoading(false); } }, onCancel: () => setModernAlertConfig((prev: any) => ({ ...prev, visible: false })) }); };
 
+    const handleTitlePress = () => {
+        setCalendarLoading(true);
+        setTimeout(() => {
+            setTimelinePickerVisible(true);
+            setCalendarLoading(false);
+        }, 50);
+    };
+
     if (isInitialLoading) {
-        return <HomeSkeleton />;
+        return <HomeSkeleton insetTop={insets.top} />;
     }
 
     return (
@@ -552,6 +622,20 @@ export default function Home() {
             <ModernAlert {...modernAlertConfig} />
             <OvertimeModal visible={otModalVisible} onClose={() => setOtModalVisible(false)} onConfirm={(hrs: number) => { setOtModalVisible(false); processClockAction(true, hrs); }} theme={theme} />
             
+            <BreakModeAlert 
+                visible={isBreakMode} 
+                onResume={() => setIsBreakMode(false)} 
+            />
+
+            <DatePicker 
+                visible={timelinePickerVisible}
+                onClose={() => setTimelinePickerVisible(false)}
+                onSelect={(date) => setSelectedDate(date)}
+                selectedDate={selectedDate}
+                title="Activity History"
+                markedDates={markedDates}
+            />
+
             <NotificationModal 
                 visible={notifModalVisible} 
                 onClose={() => setNotifModalVisible(false)} 
@@ -563,72 +647,107 @@ export default function Home() {
             <View style={StyleSheet.absoluteFill} pointerEvents="none"><Svg height="100%" width="100%"><Defs><LinearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor={theme.colors.bgGradientStart} stopOpacity="1" /><Stop offset="1" stopColor={theme.colors.bgGradientEnd} stopOpacity="1" /></LinearGradient></Defs><Rect x="0" y="0" width="100%" height="100%" fill="url(#bgGrad)" /></Svg></View>
             <View style={{ position: 'absolute', top: 0, height: insets.top + 40, width: '100%', zIndex: 90 }}><Svg height="100%" width="100%"><Rect x="0" y="0" width="100%" height="100%" fill={theme.colors.bgGradientStart} opacity={0.8} /></Svg></View>
 
-            <DynamicDateHeader selectedDate={selectedDate} onSelectDate={(date) => setSelectedDate(date)} monthRecords={monthRecords} isClockedIn={isClockedIn} workedMinutes={workedMinutes} dailyGoal={dailyGoal} />
+            <DynamicHeader 
+                selectedDate={selectedDate} 
+                onSelectDate={(date) => setSelectedDate(date)} 
+                isClockedIn={isClockedIn} 
+                isOvertime={isSessionOvertime} 
+                workedMinutes={workedMinutes} 
+                dailyGoal={dailyGoal}
+                isLoading={isInitialLoading}
+            />
 
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24, paddingTop: 120 + insets.top, paddingBottom: 140 }} refreshControl={<RefreshControl refreshing={refreshing || syncStatus === 'syncing'} onRefresh={onRefresh} progressViewOffset={insets.top + 100} tintColor={theme.colors.primary} />}>
-                <View style={{ alignItems: 'center', marginBottom: 40 }}>
-                    <DynamicBar 
-                        nameToDisplay={displayName}
-                        alertVisible={alertVisible}
-                        alertMessage={alertMessage}
-                        alertType={alertType}
-                        onHideAlert={handleHideAlert}
-                        customGreeting={isBreak ? "Happy Break Time" : null} 
-                    />
-                    <BiometricButton onSuccess={handleClockButtonPress} isClockedIn={isClockedIn} isLoading={loading} settings={appSettings} />
-                </View>
-
-                <View style={{ marginBottom: 24 }} collapsable={false}>
-                    {jobSettings ? (
-                        <DailySummaryCard 
-                            totalMinutes={workedMinutes} 
-                            isClockedIn={isClockedIn} 
-                            theme={theme} 
-                            dailyGoal={dailyGoal} 
-                            isOvertime={isSessionOvertime} 
-                            startTime={latestRecord?.clock_in}
-                            otExpiry={otExpiry}
+            {isInitialLoading ? (
+                <HomeSkeleton insetTop={insets.top} />
+            ) : (
+                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24, paddingTop: 120 + insets.top, paddingBottom: 140 }} refreshControl={<RefreshControl refreshing={refreshing || syncStatus === 'syncing'} onRefresh={onRefresh} progressViewOffset={insets.top + 100} tintColor={theme.colors.primary} />}>
+                    <View style={{ alignItems: 'center', marginBottom: 40 }}>
+                        <DynamicBar 
+                            nameToDisplay={displayName}
+                            alertVisible={alertVisible}
+                            alertMessage={alertMessage}
+                            alertType={alertType}
+                            onHideAlert={handleHideAlert}
+                            customGreeting={isBreakMode ? "You are on break" : (isBreak ? "Happy Break Time" : null)} 
                         />
-                    ) : (
-                        <JobSetupCard theme={theme} router={router} isOffline={false} />
-                    )}
-                </View>
+                        
+                        <View style={{ opacity: isBreakMode ? 0.5 : 1 }} pointerEvents={isBreakMode ? 'none' : 'auto'}>
+                            <BiometricButton 
+                                onSuccess={handleClockButtonPress} 
+                                isClockedIn={isClockedIn} 
+                                isLoading={loading} 
+                                settings={appSettings} 
+                            />
+                        </View>
+                    </View>
 
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                    <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.5 }}>{activityTitle}</Text>
-                    
-                    <View style={{ flexDirection: 'row', gap: 12 }}>
-                         <TouchableOpacity 
-                            onPress={() => setNotifModalVisible(true)} 
-                            style={{ backgroundColor: theme.colors.card, borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.colors.border }}
+                    <View style={{ marginBottom: 24 }} collapsable={false}>
+                        {jobSettings ? (
+                            <DailySummaryCard 
+                                totalMinutes={workedMinutes} 
+                                isClockedIn={isClockedIn} 
+                                theme={theme} 
+                                dailyGoal={dailyGoal} 
+                                isOvertime={isSessionOvertime} 
+                                startTime={latestRecord?.clock_in}
+                                otExpiry={otExpiry}
+                            />
+                        ) : (
+                            <JobSetupCard theme={theme} router={router} isOffline={false} />
+                        )}
+                    </View>
+
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                        <TouchableOpacity 
+                            onPress={handleTitlePress}
+                            activeOpacity={0.6}
+                            disabled={calendarLoading}
+                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
                         >
-                            <HugeiconsIcon icon={Notification01Icon} size={18} color={theme.colors.text} />
-                            {unreadNotifsCount > 0 && (
-                                <View style={{ position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.danger, borderWidth: 1.5, borderColor: theme.colors.card }} />
+                            <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.5 }}>
+                                {activityTitle}
+                            </Text>
+                            {calendarLoading ? (
+                                <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                            ) : (
+                                <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.textSecondary} />
                             )}
                         </TouchableOpacity>
+                        
+                        <View style={{ flexDirection: 'row', gap: 12 }}>
+                            <TouchableOpacity 
+                                onPress={() => setNotifModalVisible(true)} 
+                                style={{ backgroundColor: theme.colors.card, borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.colors.border }}
+                            >
+                                <HugeiconsIcon icon={Notification01Icon} size={18} color={theme.colors.text} />
+                                {unreadNotifsCount > 0 && (
+                                    <View style={{ position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.danger, borderWidth: 1.5, borderColor: theme.colors.card }} />
+                                )}
+                            </TouchableOpacity>
 
-                        <TouchableOpacity 
-                            disabled={!isClockedIn} 
-                            onPress={() => router.push({ pathname: '/reports/add-entry', params: { jobId: activeJobId } })} 
-                            style={{ backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background, borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}
-                        >
-                            <HugeiconsIcon icon={PlusSignIcon} size={20} color={isClockedIn ? theme.colors.primary : theme.colors.icon} />
-                        </TouchableOpacity>
+                            <TouchableOpacity 
+                                disabled={!isClockedIn} 
+                                onPress={() => router.push({ pathname: '/reports/add-entry', params: { jobId: activeJobId } })} 
+                                style={{ backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background, borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}
+                            >
+                                <HugeiconsIcon icon={PlusSignIcon} size={20} color={isClockedIn ? theme.colors.primary : theme.colors.icon} />
+                            </TouchableOpacity>
+                        </View>
                     </View>
-                </View>
-                
-                <View style={{ backgroundColor: theme.colors.card, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' }} collapsable={false}>
-                    <View style={{ padding: 20 }}>
-                        <ActivityTimeline 
-                            timelineData={timelineData} 
-                            theme={theme} 
-                            onEditTask={handleEdit} 
-                            onDeleteTask={handleDeleteTask} 
-                        />
+                    
+                    <View style={{ backgroundColor: theme.colors.card, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' }} collapsable={false}>
+                        <View style={{ padding: 20 }}>
+                            <ActivityTimeline 
+                                timelineData={timelineData} 
+                                theme={theme} 
+                                onEditTask={handleEdit} 
+                                onDeleteTask={handleDeleteTask} 
+                                isLoading={timelineLoading}
+                            />
+                        </View>
                     </View>
-                </View>
-            </ScrollView>
+                </ScrollView>
+            )}
         </View>
     );
 }

@@ -1,12 +1,13 @@
+// ... imports same as before ...
 import {
-    Cancel01Icon,
-    Delete02Icon,
-    File02Icon,
-    FileVerifiedIcon,
-    PlusSignIcon,
-    RefreshIcon,
-    Search01Icon,
-    WifiOff01Icon,
+  Cancel01Icon,
+  Delete02Icon,
+  File02Icon,
+  FileVerifiedIcon,
+  PlusSignIcon,
+  RefreshIcon,
+  Search01Icon,
+  WifiOff01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import NetInfo from "@react-native-community/netinfo";
@@ -14,28 +15,27 @@ import { endOfMonth, format } from "date-fns";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    BackHandler,
-    Platform,
-    RefreshControl,
-    SectionList,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    UIManager,
-    View,
+  ActivityIndicator,
+  BackHandler,
+  Platform,
+  RefreshControl,
+  SectionList,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  UIManager,
+  View,
 } from "react-native";
 import Animated, {
-    cancelAnimation,
-    useAnimatedStyle,
-    useSharedValue,
-    withRepeat,
-    withTiming,
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-// Components
 import ActionMenu from "../../components/ActionMenu";
 import DatePicker from "../../components/DatePicker";
 import FloatingAlert from "../../components/FloatingAlert";
@@ -43,7 +43,7 @@ import LoadingOverlay from "../../components/LoadingOverlay";
 import ModernAlert from "../../components/ModernAlert";
 import ReportFilterBar from "../../components/ReportFilterBar";
 import ReportFilterModal, {
-    DateRange,
+  DateRange,
 } from "../../components/ReportFilterModal";
 import ReportItem from "../../components/ReportItem";
 import TabHeader from "../../components/TabHeader";
@@ -105,20 +105,20 @@ export default function ReportsScreen() {
   const { triggerSync, syncStatus, lastSyncedAt } = useSync();
   const isSyncing = syncStatus === "syncing";
 
-  // Refs
   const filterBarRef = useRef<View>(null);
 
-  // Data & UI
   const [allSections, setAllSections] = useState<any[]>([]);
   const [filteredSections, setFilteredSections] = useState<any[]>([]);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
+  // ADDED: markedDates for DatePicker
+  const [markedDates, setMarkedDates] = useState<string[]>([]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadingAction, setLoadingAction] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
+  const [calendarLoading, setCalendarLoading] = useState(false);
 
-  // Modals
   const [modalVisible, setModalVisible] = useState(false);
   const [currentRange, setCurrentRange] = useState<DateRange | null>(null);
   const [actionMenuVisible, setActionMenuVisible] = useState(false);
@@ -126,7 +126,6 @@ export default function ReportsScreen() {
     { x: number; y: number } | undefined
   >(undefined);
 
-  // Alerts
   const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
   const [floatingAlert, setFloatingAlert] = useState({
     visible: false,
@@ -139,7 +138,6 @@ export default function ReportsScreen() {
   const [selectionMode, setSelectionMode] = useState(false);
   const syncButtonRotation = useSharedValue(0);
 
-  // Network Listener
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {
       setIsOffline(!(state.isConnected && state.isInternetReachable));
@@ -186,7 +184,7 @@ export default function ReportsScreen() {
       if (success) {
         setFloatingAlert({
           visible: true,
-          message: "Sync complete",
+          message: "Data synced successfully",
           type: "success",
         });
         await fetchReports();
@@ -194,14 +192,14 @@ export default function ReportsScreen() {
         if (isOffline) {
           setFloatingAlert({
             visible: true,
-            message: "Offline: Cannot sync",
+            message: "Offline: Sync paused",
             type: "error",
           });
         } else {
           setAlertConfig({
             visible: true,
             type: "error",
-            title: "Sync Failed",
+            title: "Sync Error",
             message:
               "Could not sync data. Please check your connection and try again.",
             confirmText: "OK",
@@ -213,6 +211,14 @@ export default function ReportsScreen() {
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const handleCalendarPress = () => {
+    setCalendarLoading(true);
+    setTimeout(() => {
+        setShowDatePicker(true);
+        setCalendarLoading(false);
+    }, 100);
   };
 
   const applyFilter = useCallback((range: DateRange, data: any[]) => {
@@ -267,6 +273,7 @@ export default function ReportsScreen() {
         ...(tasks?.map((t: any) => t.date) || []),
       ]);
       setAvailableDates(Array.from(allDatesSet));
+      setMarkedDates(Array.from(allDatesSet)); // Sync marked dates with available dates
 
       const sortedDates = Array.from(allDatesSet).sort(
         (a, b) => new Date(b).getTime() - new Date(a).getTime(),
@@ -372,7 +379,7 @@ export default function ReportsScreen() {
           } = await supabase.auth.getSession();
           const userId = session?.user?.id;
           if (userId) {
-            const job = await ReportService.getActiveJob(userId);
+            const job: any = await ReportService.getActiveJob(userId);
             if (job) {
               for (const date of selectedIds)
                 await ReportService.deleteReportDay(userId, job.id, date);
@@ -458,11 +465,12 @@ export default function ReportsScreen() {
         onClose={() => setShowDatePicker(false)}
         onSelect={handleExactDateSelect}
         selectedDate={
-          (currentRange?.type as any) === "day"
+          currentRange && currentRange.type === "day"
             ? new Date(currentRange.start)
             : new Date()
         }
         title="Select Specific Date"
+        markedDates={markedDates} // UPDATED
       />
 
       <ActionMenu
@@ -487,7 +495,7 @@ export default function ReportsScreen() {
                     startDate: currentRange?.start,
                     endDate: currentRange?.end,
                     date:
-                      (currentRange?.type as any) === "day"
+                      currentRange && currentRange.type === "day"
                         ? currentRange.start
                         : undefined,
                   },
@@ -602,7 +610,7 @@ export default function ReportsScreen() {
           >
             <ReportFilterBar
               onPress={() => setModalVisible(true)}
-              onCalendarPress={() => setShowDatePicker(true)}
+              onCalendarPress={handleCalendarPress}
               onMorePress={() => {
                 if (filterBarRef.current) {
                   filterBarRef.current.measure(
@@ -617,6 +625,7 @@ export default function ReportsScreen() {
                 }
               }}
               currentRange={currentRange}
+              isCalendarLoading={calendarLoading}
             />
           </View>
 

@@ -1,23 +1,23 @@
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useRef, useState } from "react";
 import {
-    Modal,
-    PanResponder,
-    Platform,
-    Pressable,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Modal,
+  PanResponder,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Animated, {
-    Easing,
-    interpolate,
-    runOnJS,
-    useAnimatedProps,
-    useAnimatedStyle,
-    useSharedValue,
-    withTiming,
+  interpolate,
+  runOnJS,
+  useAnimatedProps,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
 } from "react-native-reanimated";
 import Svg, { Circle, G, Line, Text as SvgText } from "react-native-svg";
 import { useAppTheme } from "../constants/theme";
@@ -37,20 +37,12 @@ interface TimePickerProps {
   initialPeriod?: "AM" | "PM";
 }
 
-const CLOCK_SIZE = 260;
+const CONTAINER_WIDTH = 340;
+const CONTAINER_HEIGHT = 500; 
+const CLOCK_SIZE = 240;
 const CENTER = CLOCK_SIZE / 2;
 const RADIUS = CLOCK_SIZE / 2 - 32;
 
-// Standardized easing
-const ANIMATION_EASING = Easing.out(Easing.quad);
-
-const normalizeAngle = (angle: number) => {
-  let a = angle % 360;
-  if (a < 0) a += 360;
-  return a;
-};
-
-// Helper to handle the 360 wrap-around smoothly for Reanimated
 const getShortestPath = (current: number, target: number) => {
   const diff = ((target - (current % 360) + 540) % 360) - 180;
   return current + diff;
@@ -69,12 +61,16 @@ export default function TimePicker({
   const [hours, setHours] = useState(initialHours);
   const [minutes, setMinutes] = useState(initialMinutes);
   const [period, setPeriod] = useState<"AM" | "PM">(initialPeriod || "AM");
+  
   const [mode, setMode] = useState<"HOUR" | "MINUTE">("HOUR");
+  const [viewMode, setViewMode] = useState<"DIGITAL" | "ANALOG">("DIGITAL");
   const [showModal, setShowModal] = useState(visible);
 
   // Animations
-  const openAnim = useSharedValue(0);
+  const animation = useSharedValue(0); 
+  const modeAnim = useSharedValue(0); 
   const angle = useSharedValue(0);
+  
   const modeRef = useRef<"HOUR" | "MINUTE">("HOUR");
   const lastHapticValue = useRef<number | null>(null);
   const isDragging = useRef(false);
@@ -86,6 +82,9 @@ export default function TimePicker({
   useEffect(() => {
     if (visible) {
       setShowModal(true);
+      setViewMode("DIGITAL");
+      modeAnim.value = 0; 
+      
       let h = initialHours;
       if (h === 0) h = 12;
       if (h > 12) h -= 12;
@@ -94,26 +93,30 @@ export default function TimePicker({
       setPeriod(initialPeriod || "AM");
       setMode("HOUR");
 
-      const startAngle = (h === 12 ? 0 : h) * 30;
-      angle.value = startAngle;
-
-      openAnim.value = 0;
-      openAnim.value = withTiming(1, {
-        duration: 300,
-        easing: ANIMATION_EASING,
+      animation.value = withSpring(1, {
+        damping: 18,
+        stiffness: 120,
+        mass: 1,
+      });
+    } else {
+      animation.value = withTiming(0, { duration: 200 }, (finished) => {
+        if (finished) {
+          runOnJS(setShowModal)(false);
+        }
       });
     }
   }, [visible, initialHours, initialMinutes, initialPeriod]);
 
+  useEffect(() => {
+    if (viewMode === "ANALOG") {
+      modeAnim.value = withTiming(1, { duration: 300 });
+    } else {
+      modeAnim.value = withTiming(0, { duration: 300 });
+    }
+  }, [viewMode]);
+
   const handleClose = () => {
-    openAnim.value = withTiming(
-      0,
-      { duration: 250, easing: ANIMATION_EASING },
-      (finished) => {
-        if (finished) runOnJS(onClose)();
-        if (finished) runOnJS(setShowModal)(false);
-      },
-    );
+    onClose();
   };
 
   const handleConfirm = () => {
@@ -121,32 +124,28 @@ export default function TimePicker({
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
     onConfirm(hours, minutes, period);
-    handleClose();
+    onClose();
   };
 
-  // Effect to snap the hand when switching modes or initial load
-  // BUT NOT when dragging
-  useEffect(() => {
-    if (!visible || isDragging.current) return;
+  const openAnalog = (targetMode: "HOUR" | "MINUTE") => {
+    setMode(targetMode);
+    const val = targetMode === "HOUR" ? (hours === 12 ? 0 : hours) : minutes;
+    const step = targetMode === "HOUR" ? 30 : 6;
+    angle.value = val * step;
+    setViewMode("ANALOG");
+    if (Platform.OS !== "web") Haptics.selectionAsync();
+  };
 
-    let targetAngle =
-      mode === "HOUR" ? (hours === 12 ? 0 : hours) * 30 : minutes * 6;
-
-    const next = getShortestPath(angle.value, targetAngle);
-
-    angle.value = withTiming(next, {
-      duration: 400,
-      easing: Easing.out(Easing.back(0.8)), // Slight overshot for mechanical feel
-    });
-  }, [mode, hours, minutes, visible]);
+  const handleCenterTap = () => {
+    if (Platform.OS !== "web") Haptics.selectionAsync();
+    setViewMode("DIGITAL");
+  };
 
   const handleTouch = (x: number, y: number, finish: boolean) => {
     isDragging.current = !finish;
 
     const dx = x - CENTER;
     const dy = y - CENTER;
-
-    // Calculate raw angle from center (0-360)
     let theta = Math.atan2(dy, dx) * (180 / Math.PI) + 90;
     if (theta < 0) theta += 360;
 
@@ -154,7 +153,6 @@ export default function TimePicker({
     let val = 0;
     let snappedAngle = 0;
 
-    // Determine the "Value" based on the angle (for display & haptics)
     if (currentMode === "HOUR") {
       const step = 30;
       snappedAngle = Math.round(theta / step) * step;
@@ -168,56 +166,38 @@ export default function TimePicker({
       if (val === 60) val = 0;
     }
 
-    // Haptics on value change
     if (val !== lastHapticValue.current) {
       if (Platform.OS !== "web") Haptics.selectionAsync();
       lastHapticValue.current = val;
-
-      // Update display state immediately
       if (currentMode === "HOUR") setHours(val);
       else setMinutes(val);
     }
 
     if (!finish) {
-      // SMOOTH MOVEMENT: Follow finger exactly
-      // We use getShortestPath to ensure we don't spin 360 degrees if crossing the 0/360 boundary
       angle.value = getShortestPath(angle.value, theta);
     } else {
-      // SNAP ON RELEASE: Go to the exact tick mark
       const finalSnap = getShortestPath(angle.value, snappedAngle);
-      angle.value = withTiming(finalSnap, {
-        duration: 300,
-        easing: Easing.out(Easing.cubic),
+      angle.value = withSpring(finalSnap, {
+          damping: 15,
+          stiffness: 150
       });
 
-      // Auto-advance mode on release
-      if (currentMode === "HOUR") {
-        setMode("MINUTE");
-      }
+      // Auto-switch back to digital after brief delay (optional UX)
+      setTimeout(() => {
+        runOnJS(setViewMode)("DIGITAL");
+      }, 400); 
     }
   };
 
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onPanResponderGrant: (evt) =>
-        handleTouch(
-          evt.nativeEvent.locationX,
-          evt.nativeEvent.locationY,
-          false,
-        ),
-      onPanResponderMove: (evt) =>
-        handleTouch(
-          evt.nativeEvent.locationX,
-          evt.nativeEvent.locationY,
-          false,
-        ),
-      onPanResponderRelease: (evt) =>
-        handleTouch(evt.nativeEvent.locationX, evt.nativeEvent.locationY, true),
+      onPanResponderGrant: (evt) => handleTouch(evt.nativeEvent.locationX, evt.nativeEvent.locationY, false),
+      onPanResponderMove: (evt) => handleTouch(evt.nativeEvent.locationX, evt.nativeEvent.locationY, false),
+      onPanResponderRelease: (evt) => handleTouch(evt.nativeEvent.locationX, evt.nativeEvent.locationY, true),
     }),
   ).current;
 
-  // Animated Props for SVG elements
   const handProps = useAnimatedProps(() => {
     const rad = (angle.value - 90) * (Math.PI / 180);
     return {
@@ -234,17 +214,32 @@ export default function TimePicker({
     };
   });
 
-  const backdropStyle = useAnimatedStyle(() => ({ opacity: openAnim.value }));
-  const containerStyle = useAnimatedStyle(() => ({
-    opacity: openAnim.value,
-    transform: [{ scale: interpolate(openAnim.value, [0, 1], [0.95, 1]) }],
+  const backdropStyle = useAnimatedStyle(() => ({ opacity: animation.value }));
+  const containerStyle = useAnimatedStyle(() => {
+    const scale = interpolate(animation.value, [0, 1], [0.92, 1]);
+    return {
+        opacity: animation.value,
+        transform: [{ scale }],
+    };
+  });
+
+  const digitalViewStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(modeAnim.value, [0, 1], [1, 0]),
+    transform: [{ scale: interpolate(modeAnim.value, [0, 1], [1, 0.9]) }],
+    zIndex: modeAnim.value < 0.5 ? 1 : 0, 
+  }));
+
+  const analogViewStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(modeAnim.value, [0, 1], [0, 1]),
+    transform: [{ scale: interpolate(modeAnim.value, [0, 1], [1.1, 1]) }],
+    zIndex: modeAnim.value > 0.5 ? 1 : 0,
   }));
 
   if (!showModal) return null;
 
   return (
     <Modal
-      visible={visible}
+      visible={showModal}
       transparent
       animationType="none"
       onRequestClose={handleClose}
@@ -263,180 +258,209 @@ export default function TimePicker({
             ]}
           >
             <ModalHeader title={title} position="center" />
-            <View style={styles.header}>
-              <View style={styles.timeDisplay}>
-                <TouchableOpacity
-                  onPress={() => {
-                    setMode("HOUR");
-                    if (Platform.OS !== "web")
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
-                  style={[
-                    styles.timeUnit,
-                    mode === "HOUR" && {
-                      backgroundColor: theme.colors.primary + "15",
-                      borderRadius: 12,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.timeText,
-                      {
-                        color:
-                          mode === "HOUR"
-                            ? theme.colors.primary
-                            : theme.colors.text,
-                      },
-                    ]}
-                  >
-                    {hours === 0 ? 12 : hours}
-                  </Text>
-                </TouchableOpacity>
-                <Text style={[styles.colon, { color: theme.colors.text }]}>
-                  :
-                </Text>
-                <TouchableOpacity
-                  onPress={() => {
-                    setMode("MINUTE");
-                    if (Platform.OS !== "web")
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
-                  style={[
-                    styles.timeUnit,
-                    mode === "MINUTE" && {
-                      backgroundColor: theme.colors.primary + "15",
-                      borderRadius: 12,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.timeText,
-                      {
-                        color:
-                          mode === "MINUTE"
-                            ? theme.colors.primary
-                            : theme.colors.text,
-                      },
-                    ]}
-                  >
-                    {minutes.toString().padStart(2, "0")}
-                  </Text>
-                </TouchableOpacity>
-                <View style={styles.ampmContainer}>
-                  {["AM", "PM"].map((p) => (
+            
+            <View style={styles.bodyContainer}>
+              
+              {/* DIGITAL VIEW */}
+              <Animated.View 
+                style={[styles.absoluteFill, digitalViewStyle]}
+                pointerEvents={viewMode === "DIGITAL" ? "auto" : "none"}
+              >
+                <View style={styles.centerContent}>
+                  <View style={styles.timeDisplay}>
                     <TouchableOpacity
-                      key={p}
-                      onPress={() => {
-                        setPeriod(p as any);
-                        if (Platform.OS !== "web")
-                          Haptics.impactAsync(
-                            Haptics.ImpactFeedbackStyle.Medium,
-                          );
-                      }}
-                      style={[
-                        styles.ampmButton,
-                        period === p && {
-                          backgroundColor: theme.colors.primary,
-                          borderColor: theme.colors.primary,
-                        },
-                        period !== p && { borderColor: theme.colors.border },
-                      ]}
+                      onPress={() => openAnalog('HOUR')}
+                      activeOpacity={0.6}
+                      style={styles.timeUnit}
                     >
-                      <Text
-                        style={[
-                          styles.ampmText,
-                          {
-                            color:
-                              period === p
-                                ? "#FFF"
-                                : theme.colors.textSecondary,
-                          },
-                        ]}
-                      >
-                        {p}
+                      <Text style={[styles.timeText, { color: theme.colors.text }]}>
+                        {hours === 0 ? 12 : hours}
                       </Text>
+                      <Text style={[styles.label, {color: theme.colors.textSecondary}]}>HOURS</Text>
                     </TouchableOpacity>
-                  ))}
+                    
+                    <Text style={[styles.colon, { color: theme.colors.text }]}>:</Text>
+                    
+                    <TouchableOpacity
+                      onPress={() => openAnalog('MINUTE')}
+                      activeOpacity={0.6}
+                      style={styles.timeUnit}
+                    >
+                      <Text style={[styles.timeText, { color: theme.colors.text }]}>
+                        {minutes.toString().padStart(2, "0")}
+                      </Text>
+                      <Text style={[styles.label, {color: theme.colors.textSecondary}]}>MINUTES</Text>
+                    </TouchableOpacity>
+                    
+                    <View style={styles.ampmContainer}>
+                      {["AM", "PM"].map((p) => (
+                        <TouchableOpacity
+                          key={p}
+                          onPress={() => {
+                            setPeriod(p as any);
+                            if (Platform.OS !== "web")
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                          }}
+                          style={[
+                            styles.ampmButton,
+                            period === p && {
+                              backgroundColor: theme.colors.primary,
+                              borderColor: theme.colors.primary,
+                            },
+                            period !== p && { borderColor: theme.colors.border },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.ampmText,
+                              {
+                                color: period === p ? "#FFF" : theme.colors.textSecondary,
+                              },
+                            ]}
+                          >
+                            {p}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
                 </View>
-              </View>
-            </View>
-            <View style={styles.clockContainer} {...panResponder.panHandlers}>
-              <Svg height={CLOCK_SIZE} width={CLOCK_SIZE}>
-                <Circle
-                  cx={CENTER}
-                  cy={CENTER}
-                  r={CLOCK_SIZE / 2 - 4}
-                  fill={theme.colors.background}
-                />
-                <Circle
-                  cx={CENTER}
-                  cy={CENTER}
-                  r={4}
-                  fill={theme.colors.primary}
-                />
-                {/* Numbers */}
-                {mode === "HOUR" &&
-                  Array.from({ length: 12 }).map((_, i) => {
-                    const val = i + 1;
-                    const angleRad = (val * 30 - 90) * (Math.PI / 180);
-                    const isSelected =
-                      hours === val || (hours === 0 && val === 12);
-                    return (
-                      <G key={i}>
-                        <SvgText
-                          x={CENTER + RADIUS * Math.cos(angleRad)}
-                          y={CENTER + RADIUS * Math.sin(angleRad) + 5}
-                          fill={isSelected ? "#FFFFFF" : theme.colors.text}
-                          fontSize="16"
-                          fontWeight="bold"
-                          textAnchor="middle"
-                        >
-                          {val}
-                        </SvgText>
-                      </G>
-                    );
-                  })}
-                {mode === "MINUTE" &&
-                  Array.from({ length: 12 }).map((_, i) => {
-                    const val = i * 5;
-                    const angleRad = (i * 30 - 90) * (Math.PI / 180);
-                    const isSelected = minutes === val;
-                    return (
-                      <G key={i}>
-                        <SvgText
-                          x={CENTER + RADIUS * Math.cos(angleRad)}
-                          y={CENTER + RADIUS * Math.sin(angleRad) + 5}
-                          fill={isSelected ? "#FFFFFF" : theme.colors.text}
-                          fontSize="14"
-                          fontWeight="600"
-                          textAnchor="middle"
-                        >
-                          {val.toString().padStart(2, "0")}
-                        </SvgText>
-                      </G>
-                    );
-                  })}
+              </Animated.View>
 
-                {/* Hand and Knob (Drawn last to be on top) */}
-                <AnimatedLine
-                  x1={CENTER}
-                  y1={CENTER}
-                  stroke={theme.colors.primary}
-                  strokeWidth="2"
-                  animatedProps={handProps}
-                />
-                <AnimatedCircle
-                  r="18"
-                  fill={theme.colors.primary}
-                  animatedProps={knobProps}
-                />
-              </Svg>
+              {/* ANALOG VIEW */}
+              <Animated.View 
+                style={[styles.absoluteFill, analogViewStyle]}
+                pointerEvents={viewMode === "ANALOG" ? "auto" : "none"}
+              >
+                <View style={styles.centerContent}>
+                  {/* Container for the Clock */}
+                  <View style={styles.clockWrapper}>
+                    <View style={styles.clockContainer} {...panResponder.panHandlers}>
+                        <Svg height={CLOCK_SIZE} width={CLOCK_SIZE}>
+                        {/* 1. Background Ring */}
+                        <Circle
+                            cx={CENTER}
+                            cy={CENTER}
+                            r={CLOCK_SIZE / 2 - 4}
+                            fill={theme.colors.background}
+                            stroke={theme.colors.border}
+                            strokeWidth={1}
+                        />
+
+                        {/* 2. Hands & Selector Tip (BOTTOM LAYER) */}
+                        <AnimatedLine
+                            x1={CENTER}
+                            y1={CENTER}
+                            stroke={theme.colors.primary}
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            animatedProps={handProps}
+                        />
+                        <AnimatedCircle
+                            r="18"
+                            fill={theme.colors.primary}
+                            animatedProps={knobProps}
+                        />
+
+                        {/* 3. Numbers (TOP LAYER - Drawn over the blue circle selector) */}
+                        {mode === "HOUR" &&
+                            Array.from({ length: 12 }).map((_, i) => {
+                            const val = i + 1;
+                            const angleRad = (val * 30 - 90) * (Math.PI / 180);
+                            const isSelected = hours === val || (hours === 0 && val === 12);
+                            return (
+                                <G key={i}>
+                                <SvgText
+                                    x={CENTER + RADIUS * Math.cos(angleRad)}
+                                    y={CENTER + RADIUS * Math.sin(angleRad) + 5}
+                                    fill={isSelected ? "#FFFFFF" : theme.colors.text}
+                                    fontSize="16"
+                                    fontWeight="700"
+                                    textAnchor="middle"
+                                >
+                                    {val}
+                                </SvgText>
+                                </G>
+                            );
+                            })}
+                        {mode === "MINUTE" &&
+                            Array.from({ length: 12 }).map((_, i) => {
+                            const val = i * 5;
+                            const angleRad = (i * 30 - 90) * (Math.PI / 180);
+                            const isSelected = minutes === val;
+                            return (
+                                <G key={i}>
+                                <SvgText
+                                    x={CENTER + RADIUS * Math.cos(angleRad)}
+                                    y={CENTER + RADIUS * Math.sin(angleRad) + 5}
+                                    fill={isSelected ? "#FFFFFF" : theme.colors.text}
+                                    fontSize="14"
+                                    fontWeight="600"
+                                    textAnchor="middle"
+                                >
+                                    {val.toString().padStart(2, "0")}
+                                </SvgText>
+                                </G>
+                            );
+                            })}
+                        
+                        {/* 4. Center Pivot Dot */}
+                        <Circle
+                            cx={CENTER}
+                            cy={CENTER}
+                            r={4}
+                            fill={theme.colors.primary}
+                        />
+
+                        {/* 5. Center Display (Purely Visuals for the Button) */}
+                        <Circle
+                            cx={CENTER}
+                            cy={CENTER}
+                            r={24} 
+                            fill={theme.colors.card}
+                            stroke={theme.colors.border}
+                            strokeWidth={0.5}
+                        />
+                        <SvgText
+                            x={CENTER}
+                            y={CENTER + 6}
+                            fill={theme.colors.text}
+                            fontSize="22"
+                            fontWeight="800"
+                            textAnchor="middle"
+                        >
+                            {mode === "HOUR" 
+                                ? (hours === 0 ? 12 : hours) 
+                                : minutes.toString().padStart(2, '0')
+                            }
+                        </SvgText>
+                        <SvgText
+                            x={CENTER}
+                            y={CENTER + 16}
+                            fill={theme.colors.textSecondary}
+                            fontSize="6"
+                            fontWeight="700"
+                            textAnchor="middle"
+                            letterSpacing="0.5"
+                        >
+                            {mode === "HOUR" ? "HR" : "MIN"}
+                        </SvgText>
+                        </Svg>
+                    </View>
+
+                    {/* Dedicated Confirm Button in the Center */}
+                    <TouchableOpacity 
+                        style={styles.centerButtonOverlay}
+                        onPress={handleCenterTap}
+                        activeOpacity={0.7}
+                    />
+                  </View>
+                </View>
+              </Animated.View>
+
             </View>
-            <View
-              style={[styles.footer, { borderTopColor: theme.colors.border }]}
-            >
+
+            <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
               <Button
                 title="Cancel"
                 variant="neutral"
@@ -465,19 +489,53 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.5)",
   },
   container: {
-    width: 340,
+    width: CONTAINER_WIDTH,
+    height: CONTAINER_HEIGHT,
     borderRadius: 28,
     overflow: "hidden",
     elevation: 20,
+    flexDirection: 'column', 
   },
-  header: { alignItems: "center", paddingTop: 20, paddingBottom: 10 },
+  bodyContainer: {
+    flex: 1, 
+    position: 'relative',
+  },
+  absoluteFill: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  centerContent: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clockWrapper: {
+      position: 'relative',
+      alignItems: 'center',
+      justifyContent: 'center',
+  },
+  clockContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  // Invisible button covering the center area
+  centerButtonOverlay: {
+      position: 'absolute',
+      top: (CLOCK_SIZE / 2) - 30, 
+      left: (CLOCK_SIZE / 2) - 30,
+      width: 60,
+      height: 60,
+      borderRadius: 30,
+      // backgroundColor: 'rgba(255, 0, 0, 0.3)', // Debug color
+  },
   timeDisplay: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
   },
   timeUnit: {
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 4,
     minWidth: 70,
     alignItems: "center",
@@ -489,7 +547,13 @@ const styles = StyleSheet.create({
     letterSpacing: -1,
     fontVariant: ["tabular-nums"],
   },
-  colon: { fontSize: 50, fontWeight: "700", marginBottom: 8, opacity: 0.5 },
+  label: {
+      fontSize: 10,
+      fontWeight: '700',
+      marginTop: 4,
+      letterSpacing: 1,
+  },
+  colon: { fontSize: 50, fontWeight: "700", marginBottom: 20, opacity: 0.5 },
   ampmContainer: { flexDirection: "column", marginLeft: 20, gap: 8 },
   ampmButton: {
     borderWidth: 1,
@@ -499,10 +563,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   ampmText: { fontSize: 13, fontWeight: "800" },
-  clockContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 24,
+  footer: { 
+      flexDirection: "row", 
+      padding: 20, 
+      borderTopWidth: 1,
+      marginTop: 'auto',
   },
-  footer: { flexDirection: "row", padding: 20, borderTopWidth: 1 },
 });

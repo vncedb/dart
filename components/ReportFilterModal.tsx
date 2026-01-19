@@ -28,7 +28,8 @@ import Animated, {
 import { useAppTheme } from '../constants/theme';
 import ModalHeader from './ModalHeader';
 
-export type FilterType = 'period' | 'week' | 'month';
+// UPDATED: Added 'day' to FilterType to fix TS error
+export type FilterType = 'period' | 'week' | 'month' | 'day';
 
 export interface DateRange {
     start: string;

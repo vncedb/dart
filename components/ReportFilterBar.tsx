@@ -5,7 +5,7 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAppTheme } from '../constants/theme';
 import { DateRange } from './ReportFilterModal';
 
@@ -14,9 +14,16 @@ interface ReportFilterBarProps {
     onCalendarPress: () => void;
     onMorePress: (event: any) => void;
     currentRange: DateRange | null;
+    isCalendarLoading?: boolean;
 }
 
-const ReportFilterBar = ({ onPress, onCalendarPress, onMorePress, currentRange }: ReportFilterBarProps) => {
+const ReportFilterBar = ({ 
+    onPress, 
+    onCalendarPress, 
+    onMorePress, 
+    currentRange, 
+    isCalendarLoading = false 
+}: ReportFilterBarProps) => {
     const theme = useAppTheme();
 
     const getTitle = () => {
@@ -40,13 +47,25 @@ const ReportFilterBar = ({ onPress, onCalendarPress, onMorePress, currentRange }
                     }
                 ]}
             >
-                {/* Left: Calendar Button (Triggers Custom DatePicker) */}
+                {/* Left: Calendar Button */}
                 <TouchableOpacity 
                     onPress={onCalendarPress}
                     activeOpacity={0.7}
-                    style={[styles.iconBox, { backgroundColor: theme.colors.primary + '15' }]}
+                    disabled={isCalendarLoading}
+                    style={[
+                        styles.iconBox, 
+                        { 
+                            backgroundColor: theme.colors.background, 
+                            borderWidth: 1, 
+                            borderColor: theme.colors.border 
+                        }
+                    ]}
                 >
-                    <HugeiconsIcon icon={Calendar03Icon} size={22} color={theme.colors.primary} />
+                    {isCalendarLoading ? (
+                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                    ) : (
+                        <HugeiconsIcon icon={Calendar03Icon} size={22} color={theme.colors.text} />
+                    )}
                 </TouchableOpacity>
 
                 {/* Center: Filter Trigger */}
@@ -72,7 +91,14 @@ const ReportFilterBar = ({ onPress, onCalendarPress, onMorePress, currentRange }
                 {/* Right: More Options */}
                 <TouchableOpacity 
                     onPress={onMorePress}
-                    style={[styles.iconBox, { backgroundColor: theme.colors.background, borderWidth: 1, borderColor: theme.colors.border }]}
+                    style={[
+                        styles.iconBox, 
+                        { 
+                            backgroundColor: theme.colors.background, 
+                            borderWidth: 1, 
+                            borderColor: theme.colors.border 
+                        }
+                    ]}
                 >
                     <HugeiconsIcon icon={MoreVerticalCircle01Icon} size={22} color={theme.colors.text} />
                 </TouchableOpacity>

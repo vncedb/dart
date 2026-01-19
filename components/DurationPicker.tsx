@@ -1,19 +1,20 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
-    Modal,
-    Pressable,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Animated, {
-    Easing,
-    interpolate,
-    runOnJS,
-    useAnimatedStyle,
-    useSharedValue,
-    withTiming,
+  Easing,
+  interpolate,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
 } from "react-native-reanimated";
 import { useAppTheme } from "../constants/theme";
 import Button from "./Button";
@@ -27,7 +28,9 @@ interface DurationPickerProps {
   initialMinutes?: number;
 }
 
-const ANIMATION_EASING = Easing.out(Easing.quad);
+const CONTAINER_WIDTH = 340;
+const CONTAINER_HEIGHT = 500; // Matches TimePicker
+
 const SMOOTH_EASING = Easing.out(Easing.cubic);
 
 const TickerNumber = ({ value, max }: { value: number; max: number }) => {
@@ -35,15 +38,16 @@ const TickerNumber = ({ value, max }: { value: number; max: number }) => {
   const translateY = useSharedValue(0);
   const opacity = useSharedValue(1);
   const [displayValue, setDisplayValue] = useState(value);
-  const prevValue = useRef(value);
+  
+  const prevValueRef = React.useRef(value);
 
   useEffect(() => {
-    if (value !== prevValue.current) {
-      const direction = value > prevValue.current ? -1 : 1;
+    if (value !== prevValueRef.current) {
+      const direction = value > prevValueRef.current ? -1 : 1;
       const effectiveDir =
-        prevValue.current === 0 && value === max
+        prevValueRef.current === 0 && value === max
           ? 1
-          : prevValue.current === max && value === 0
+          : prevValueRef.current === max && value === 0
             ? -1
             : direction;
 
@@ -59,7 +63,7 @@ const TickerNumber = ({ value, max }: { value: number; max: number }) => {
           opacity.value = withTiming(1, { duration: 200 });
         }
       });
-      prevValue.current = value;
+      prevValueRef.current = value;
     }
   }, [value, max]);
 
@@ -102,48 +106,54 @@ export default function DurationPicker({
   const [durMins, setDurMins] = useState(initialMinutes);
   const [showModal, setShowModal] = useState(visible);
 
-  const openAnim = useSharedValue(0);
+  const animation = useSharedValue(0);
 
   useEffect(() => {
     if (visible) {
       setShowModal(true);
       setDurHours(initialHours);
       setDurMins(initialMinutes);
-      openAnim.value = 0;
-      openAnim.value = withTiming(1, {
-        duration: 300,
-        easing: ANIMATION_EASING,
+      // Match DatePicker Spring Config
+      animation.value = withSpring(1, {
+        damping: 18,
+        stiffness: 120,
+        mass: 1,
+      });
+    } else {
+      animation.value = withTiming(0, { duration: 200 }, (finished) => {
+        if (finished) {
+            runOnJS(setShowModal)(false);
+        }
       });
     }
   }, [visible, initialHours, initialMinutes]);
 
   const handleClose = () => {
-    openAnim.value = withTiming(
-      0,
-      { duration: 250, easing: ANIMATION_EASING },
-      (finished) => {
-        if (finished) runOnJS(onClose)();
-        if (finished) runOnJS(setShowModal)(false);
-      },
-    );
+    onClose();
   };
 
   const handleConfirm = () => {
-    onConfirm(durHours, durMins);
-    handleClose();
+    onClose();
+    setTimeout(() => {
+        onConfirm(durHours, durMins);
+    }, 100);
   };
 
-  const backdropStyle = useAnimatedStyle(() => ({ opacity: openAnim.value }));
-  const containerStyle = useAnimatedStyle(() => ({
-    opacity: openAnim.value,
-    transform: [{ scale: interpolate(openAnim.value, [0, 1], [0.95, 1]) }],
-  }));
+  const backdropStyle = useAnimatedStyle(() => ({ opacity: animation.value }));
+  
+  const containerStyle = useAnimatedStyle(() => {
+    const scale = interpolate(animation.value, [0, 1], [0.92, 1]);
+    return {
+      opacity: animation.value,
+      transform: [{ scale }],
+    };
+  });
 
   if (!showModal) return null;
 
   return (
     <Modal
-      visible={visible}
+      visible={showModal}
       transparent
       animationType="none"
       onRequestClose={handleClose}
@@ -162,6 +172,7 @@ export default function DurationPicker({
             ]}
           >
             <ModalHeader title="Set Duration" position="center" />
+            
             <View style={styles.content}>
               <View style={{ gap: 40, alignItems: "center" }}>
                 <View style={{ alignItems: "center" }}>
@@ -308,12 +319,19 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.5)",
   },
   container: {
-    width: 340,
+    width: CONTAINER_WIDTH,
+    height: CONTAINER_HEIGHT,
     borderRadius: 28,
     overflow: "hidden",
     elevation: 20,
+    flexDirection: 'column',
   },
-  content: { paddingVertical: 40, alignItems: "center" },
+  content: { 
+      flex: 1, 
+      alignItems: "center",
+      justifyContent: 'center', 
+      paddingVertical: 20
+  },
   tickerContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -332,5 +350,10 @@ const styles = StyleSheet.create({
     borderColor: "rgba(0,0,0,0.05)",
   },
   btnText: { fontSize: 24, fontWeight: "600" },
-  footer: { padding: 20, borderTopWidth: 1, flexDirection: "row" },
+  footer: { 
+      padding: 20, 
+      borderTopWidth: 1, 
+      flexDirection: "row",
+      marginTop: 'auto' 
+  },
 });

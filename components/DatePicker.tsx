@@ -18,7 +18,6 @@ import React, {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import {
@@ -37,16 +36,18 @@ import Animated, {
   FadeOut,
   interpolate,
   interpolateColor,
+  runOnJS,
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
+  withSpring,
+  withTiming,
 } from "react-native-reanimated";
 import { useAppTheme } from "../constants/theme";
 import Button from "./Button";
 import ModalHeader from "./ModalHeader";
 
 const ITEM_HEIGHT = 60;
-const VISIBLE_ITEMS = 5;
 const CONTENT_HEIGHT = 340;
 const PADDING_VERTICAL = (CONTENT_HEIGHT - ITEM_HEIGHT) / 2;
 
@@ -56,10 +57,12 @@ interface DatePickerProps {
   onSelect: (date: Date) => void;
   selectedDate?: Date;
   title?: string;
+  markedDates?: string[]; // New Prop
 }
 
 type ViewMode = "calendar" | "month" | "year";
 
+// ... (WheelItem and WheelPicker components remain unchanged) ...
 // --- WHEEL ITEM ---
 const WheelItem = React.memo(
   ({ item, index, scrollY, onPress, formatLabel, theme }: any) => {
@@ -116,7 +119,8 @@ const WheelPicker = React.memo(
     const theme = useAppTheme();
     const scrollY = useSharedValue(0);
     const [activeIndex, setActiveIndex] = useState(initialIndex);
-    const flatListRef = useRef<FlatList>(null);
+     
+    const flatListRef = React.useRef<FlatList>(null);
     const [isReady, setIsReady] = useState(false);
 
     useEffect(() => {
@@ -216,49 +220,81 @@ export default function DatePicker({
   onSelect,
   selectedDate = new Date(),
   title = "Select Date",
+  markedDates = []
 }: DatePickerProps) {
   const theme = useAppTheme();
   const [tempDate, setTempDate] = useState(new Date(selectedDate));
   const [currentMonth, setCurrentMonth] = useState(new Date(selectedDate));
   const [viewMode, setViewMode] = useState<ViewMode>("calendar");
+  
+  const [showModal, setShowModal] = useState(visible);
+  const animation = useSharedValue(0);
 
   const months = useMemo(
     () => Array.from({ length: 12 }, (_, i) => new Date(0, i)),
     [],
   );
+  
   const years = useMemo(() => {
     const startYear = 1900;
-    const currentYear = new Date().getFullYear() + 5;
+    const currentYear = new Date().getFullYear();
     return Array.from(
       { length: currentYear - startYear + 1 },
       (_, i) => startYear + i,
     );
   }, []);
 
-  // Sync state when modal becomes visible
   useEffect(() => {
     if (visible) {
+      setShowModal(true);
       setTempDate(new Date(selectedDate));
       setCurrentMonth(new Date(selectedDate));
       setViewMode("calendar");
+      
+      animation.value = withSpring(1, {
+        damping: 18,
+        stiffness: 120,
+        mass: 1,
+      });
+    } else {
+      if (showModal) {
+         closeModal();
+      }
     }
   }, [visible, selectedDate]);
 
+  const closeModal = (callback?: () => void) => {
+    animation.value = withTiming(0, { duration: 200 }, (finished) => {
+        if (finished) {
+            runOnJS(setShowModal)(false);
+            if (callback) runOnJS(callback)();
+        }
+    });
+  };
+
   const handleClose = () => {
-    onClose();
+    closeModal(onClose);
   };
 
   const handleConfirm = () => {
-    // 1. Close Visually First (Instant)
-    onClose();
-
-    // 2. Defer data processing to allow the modal to disappear immediately
-    setTimeout(() => {
-      onSelect(tempDate);
-    }, 50);
+    closeModal(() => {
+        onClose();
+        onSelect(tempDate);
+    });
   };
 
-  // Helper functions
+  const animatedBackdropStyle = useAnimatedStyle(() => ({
+    opacity: animation.value,
+  }));
+
+  const animatedContainerStyle = useAnimatedStyle(() => {
+    const scale = interpolate(animation.value, [0, 1], [0.92, 1]);
+    return {
+      opacity: animation.value,
+      transform: [{ scale }],
+    };
+  });
+
   const formatMonth = useCallback((item: Date) => format(item, "MMMM"), []);
   const formatYear = useCallback((item: number) => item.toString(), []);
 
@@ -309,9 +345,11 @@ export default function DatePicker({
       </View>
       <View style={styles.daysGrid}>
         {calendarDays.map((day) => {
+          const dateStr = format(day, 'yyyy-MM-dd');
           const isSelected = isSameDay(day, tempDate);
           const isCurrentMonth = isSameMonth(day, currentMonth);
           const isToday = isSameDay(day, new Date());
+          const hasIndicator = markedDates.includes(dateStr);
 
           return (
             <View key={day.toISOString()} style={styles.dayCellWrapper}>
@@ -327,7 +365,6 @@ export default function DatePicker({
                       ? theme.colors.primary
                       : "transparent",
                   },
-                  // If it's today but NOT selected, show border. If selected, solid background wins.
                   !isSelected &&
                     isToday && {
                       borderWidth: 1.5,
@@ -338,24 +375,33 @@ export default function DatePicker({
                 <Text
                   style={[
                     styles.dayText,
-                    // Base color
                     {
                       color: isCurrentMonth
                         ? theme.colors.text
                         : theme.colors.textSecondary,
                     },
-                    // Today not selected (Primary Color)
                     !isSelected &&
                       isToday && {
                         color: theme.colors.primary,
                         fontWeight: "700",
                       },
-                    // Selected (White) - This MUST come last to override 'isToday' color
                     isSelected && { color: "#fff", fontWeight: "800" },
                   ]}
                 >
                   {format(day, "d")}
                 </Text>
+                
+                {/* Activity Indicator Dot */}
+                {hasIndicator && (
+                    <View style={{
+                        position: 'absolute',
+                        bottom: 6,
+                        width: 4,
+                        height: 4,
+                        borderRadius: 2,
+                        backgroundColor: isSelected ? '#fff' : theme.colors.primary
+                    }} />
+                )}
               </TouchableOpacity>
             </View>
           );
@@ -364,21 +410,26 @@ export default function DatePicker({
     </Animated.View>
   );
 
-  if (!visible) return null;
+  if (!showModal) return null;
 
   return (
     <Modal
-      visible={visible}
+      visible={showModal}
       transparent
-      animationType="none" // Disabled native animation for instant feel
+      animationType="none"
       onRequestClose={handleClose}
       statusBarTranslucent
     >
+      <Animated.View style={[styles.backdrop, animatedBackdropStyle]} />
+
       <Pressable style={styles.overlay} onPress={handleClose}>
-        <View style={styles.backdrop} />
         <Pressable onPress={(e) => e.stopPropagation()}>
-          <View
-            style={[styles.container, { backgroundColor: theme.colors.card }]}
+          <Animated.View
+            style={[
+              styles.container, 
+              { backgroundColor: theme.colors.card },
+              animatedContainerStyle
+            ]}
           >
             <ModalHeader title={title} position="center" />
 
@@ -513,7 +564,7 @@ export default function DatePicker({
                 style={{ flex: 1 }}
               />
             </View>
-          </View>
+          </Animated.View>
         </Pressable>
       </Pressable>
     </Modal>

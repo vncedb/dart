@@ -3,9 +3,6 @@ import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
 import android.os.Bundle
-// Import necessary classes for Display mode management
-import android.view.Display
-import android.view.WindowManager
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -24,24 +21,6 @@ class MainActivity : ReactActivity() {
     SplashScreenManager.registerOnActivity(this)
     // @generated end expo-splashscreen
     super.onCreate(null)
-
-    // HIGH REFRESH RATE UNLOCK (90fps/120fps)
-    // This forces the window to use the highest supported refresh rate of the device
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        val display = try { display } catch(e: Exception) { null }
-        display?.let {
-            val supportedModes = it.supportedModes
-            // Sort modes by refresh rate descending
-            supportedModes.sortByDescending { mode -> mode.refreshRate }
-            
-            val highestMode = supportedModes.firstOrNull()
-            highestMode?.let { mode ->
-                val lp = window.attributes
-                lp.preferredDisplayModeId = mode.modeId
-                window.attributes = lp
-            }
-        }
-    }
   }
 
   /**

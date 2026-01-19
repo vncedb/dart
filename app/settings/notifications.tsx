@@ -1,79 +1,213 @@
 import {
-    Camera01Icon,
-    Location01Icon,
-    Mail01Icon,
-    Notification03Icon,
-    Settings02Icon
+  ArrowLeft01Icon,
+  Clock01Icon,
+  Notification01Icon,
+  Settings01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import * as Linking from 'expo-linking';
-import * as Notifications from 'expo-notifications';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Alert, ScrollView, Switch, Text, TouchableOpacity, View } from 'react-native';
+import {
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Header from '../../components/Header'; // Universal Header
 
-export default function NotificationPermissionScreen() {
-  const [pushEnabled, setPushEnabled] = useState(false);
-  const [emailEnabled, setEmailEnabled] = useState(true);
+import { useAppTheme } from '../../constants/theme';
 
-  useEffect(() => { checkPermissions(); }, []);
+export default function NotificationsSettings() {
+    const router = useRouter();
+    const theme = useAppTheme();
 
-  const checkPermissions = async () => {
-    const { status } = await Notifications.getPermissionsAsync();
-    setPushEnabled(status === 'granted');
-  };
+    const [settings, setSettings] = useState({
+        pushEnabled: true,
+        attendanceEnabled: true, // New setting for persistent notification
+        emailEnabled: false,
+        soundEnabled: true,
+        vibrationEnabled: true,
+    });
 
-  const togglePushNotifications = async (value: boolean) => {
-    if (value) {
-      const { status } = await Notifications.requestPermissionsAsync();
-      setPushEnabled(status === 'granted');
-      if (status !== 'granted') Alert.alert("Permission Required", "Please enable notifications in settings.", [{ text: "Settings", onPress: () => Linking.openSettings() }]);
-    } else {
-      setPushEnabled(false);
-    }
-  };
+    useEffect(() => {
+        loadSettings();
+    }, []);
 
-  const SettingRow = ({ icon, title, subtitle, value, onValueChange, last }: any) => (
-    <View className={`flex-row items-center justify-between p-4 bg-white dark:bg-slate-800 ${!last ? 'border-b border-slate-100 dark:border-slate-700/50' : ''}`}>
-        <View className="flex-row items-center flex-1 gap-3 pr-2">
-            <View className="items-center justify-center w-10 h-10 rounded-full bg-slate-50 dark:bg-slate-700"><HugeiconsIcon icon={icon} size={20} color="#6366f1" /></View>
-            <View className="flex-1"><Text className="text-base font-bold text-slate-900 dark:text-white">{title}</Text>{subtitle && <Text className="text-xs font-medium text-slate-400">{subtitle}</Text>}</View>
-        </View>
-        <Switch value={value} onValueChange={onValueChange} trackColor={{ false: '#cbd5e1', true: '#6366f1' }} thumbColor={'#ffffff'} />
-    </View>
-  );
+    const loadSettings = async () => {
+        try {
+            const stored = await AsyncStorage.getItem('notificationSettings');
+            if (stored) {
+                setSettings(JSON.parse(stored));
+            }
+            // Sync with global app settings for sound/vib
+            const appSettings = await AsyncStorage.getItem('appSettings');
+            if (appSettings) {
+                const parsed = JSON.parse(appSettings);
+                setSettings(prev => ({
+                    ...prev,
+                    soundEnabled: parsed.soundEnabled,
+                    vibrationEnabled: parsed.vibrationEnabled
+                }));
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    };
 
-  const PermissionRow = ({ icon, title, subtitle, last }: any) => (
-    <TouchableOpacity onPress={() => Linking.openSettings()} className={`flex-row items-center justify-between p-4 bg-white dark:bg-slate-800 ${!last ? 'border-b border-slate-100 dark:border-slate-700/50' : ''}`}>
-        <View className="flex-row items-center flex-1 gap-3 pr-2">
-            <View className="items-center justify-center w-10 h-10 rounded-full bg-slate-50 dark:bg-slate-700"><HugeiconsIcon icon={icon} size={20} color="#64748b" /></View>
-            <View className="flex-1"><Text className="text-base font-bold text-slate-900 dark:text-white">{title}</Text><Text className="text-xs font-medium text-slate-400">{subtitle}</Text></View>
-        </View>
-        <Text className="text-sm font-bold text-slate-400">Manage</Text>
-    </TouchableOpacity>
-  );
+    const toggleSwitch = async (key: keyof typeof settings) => {
+        const newSettings = { ...settings, [key]: !settings[key] };
+        setSettings(newSettings);
+        
+        try {
+            await AsyncStorage.setItem('notificationSettings', JSON.stringify(newSettings));
+            
+            // Also update main App Settings if it's sound/vib
+            if (key === 'soundEnabled' || key === 'vibrationEnabled') {
+                await AsyncStorage.setItem('appSettings', JSON.stringify({
+                    soundEnabled: newSettings.soundEnabled,
+                    vibrationEnabled: newSettings.vibrationEnabled
+                }));
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    };
 
-  return (
-    <SafeAreaView className="flex-1 bg-slate-50 dark:bg-slate-900" edges={['top']}>
-      <Header title="Notifications" />
-      <ScrollView className="flex-1" contentContainerStyle={{ padding: 24 }}>
-        <View className="mb-6">
-            <Text className="mb-3 text-xs font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500">App Notifications</Text>
-            <View className="overflow-hidden bg-white border shadow-sm dark:bg-slate-800 rounded-3xl border-slate-100 dark:border-slate-700/50">
-                <SettingRow icon={Notification03Icon} title="Push Notifications" subtitle="Receive alerts" value={pushEnabled} onValueChange={togglePushNotifications} />
-                <SettingRow icon={Mail01Icon} title="Email Notifications" subtitle="Receive summaries" value={emailEnabled} onValueChange={setEmailEnabled} last />
+    const SettingItem = ({ 
+        label, 
+        desc, 
+        value, 
+        onToggle, 
+        icon 
+    }: { 
+        label: string, 
+        desc?: string, 
+        value: boolean, 
+        onToggle: () => void, 
+        icon: any 
+    }) => (
+        <View style={[styles.itemContainer, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+            <View style={styles.itemLeft}>
+                <View style={[styles.iconBox, { backgroundColor: theme.colors.background }]}>
+                    <HugeiconsIcon icon={icon} size={20} color={theme.colors.text} />
+                </View>
+                <View style={{ flex: 1 }}>
+                    <Text style={[styles.itemLabel, { color: theme.colors.text }]}>{label}</Text>
+                    {desc && <Text style={[styles.itemDesc, { color: theme.colors.textSecondary }]}>{desc}</Text>}
+                </View>
             </View>
+            <Switch
+                trackColor={{ false: theme.colors.border, true: theme.colors.success }}
+                thumbColor={'#fff'}
+                onValueChange={onToggle}
+                value={value}
+            />
         </View>
-        <View className="mb-6">
-            <Text className="mb-3 text-xs font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500">System Permissions</Text>
-            <View className="overflow-hidden bg-white border shadow-sm dark:bg-slate-800 rounded-3xl border-slate-100 dark:border-slate-700/50">
-                <PermissionRow icon={Camera01Icon} title="Camera Access" subtitle="For scanning QR codes" />
-                <PermissionRow icon={Location01Icon} title="Location Services" subtitle="For geotagging reports" />
-                <PermissionRow icon={Settings02Icon} title="System Settings" subtitle="Manage other permissions" last />
+    );
+
+    return (
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
+            <View style={styles.header}>
+                <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+                    <HugeiconsIcon icon={ArrowLeft01Icon} size={24} color={theme.colors.text} />
+                </TouchableOpacity>
+                <Text style={[styles.title, { color: theme.colors.text }]}>Notifications</Text>
             </View>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
-  );
+
+            <ScrollView contentContainerStyle={styles.content}>
+                <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>GENERAL</Text>
+                
+                <SettingItem
+                    label="Push Notifications"
+                    desc="Receive alerts about shift updates and reminders."
+                    value={settings.pushEnabled}
+                    onToggle={() => toggleSwitch('pushEnabled')}
+                    icon={Notification01Icon}
+                />
+
+                <SettingItem
+                    label="Ongoing Attendance"
+                    desc="Show persistent notification with timer while clocked in."
+                    value={settings.attendanceEnabled}
+                    onToggle={() => toggleSwitch('attendanceEnabled')}
+                    icon={Clock01Icon}
+                />
+
+                <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary, marginTop: 24 }]}>PREFERENCES</Text>
+
+                <SettingItem
+                    label="Sound Effects"
+                    value={settings.soundEnabled}
+                    onToggle={() => toggleSwitch('soundEnabled')}
+                    icon={Settings01Icon}
+                />
+
+                <SettingItem
+                    label="Haptic Feedback"
+                    value={settings.vibrationEnabled}
+                    onToggle={() => toggleSwitch('vibrationEnabled')}
+                    icon={Settings01Icon}
+                />
+            </ScrollView>
+        </SafeAreaView>
+    );
 }
+
+const styles = StyleSheet.create({
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 20,
+        gap: 16,
+    },
+    backBtn: {
+        padding: 4,
+    },
+    title: {
+        fontSize: 20,
+        fontWeight: '800',
+    },
+    content: {
+        padding: 20,
+    },
+    sectionTitle: {
+        fontSize: 12,
+        fontWeight: '700',
+        marginBottom: 12,
+        letterSpacing: 1,
+    },
+    itemContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 16,
+        borderRadius: 16,
+        borderWidth: 1,
+        marginBottom: 12,
+    },
+    itemLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        flex: 1,
+        paddingRight: 12,
+    },
+    iconBox: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    itemLabel: {
+        fontSize: 16,
+        fontWeight: '600',
+    },
+    itemDesc: {
+        fontSize: 12,
+        marginTop: 2,
+    },
+});
