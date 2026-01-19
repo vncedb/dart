@@ -2,24 +2,19 @@ import { differenceInSeconds } from 'date-fns';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
-// 1. Configure Handler (FIXED DEPRECATION WARNING)
+// 1. Configure Handler (Updated for Expo SDK 50+)
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true, // Note: In newer Expo versions, this is deprecated for 'shouldShowBanner'
     shouldPlaySound: false,
     shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
+    shouldShowBanner: true, // Replaces 'shouldShowAlert' for the pop-up
+    shouldShowList: true,   // Replaces 'shouldShowAlert' for the notification center
   }),
 });
 
 // 2. Setup Categories
 export async function setupNotificationCategories() {
   if (Platform.OS === 'android') {
-    // Note: If the icon file is missing in 'res/drawable', the button might not show.
-    // Ensure 'pause_circle.png', 'timeout.png', etc. exist in android/app/src/main/res/drawable/
-    
-    // WORK MODE ACTIONS
     await Notifications.setNotificationCategoryAsync('attendance_active', [
       {
         identifier: 'action_break_start',
@@ -37,7 +32,6 @@ export async function setupNotificationCategories() {
       },
     ]);
 
-    // BREAK MODE ACTIONS
     await Notifications.setNotificationCategoryAsync('attendance_break', [
         {
           identifier: 'action_break_end',
@@ -54,16 +48,6 @@ export async function setupNotificationCategories() {
             options: { opensAppToForeground: true }, 
         },
       ]);
-  } else {
-    // iOS Fallback (No icons supported in the same way)
-    await Notifications.setNotificationCategoryAsync('attendance_active', [
-        { identifier: 'action_break_start', buttonTitle: 'Pause', options: { opensAppToForeground: false } },
-        { identifier: 'action_checkout', buttonTitle: 'Check Out', options: { opensAppToForeground: true } },
-    ]);
-    await Notifications.setNotificationCategoryAsync('attendance_break', [
-        { identifier: 'action_break_end', buttonTitle: 'Resume', options: { opensAppToForeground: false } },
-        { identifier: 'action_checkout', buttonTitle: 'Check Out', options: { opensAppToForeground: true } },
-    ]);
   }
 }
 
@@ -78,7 +62,7 @@ export async function registerForPushNotificationsAsync() {
   if (finalStatus !== 'granted') return null;
 
   if (Platform.OS === 'android') {
-    // Low importance channel for silent timer updates
+    // Silent updates channel
     await Notifications.setNotificationChannelAsync('attendance-updates', {
       name: 'Attendance Timer',
       importance: Notifications.AndroidImportance.LOW, 
@@ -87,7 +71,7 @@ export async function registerForPushNotificationsAsync() {
       showBadge: true,
     });
 
-    // High importance channel for the initial banner
+    // Initial alert channel
     await Notifications.setNotificationChannelAsync('attendance-alerts', {
       name: 'Attendance Alerts',
       importance: Notifications.AndroidImportance.HIGH, 
@@ -115,31 +99,29 @@ export async function updateAttendanceNotification(
   
   let title = '';
   let body = '';
-  let color = '#10b981'; // Green
+  let color = '#10b981';
   let category = 'attendance_active';
   
-  // NATIVE ICON for the small status bar icon
-  // Ensure 'timer.png' exists in android/app/src/main/res/drawable
+  // Use 'timer' native icon
   const smallIcon = 'timer'; 
 
   if (isOnBreak) {
       title = `${timeString}`; 
       body = 'On Break';
-      color = '#F59E0B'; // Orange
+      color = '#F59E0B'; 
       category = 'attendance_break';
   } else if (isOvertime) {
       title = `${timeString}`; 
       body = 'Overtime Active';
-      color = '#EF4444'; // Red
+      color = '#EF4444'; 
       category = 'attendance_active';
   } else {
       title = `${timeString}`; 
       body = 'Active Shift';
-      color = '#10b981'; // Green
+      color = '#10b981'; 
       category = 'attendance_active';
   }
 
-  // Choose channel based on if we want a Banner (High) or Silent Update (Low)
   const channelId = isFirstShow ? 'attendance-alerts' : 'attendance-updates';
 
   await Notifications.scheduleNotificationAsync({
@@ -154,8 +136,10 @@ export async function updateAttendanceNotification(
       sound: isFirstShow, 
       color: color, 
       priority: isFirstShow ? Notifications.AndroidNotificationPriority.HIGH : Notifications.AndroidNotificationPriority.LOW,
-      // @ts-ignore 
-      icon: smallIcon 
+      // @ts-ignore
+      icon: smallIcon,
+      // @ts-ignore
+      channelId: channelId,
     },
     trigger: null,
     identifier: 'attendance_persistent',

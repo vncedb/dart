@@ -1,4 +1,4 @@
-const { withDangerousMod, withPlugins } = require('@expo/config-plugins');
+const { withDangerousMod } = require('@expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
@@ -6,22 +6,23 @@ const withNotificationIcons = (config) => {
   return withDangerousMod(config, [
     'android',
     async (config) => {
-      // 1. Path to your assets in the Expo project
-      const sourceDir = path.join(config.modRequest.projectRoot, 'assets/icons/notification');
-      
-      // 2. Path to the Android native drawable directory
-      const androidResDir = path.join(
-        config.modRequest.platformProjectRoot,
-        'app/src/main/res/drawable'
-      );
+      const projectRoot = config.modRequest.projectRoot;
+      const platformRoot = config.modRequest.platformProjectRoot;
 
-      // Ensure directory exists (it usually does)
+      // 1. Source: Your Expo assets folder
+      const sourceDir = path.join(projectRoot, 'assets/icons/notification');
+      
+      // 2. Destination: Android native resources
+      const androidResDir = path.join(platformRoot, 'app/src/main/res/drawable');
+
+      // Ensure destination exists
       if (!fs.existsSync(androidResDir)) {
         fs.mkdirSync(androidResDir, { recursive: true });
       }
 
-      // 3. List of icons to copy
       const icons = ['timer.png', 'play_circle.png', 'pause_circle.png', 'timeout.png'];
+
+      console.log(`\n📢 [Notification Icons] Copying icons to: ${androidResDir}`);
 
       icons.forEach((icon) => {
         const sourceFile = path.join(sourceDir, icon);
@@ -29,11 +30,12 @@ const withNotificationIcons = (config) => {
 
         if (fs.existsSync(sourceFile)) {
           fs.copyFileSync(sourceFile, destFile);
-          console.log(`✅ Copied ${icon} to Android drawable resources.`);
+          console.log(`   ✅ Copied ${icon}`);
         } else {
-          console.warn(`⚠️ Could not find ${icon} in ${sourceDir}`);
+          console.error(`   ❌ MISSING: ${icon} (Expected at: ${sourceFile})`);
         }
       });
+      console.log('\n');
 
       return config;
     },
