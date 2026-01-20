@@ -9,10 +9,10 @@ const withNotificationIcons = (config) => {
       const projectRoot = config.modRequest.projectRoot;
       const platformRoot = config.modRequest.platformProjectRoot;
 
-      // 1. Source: Your Expo assets folder
+      // Source: Expo assets folder
       const sourceDir = path.join(projectRoot, 'assets/icons/notification');
       
-      // 2. Destination: Android native resources
+      // Destination: Android native resources
       const androidResDir = path.join(platformRoot, 'app/src/main/res/drawable');
 
       // Ensure destination exists
@@ -20,22 +20,25 @@ const withNotificationIcons = (config) => {
         fs.mkdirSync(androidResDir, { recursive: true });
       }
 
+      // Icons to copy
       const icons = ['timer.png', 'play_circle.png', 'pause_circle.png', 'timeout.png'];
 
-      console.log(`\n📢 [Notification Icons] Copying icons to: ${androidResDir}`);
+      console.log(`\n🔔 [Notification Icons] Syncing icons to Native Android...`);
 
       icons.forEach((icon) => {
         const sourceFile = path.join(sourceDir, icon);
         const destFile = path.join(androidResDir, icon);
 
         if (fs.existsSync(sourceFile)) {
+          // Check if file already exists/changed to avoid redundant copies? 
+          // For safety, we just overwrite.
           fs.copyFileSync(sourceFile, destFile);
-          console.log(`   ✅ Copied ${icon}`);
+          console.log(`   ✅ Copied: ${icon}`);
         } else {
-          console.error(`   ❌ MISSING: ${icon} (Expected at: ${sourceFile})`);
+          console.error(`   ❌ ERROR: Could not find source icon: ${sourceFile}`);
         }
       });
-      console.log('\n');
+      console.log('   (Icons are now available in R.drawable.*)\n');
 
       return config;
     },
