@@ -6,6 +6,7 @@ import { HugeiconsIcon } from "@hugeicons/react-native";
 import { useRouter } from "expo-router";
 import React, { useRef, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useAppTheme } from "../constants/theme";
 import ActionMenu from "./ActionMenu";
 
 // Define ActionItem shape locally (or import if exported)
@@ -35,6 +36,7 @@ export default function Header({
   menuActions,
 }: HeaderProps) {
   const router = useRouter();
+  const theme = useAppTheme();
   const containerRef = useRef<View>(null);
 
   const [menuVisible, setMenuVisible] = useState(false);
@@ -66,13 +68,23 @@ export default function Header({
   return (
     <View
       ref={containerRef}
-      style={styles.container}
+      style={[
+        styles.container,
+        {
+          backgroundColor: theme.colors.background,
+          borderBottomColor: theme.colors.border,
+        },
+      ]}
       collapsable={false} // Important for Android measurement
     >
       {/* 1. Title Layer */}
       <View style={styles.titleWrapper} pointerEvents="none">
         {typeof title === "string" ? (
-          <Text style={styles.titleText} numberOfLines={1} ellipsizeMode="tail">
+          <Text
+            style={[styles.titleText, { color: theme.colors.text }]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
             {title}
           </Text>
         ) : (
@@ -87,7 +99,7 @@ export default function Header({
           style={styles.iconButton}
           activeOpacity={0.7}
         >
-          <HugeiconsIcon icon={ArrowLeft02Icon} size={24} color="#64748b" />
+          <HugeiconsIcon icon={ArrowLeft02Icon} size={24} color={theme.colors.icon} />
         </TouchableOpacity>
       </View>
 
@@ -105,7 +117,7 @@ export default function Header({
             <HugeiconsIcon
               icon={MoreVerticalCircle01Icon}
               size={24}
-              color="#0f172a"
+              color={theme.colors.text}
             />
           </TouchableOpacity>
         )}
@@ -131,9 +143,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    backgroundColor: "#fff",
     borderBottomWidth: 1,
-    borderBottomColor: "#f1f5f9",
     position: "relative",
     zIndex: 10, // Ensure header sits above content for menu logic
   },
@@ -145,7 +155,6 @@ const styles = StyleSheet.create({
   titleText: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#0f172a",
     textAlign: "center",
     maxWidth: "60%",
   },

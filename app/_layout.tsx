@@ -19,7 +19,6 @@ import { LogBox, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
-import AnimatedSplashScreen from "../components/AnimatedSplashScreen"; // Use the animated component
 import BiometricLockScreen from "../components/BiometricLockScreen";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { SyncProvider } from "../context/SyncContext";
@@ -32,15 +31,15 @@ LogBox.ignoreLogs([
   "Warning: SafeAreaView",
 ]);
 
+// Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
 
 function RootLayoutNav() {
-  const { isLoading: isAuthLoading } = useAuth();
+  const { isLoading: isAuthLoading, session } = useAuth();
   const { colorScheme, setColorScheme } = useColorScheme();
   
   const [isBiometricAuthorized, setIsBiometricAuthorized] = useState(false);
   const [isBiometricCheckDone, setIsBiometricCheckDone] = useState(false);
-  const [isSplashAnimationFinished, setIsSplashAnimationFinished] = useState(false);
   const [isReady, setIsReady] = useState(false);
 
   const [fontsLoaded] = useFonts({
@@ -64,14 +63,13 @@ function RootLayoutNav() {
         const settingsJson = await AsyncStorage.getItem("appSettings");
         if (settingsJson) {
           const settings = JSON.parse(settingsJson);
-          // If enabled, user is NOT authorized initially
-          if (settings.biometricEnabled === true) {
+          // Only enforce biometrics if enabled AND user is logged in
+          if (settings.biometricEnabled === true && session) {
             setIsBiometricAuthorized(false);
           } else {
             setIsBiometricAuthorized(true);
           }
         } else {
-          // Default to authorized if no settings found
           setIsBiometricAuthorized(true);
         }
       } catch (e) {
@@ -84,71 +82,50 @@ function RootLayoutNav() {
     if (!isAuthLoading) {
         checkBio();
     }
-  }, [isAuthLoading]);
+  }, [isAuthLoading, session]);
 
-  // 3. Determine Readiness (Fonts + Auth + Bio Check)
+  // 3. Determine Readiness & Hide Splash
   useEffect(() => {
     if (fontsLoaded && !isAuthLoading && isBiometricCheckDone) {
         setIsReady(true);
+        SplashScreen.hideAsync();
     }
   }, [fontsLoaded, isAuthLoading, isBiometricCheckDone]);
 
-  // 4. Handle System Splash Hide
-  useEffect(() => {
-    if (isReady) {
-        // Hide system splash immediately so our AnimatedSplashScreen takes over
-        SplashScreen.hideAsync();
-    }
-  }, [isReady]);
-
-
   // RENDER BLOCKS
   
-  // A. Still Loading Essentials -> Show Nothing (System Splash covers this)
+  // A. Still Loading -> Return null to keep Native Splash visible
   if (!isReady) {
     return null; 
   }
 
-  // B. Animation Phase -> Show Animated Splash
-  // We keep showing this until the animation calls onFinish
-  if (!isSplashAnimationFinished) {
-      return (
-          <AnimatedSplashScreen 
-              onFinish={() => setIsSplashAnimationFinished(true)} 
-          />
-      );
-  }
-
-  // C. Biometric Lock -> Show Lock Screen if needed
+  // B. Biometric Lock -> Show Lock Screen if needed
   if (!isBiometricAuthorized) {
-    return <BiometricLockScreen onUnlock={() => setIsBiometricAuthorized(true)} />;
+    return (
+      <BiometricLockScreen 
+        onUnlock={() => setIsBiometricAuthorized(true)} 
+      />
+    );
   }
 
-  // D. Main App Content
+  // C. Main App Content
   return (
     <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <View style={{ flex: 1 }}>
         <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
+          {/* Public / Auth */}
           <Stack.Screen name="index" />
           <Stack.Screen name="auth" />
           
-          {/* Onboarding Stack */}
-          <Stack.Screen
-            name="introduction"
-            options={{ animation: "slide_from_right" }}
-          />
-          <Stack.Screen
-            name="onboarding/welcome"
-            options={{ animation: "slide_from_right", gestureEnabled: false }}
-          />
-          <Stack.Screen
-            name="onboarding/info"
-            options={{ animation: "slide_from_right" }}
-          />
+          {/* Onboarding */}
+          <Stack.Screen name="introduction" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="onboarding/welcome" options={{ animation: "slide_from_right", gestureEnabled: false }} />
+          <Stack.Screen name="onboarding/info" options={{ animation: "slide_from_right" }} />
 
+          {/* Main App */}
           <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
 
-          {/* Settings & Other Screens */}
+          {/* Modals & Sub-screens */}
           <Stack.Screen name="settings" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/account-security" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/notifications" options={{ animation: "slide_from_right" }} />

@@ -1,7 +1,6 @@
 import {
   Alert02Icon,
   AlertCircleIcon,
-  Cancel01Icon,
   CheckmarkCircle02Icon,
   InformationCircleIcon
 } from '@hugeicons/core-free-icons';
@@ -14,7 +13,7 @@ export type AlertType = 'success' | 'error' | 'warning' | 'info' | 'confirmation
 
 interface ModernAlertProps {
   visible: boolean;
-  type: AlertType;
+  type?: AlertType; // Made optional to match usage
   title: string;
   message: string;
   confirmText?: string;
@@ -60,7 +59,7 @@ const ALERT_CONFIG = {
 
 export function ModernAlert({ 
   visible, 
-  type, 
+  type = 'info', 
   title, 
   message, 
   confirmText, 
@@ -71,7 +70,6 @@ export function ModernAlert({
 }: ModernAlertProps) {
   if (!visible) return null;
 
-  // Fallback to info if type is somehow invalid
   const config = ALERT_CONFIG[type] || ALERT_CONFIG.info;
   const { icon: Icon, color, bg, btnBg } = config;
 
@@ -80,14 +78,6 @@ export function ModernAlert({
       <View className="items-center justify-center flex-1 px-6 bg-black/60">
         <View className="bg-white dark:bg-slate-800 w-full max-w-sm rounded-[24px] p-6 shadow-2xl items-center relative">
           
-          {/* Close X Button */}
-          <TouchableOpacity 
-            onPress={onDismiss}
-            className="absolute p-2 rounded-full top-4 right-4 bg-slate-50 dark:bg-slate-700/50"
-          >
-            <HugeiconsIcon icon={Cancel01Icon} size={16} color="#94a3b8" />
-          </TouchableOpacity>
-
           {/* Icon Circle */}
           <View className={`w-14 h-14 ${bg} rounded-full items-center justify-center mb-5`}>
             <HugeiconsIcon icon={Icon} size={28} color={color} strokeWidth={2.5} variant="solid" />
@@ -129,7 +119,7 @@ export function ModernAlert({
   );
 }
 
-// --- ADDED: ModernToast Component ---
+// --- ModernToast Component ---
 export function ModernToast({ visible, message, type = 'success' }: { visible: boolean, message: string, type?: AlertType }) {
   if (!visible) return null;
   

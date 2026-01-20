@@ -26,7 +26,8 @@
         "backgroundColor": "#F1F5F9"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.projectvdb.dart"
+      "package": "com.projectvdb.dart",
+      "launchMode": "singleTask"
     },
     "web": {
       "bundler": "metro",
@@ -58,7 +59,7 @@
       ],
       "expo-audio",
       "expo-sqlite",
-      "./plugins/withNotificationIcons" 
+      "./plugins/withNotificationIcons"
     ],
     "experiments": {
       "typedRoutes": true

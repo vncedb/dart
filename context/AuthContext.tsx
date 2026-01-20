@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Session } from '@supabase/supabase-js';
 import { useRouter, useSegments } from 'expo-router';
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
 type AuthContextType = {
@@ -31,8 +31,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const router = useRouter();
   const segments = useSegments();
 
-  // Helper to update state AND local storage
-  const setIsOnboarded = async (value: boolean) => {
+  const setIsOnboarded = useCallback(async (value: boolean) => {
     _setIsOnboarded(value);
     try {
       if (value) {
@@ -43,21 +42,37 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } catch (error) {
       console.error('Failed to persist onboarding state:', error);
     }
-  };
+  }, []);
 
-  // 1. Initialize Session & Check Profile
+  // Check Database for 'is_onboarded' flag
+  const checkOnboardingStatus = useCallback(async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('is_onboarded') // Changed from job_title to explicit flag
+        .eq('id', userId)
+        .single();
+        
+      if (!error && data?.is_onboarded) {
+        await setIsOnboarded(true);
+      } else {
+        await setIsOnboarded(false);
+      }
+    } catch (e) {
+      console.log('Error checking onboarding:', e);
+    }
+  }, [setIsOnboarded]);
+
   useEffect(() => {
     let mounted = true;
 
     const initAuth = async () => {
       try {
-        // A. Fast Path: Check Local Storage first for immediate UI feedback
         const localOnboarding = await AsyncStorage.getItem('isOnboarded');
         if (mounted && localOnboarding === 'true') {
           _setIsOnboarded(true);
         }
 
-        // B. Check Supabase Session
         const { data: { session: currentSession } } = await supabase.auth.getSession();
         
         if (mounted) {
@@ -65,7 +80,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setUser(currentSession?.user ?? null);
 
           if (currentSession?.user) {
-            // Background verification with DB to ensure local storage isn't stale
             checkOnboardingStatus(currentSession.user.id);
           }
         }
@@ -78,7 +92,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     initAuth();
 
-    // Listen for Auth Changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (mounted) {
         setSession(session);
@@ -88,7 +101,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           await setIsOnboarded(false);
           setIsLoading(false);
         } else if (event === 'SIGNED_IN' && session?.user) {
-           // On explicit sign-in, check status
           await checkOnboardingStatus(session.user.id);
           setIsLoading(false);
         }
@@ -99,103 +111,58 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, []);
+  }, [setIsOnboarded, checkOnboardingStatus]);
 
-  // 2. Real-time Database Sync (Optional but good for multi-device sync)
+  // Real-time listener for profile updates
   useEffect(() => {
     if (!user) return;
-
     const channel = supabase
       .channel(`public:profiles:${user.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'profiles',
-          filter: `id=eq.${user.id}`,
-        },
-        (payload) => {
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` }, 
+      (payload) => {
           if (payload.new) {
-             const hasJob = !!payload.new.job_title;
-             setIsOnboarded(hasJob);
+             setIsOnboarded(!!payload.new.is_onboarded);
           }
-        }
-      )
+      })
       .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [user, setIsOnboarded]);
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user]);
-
-  // 3. Helper: Check Database
-  const checkOnboardingStatus = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('job_title')
-        .eq('id', userId)
-        .single();
-        
-      if (!error && data && data.job_title) {
-        await setIsOnboarded(true);
-      } else {
-        // If DB says incomplete, update state (but be careful of offline mode)
-        // For production, if data is successfully fetched and job_title is missing, it IS incomplete.
-        if (data && !data.job_title) {
-            await setIsOnboarded(false);
-        }
-      }
-    } catch (e) {
-      console.log('Error checking onboarding:', e);
-    }
-  };
-
-  // 4. Navigation Guard (The Gatekeeper)
+  // --- NAVIGATION GUARD ---
   useEffect(() => {
     if (isLoading) return;
 
-    // Define Route Groups
     const inAuthGroup = segments[0] === 'auth';
     const inTabsGroup = segments[0] === '(tabs)';
-    const inPublicGroup = segments[0] === 'index' || segments[0] === 'recover-account' || segments[0] === 'update-password';
+    const inPublicGroup = segments.length === 0 || segments[0] === 'recover-account' || segments[0] === 'introduction';
     
-    // Explicitly list onboarding routes so we don't redirect users OUT of them
+    // Allowed routes for incomplete profiles (Sign Up Flow)
     const inOnboardingFlow = 
-        segments[0] === 'introduction' || 
         segments[0] === 'onboarding' || 
-        segments[0] === 'job'; // Job selection is part of onboarding
+        segments[0] === 'job' || 
+        segments[0] === 'update-password'; // Allow setting password during onboarding
 
     if (!session) {
-      // SCENARIO 1: Not Logged In
-      // Prevent access to Tabs or Onboarding (except maybe intro if you want it public, but usually intro is post-signup here)
+      // Not Logged In: Block access to protected areas
       if (inTabsGroup || inOnboardingFlow) {
         router.replace('/'); 
       }
     } else {
-      // SCENARIO 2: Logged In
+      // Logged In
       if (isOnboarded) {
-        // 2a. Fully Setup -> Should be Home
-        // Redirect away from Auth, Public, or Onboarding screens back to Home
+        // Fully Setup -> Go Home
         if (inAuthGroup || inPublicGroup || inOnboardingFlow) {
           router.replace('/(tabs)/home');
         }
       } else {
-        // 2b. Profile Incomplete -> Must finish Onboarding
-        // If they are in Tabs (Home), kick them back to start of flow
-        if (inTabsGroup) {
-          router.replace('/introduction');
+        // Profile Incomplete -> Go to Onboarding Welcome
+        // Allow them to stay in 'update-password' or 'onboarding' logic
+        if (!inOnboardingFlow) {
+            router.replace('/onboarding/welcome');
         }
-        // If they are in Auth or Index (Public), kick them to start of flow
-        if (inAuthGroup || inPublicGroup) {
-            router.replace('/introduction');
-        }
-        // If they are ALREADY in 'introduction', 'onboarding', or 'job', DO NOTHING.
-        // Let them navigate strictly within that flow.
       }
     }
-  }, [session, isOnboarded, segments, isLoading]);
+  }, [session, isOnboarded, segments, isLoading, router]);
 
   return (
     <AuthContext.Provider value={{ session, user, isOnboarded, setIsOnboarded, isLoading }}>

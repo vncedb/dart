@@ -1,127 +1,136 @@
+import { Loading03Icon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react-native';
+import { useColorScheme } from 'nativewind';
 import React, { useEffect } from 'react';
-import { ActivityIndicator, Modal, StyleSheet, Text, View } from 'react-native';
+import { Modal, StyleSheet, Text, View } from 'react-native';
 import Animated, {
-  Easing,
-  FadeIn,
-  FadeOut,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming
+    cancelAnimation,
+    Easing,
+    FadeIn,
+    FadeOut,
+    useAnimatedStyle,
+    useSharedValue,
+    withRepeat,
+    withTiming
 } from 'react-native-reanimated';
-import { useAppTheme } from '../constants/theme';
 
 interface LoadingOverlayProps {
-    visible: boolean;
-    message?: string;
+  visible: boolean;
+  message?: string;
 }
 
-export default function LoadingOverlay({ visible, message = 'Loading...' }: LoadingOverlayProps) {
-    const theme = useAppTheme();
-    const scale = useSharedValue(1);
-    const opacity = useSharedValue(0.5);
+export default function LoadingOverlay({ visible, message = "Loading..." }: LoadingOverlayProps) {
+  const { colorScheme } = useColorScheme();
+  const isDark = colorScheme === 'dark';
 
-    useEffect(() => {
-        if (visible) {
-            // Breathing animation
-            scale.value = withRepeat(
-                withSequence(
-                    withTiming(1.1, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
-                    withTiming(1, { duration: 1000, easing: Easing.inOut(Easing.ease) })
-                ),
-                -1,
-                true
-            );
-            opacity.value = withRepeat(
-                withSequence(
-                    withTiming(0.8, { duration: 800 }),
-                    withTiming(0.4, { duration: 800 })
-                ),
-                -1,
-                true
-            );
-        } else {
-             scale.value = 1;
-             opacity.value = 0.5;
-        }
-    }, [visible]);
+  // Animation Shared Values
+  const rotation = useSharedValue(0);
 
-    const pulseStyle = useAnimatedStyle(() => ({
-        transform: [{ scale: scale.value }],
-        opacity: opacity.value
-    }));
+  useEffect(() => {
+    if (visible) {
+      // Start infinite rotation
+      rotation.value = withRepeat(
+        withTiming(360, { duration: 1000, easing: Easing.linear }),
+        -1 // Infinite
+      );
+    } else {
+      cancelAnimation(rotation);
+      rotation.value = 0;
+    }
+  }, [visible]);
 
-    if (!visible) return null;
+  const animatedIconStyle = useAnimatedStyle(() => ({
+    transform: [{ rotateZ: `${rotation.value}deg` }],
+  }));
 
-    return (
-        <Modal transparent visible={visible} animationType="none" statusBarTranslucent>
-            <Animated.View 
-                entering={FadeIn.duration(200)} 
-                exiting={FadeOut.duration(200)} 
-                style={[styles.container, { backgroundColor: 'rgba(0,0,0,0.4)' }]}
-            >
-                {/* Glassmorphism-style Box */}
-                <View style={[styles.box, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                    
-                    {/* Animated Pulse Ring behind spinner */}
-                    <Animated.View style={[
-                        styles.pulseRing, 
-                        { backgroundColor: theme.colors.primary }, 
-                        pulseStyle
-                    ]} />
+  if (!visible) return null;
 
-                    <View style={[styles.iconContainer, { backgroundColor: theme.colors.background }]}>
-                        <ActivityIndicator size="small" color={theme.colors.primary} />
-                    </View>
-                    
-                    <Text style={[styles.message, { color: theme.colors.text }]}>{message}</Text>
-                </View>
-            </Animated.View>
-        </Modal>
-    );
+  return (
+    <Modal transparent animationType="none" visible={visible} statusBarTranslucent>
+      <Animated.View 
+        entering={FadeIn.duration(200)}
+        exiting={FadeOut.duration(200)}
+        style={styles.container}
+      >
+        {/* Backdrop */}
+        <View style={[styles.backdrop, { backgroundColor: isDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.6)' }]} />
+
+        {/* Loading Card */}
+        <View style={[
+            styles.card, 
+            isDark ? styles.cardDark : styles.cardLight
+        ]}>
+          <Animated.View style={[styles.iconWrapper, animatedIconStyle]}>
+            <HugeiconsIcon 
+                icon={Loading03Icon} 
+                size={32} 
+                color={isDark ? '#818cf8' : '#4f46e5'} // Indigo-400 (Dark) / Indigo-600 (Light)
+                strokeWidth={2.5}
+            />
+          </Animated.View>
+          
+          <Text style={[
+              styles.text, 
+              isDark ? styles.textDark : styles.textLight
+          ]}>
+            {message}
+          </Text>
+        </View>
+      </Animated.View>
+    </Modal>
+  );
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-    box: {
-        width: 180,
-        height: 180,
-        borderRadius: 32,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderWidth: 1,
-        // Shadow for depth
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.15,
-        shadowRadius: 20,
-        elevation: 10
-    },
-    pulseRing: {
-        position: 'absolute',
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-        top: 40, // Centered vertically relative to the spinner pos roughly
-    },
-    iconContainer: {
-        width: 64,
-        height: 64,
-        borderRadius: 32,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: 20,
-        zIndex: 10,
-        // Inner shadow effect logic (simulated by border/bg)
-        borderWidth: 1,
-        borderColor: 'rgba(0,0,0,0.05)'
-    },
-    message: {
-        fontSize: 14,
-        fontWeight: '700',
-        letterSpacing: 0.5,
-        textAlign: 'center',
-        zIndex: 10
-    }
+  container: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    borderRadius: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10,
+    gap: 16,
+    minWidth: 200,
+    justifyContent: 'center',
+  },
+  cardLight: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  cardDark: {
+    backgroundColor: '#1e293b', // Slate 800
+    borderWidth: 1,
+    borderColor: '#334155', // Slate 700
+  },
+  iconWrapper: {
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  text: {
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'System', // Or your custom font
+  },
+  textLight: {
+    color: '#0f172a', // Slate 900
+  },
+  textDark: {
+    color: '#f8fafc', // Slate 50
+  }
 });
