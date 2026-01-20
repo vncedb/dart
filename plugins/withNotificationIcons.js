@@ -8,37 +8,44 @@ const withNotificationIcons = (config) => {
     async (config) => {
       const projectRoot = config.modRequest.projectRoot;
       const platformRoot = config.modRequest.platformProjectRoot;
-
-      // Source: Expo assets folder
-      const sourceDir = path.join(projectRoot, 'assets/icons/notification');
-      
-      // Destination: Android native resources
       const androidResDir = path.join(platformRoot, 'app/src/main/res/drawable');
 
-      // Ensure destination exists
+      console.log(`\n🔔 [Notification Icons] Syncing resources...`);
+
       if (!fs.existsSync(androidResDir)) {
         fs.mkdirSync(androidResDir, { recursive: true });
       }
 
-      // Icons to copy
-      const icons = ['timer.png', 'play_circle.png', 'pause_circle.png', 'timeout.png'];
+      // 1. Copy ONLY Timer Icon (Others are deleted)
+      const iconSourceDir = path.join(projectRoot, 'assets/icons/notification');
+      const actionIcons = [
+        { src: 'timer.png', dest: 'timer.png' }
+      ];
 
-      console.log(`\n🔔 [Notification Icons] Syncing icons to Native Android...`);
+      // 2. Copy Main Notification Icon
+      const mainIconSourceDir = path.join(projectRoot, 'assets/images/icon');
+      const mainIcons = [
+        { src: 'notification-icon.png', dest: 'notification_icon.png' }
+      ];
 
-      icons.forEach((icon) => {
-        const sourceFile = path.join(sourceDir, icon);
-        const destFile = path.join(androidResDir, icon);
+      // Helper function to copy
+      const copyIcons = (list, sourcePath) => {
+        list.forEach(({ src, dest }) => {
+          const sourceFile = path.join(sourcePath, src);
+          const destFile = path.join(androidResDir, dest);
 
-        if (fs.existsSync(sourceFile)) {
-          // Check if file already exists/changed to avoid redundant copies? 
-          // For safety, we just overwrite.
-          fs.copyFileSync(sourceFile, destFile);
-          console.log(`   ✅ Copied: ${icon}`);
-        } else {
-          console.error(`   ❌ ERROR: Could not find source icon: ${sourceFile}`);
-        }
-      });
-      console.log('   (Icons are now available in R.drawable.*)\n');
+          if (fs.existsSync(sourceFile)) {
+            fs.copyFileSync(sourceFile, destFile);
+            console.log(`   ✅ Copied: ${dest}`);
+          } else {
+            // Log but don't crash if optional
+            console.log(`   ⚠️ Skipped (Source missing): ${src}`);
+          }
+        });
+      };
+
+      copyIcons(actionIcons, iconSourceDir);
+      copyIcons(mainIcons, mainIconSourceDir);
 
       return config;
     },

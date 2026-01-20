@@ -25,7 +25,16 @@ import { AuthProvider, useAuth } from "../context/AuthContext";
 import { SyncProvider } from "../context/SyncContext";
 import "../global.css";
 
-LogBox.ignoreLogs(["SafeAreaView has been deprecated", "[expo-av]"]);
+// Ignore logs
+LogBox.ignoreLogs([
+  "SafeAreaView has been deprecated",
+  "shouldShowAlert is deprecated",
+  "Warning: SafeAreaView",
+]);
+
+// [REMOVED] Notifee background handler is gone.
+// Expo Notifications handles background interactions differently (usually via response listeners in the Service/Home).
+
 SplashScreen.preventAutoHideAsync();
 
 function RootLayoutNav() {
@@ -156,7 +165,6 @@ function RootLayoutNav() {
             options={{ animation: "slide_from_right", presentation: "modal" }}
           />
 
-          {/* FIXED: Corrected route name from 'reports/history' to 'reports/saved-reports' */}
           <Stack.Screen
             name="reports/saved-reports"
             options={{ animation: "slide_from_right" }}

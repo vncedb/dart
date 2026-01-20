@@ -170,9 +170,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           router.replace('/(tabs)/home');
         }
       } else {
-        // Logged in but missing Job Info -> Force Onboarding Info (NOT Introduction)
+        // [FIX] Redirect to 'welcome' instead of 'info' for the full flow
         if (inAuthGroup || (segments[0] === 'index') || (segments[0] === 'introduction')) {
-          router.replace('/onboarding/info');
+          router.replace('/onboarding/welcome');
         }
       }
     }

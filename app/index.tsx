@@ -16,7 +16,6 @@ export default function LandingScreen() {
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
   
-  // Local state to wait for onboarding check
   const [isCheckingOnboarding, setIsCheckingOnboarding] = useState(true);
 
   useEffect(() => {
@@ -24,14 +23,13 @@ export default function LandingScreen() {
         if (isLoading) return;
 
         if (session) {
-            // Check if user has actually finished setup
-            const hasOnboarded = await AsyncStorage.getItem('hasOnboarded');
+            const hasOnboarded = await AsyncStorage.getItem('isOnboarded');
             
             if (hasOnboarded === 'true') {
                 router.replace('/(tabs)/home');
             } else {
-                // Logged in but profile not set -> Go to Info Setup
-                router.replace('/onboarding/info');
+                // [FIX] Redirect to Welcome screen instead of Info
+                router.replace('/onboarding/welcome');
             }
         }
         setIsCheckingOnboarding(false);
@@ -46,7 +44,6 @@ export default function LandingScreen() {
     await AsyncStorage.setItem('user-theme', newTheme);
   };
 
-  // Don't show landing screen if we are about to redirect
   if (isLoading || (session && isCheckingOnboarding)) return null;
 
   return (

@@ -16,18 +16,27 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Dimensions,
     RefreshControl,
     ScrollView,
     StatusBar,
     StyleSheet,
     Text,
     TouchableOpacity,
-    View
+    View,
+    ViewStyle
 } from 'react-native';
-import { configureReanimatedLogger, ReanimatedLogLevel } from 'react-native-reanimated';
+import Animated, {
+    useAnimatedStyle,
+    useSharedValue,
+    withRepeat,
+    withSequence,
+    withTiming
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
+// Custom Components
 import ActivityTimeline from '../../components/ActivityTimeline';
 import BiometricButton from '../../components/BiometricButton';
 import BreakModeAlert from '../../components/BreakModeAlert';
@@ -38,6 +47,8 @@ import DynamicHeader from '../../components/DynamicHeader';
 import ModernAlert from '../../components/ModernAlert';
 import NotificationModal from '../../components/NotificationModal';
 import OvertimeModal from '../../components/OvertimeModal';
+
+// Context & Utils
 import { useAppTheme } from '../../constants/theme';
 import { useSync } from '../../context/SyncContext';
 import { generateUUID } from '../../lib/database';
@@ -45,12 +56,11 @@ import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 import {
     clearAttendanceNotification,
-    registerForPushNotificationsAsync,
-    setupNotificationCategories,
+    initNotificationSystem,
     updateAttendanceNotification
 } from '../../utils/NotificationService';
 
-configureReanimatedLogger({ level: ReanimatedLogLevel.warn, strict: false });
+const { width } = Dimensions.get('window');
 
 // --- HELPER FUNCTIONS ---
 const timeToMinutes = (timeStr: string) => {
@@ -92,107 +102,118 @@ const calculateDailyGoal = (jobSettings: any) => {
     return Number((netMinutes / 60).toFixed(2));
 };
 
-const getLocalDate = (d = new Date()) => {
-    return format(d, 'yyyy-MM-dd');
-};
-
-// --- SKELETON COMPONENTS ---
-const SkeletonItem = ({ style, borderRadius = 12 }: { style?: any, borderRadius?: number }) => {
+// --- ANIMATED SKELETON ---
+const SkeletonItem = ({ style, borderRadius = 8 }: { style?: ViewStyle, borderRadius?: number }) => {
     const theme = useAppTheme();
-    return <View style={[{ backgroundColor: theme.colors.border, borderRadius, opacity: 0.15 }, style]} />;
+    const opacity = useSharedValue(0.3);
+
+    useEffect(() => {
+        opacity.value = withRepeat(
+            withSequence(
+                withTiming(0.7, { duration: 800 }),
+                withTiming(0.3, { duration: 800 })
+            ),
+            -1,
+            true
+        );
+    }, []);
+
+    const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+
+    return (
+        <Animated.View 
+            style={[
+                { backgroundColor: theme.colors.border, borderRadius }, 
+                style, 
+                animatedStyle
+            ]} 
+        />
+    );
 };
 
 const HomeSkeleton = ({ insetTop }: { insetTop: number }) => {
     const theme = useAppTheme();
     return (
-        <View style={{ flex: 1, paddingHorizontal: 24, paddingTop: 120 + insetTop }}>
-            <View style={{ marginBottom: 40, alignItems: 'center', width: '100%' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%', justifyContent: 'space-between', marginBottom: 20 }}>
-                    <View style={{gap: 8}}>
+        <View style={[styles.skeletonContainer, { paddingTop: 120 + insetTop }]}>
+            {/* Header Area */}
+            <View style={styles.skeletonHeader}>
+                <View style={styles.skeletonHeaderRow}>
+                    <View style={{ gap: 8 }}>
                         <SkeletonItem style={{ width: 100, height: 14 }} />
-                        <SkeletonItem style={{ width: 180, height: 24 }} />
+                        <SkeletonItem style={{ width: 180, height: 28 }} borderRadius={8} />
                     </View>
-                    <SkeletonItem style={{ width: 44, height: 44, borderRadius: 22 }} />
+                    <SkeletonItem style={{ width: 44, height: 44 }} borderRadius={22} />
                 </View>
-                <SkeletonItem style={{ width: 160, height: 160, borderRadius: 80 }} />
+                {/* Biometric Circle */}
+                <SkeletonItem style={{ width: 180, height: 180 }} borderRadius={90} />
             </View>
 
-            <View style={{ marginBottom: 24, height: 120, backgroundColor: theme.colors.card, borderRadius: 24, padding: 20, borderWidth: 1, borderColor: theme.colors.border, justifyContent: 'space-between' }}>
-                <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
+            {/* Stats Card */}
+            <View style={[styles.skeletonCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                <View style={styles.rowBetween}>
                     <SkeletonItem style={{ width: 80, height: 14 }} />
                     <SkeletonItem style={{ width: 40, height: 20 }} />
                 </View>
-                <View style={{flexDirection: 'row', justifyContent: 'space-between', marginTop: 10}}>
-                    <View style={{alignItems: 'center', gap: 6}}>
-                        <SkeletonItem style={{ width: 60, height: 24 }} />
-                        <SkeletonItem style={{ width: 40, height: 12 }} />
-                    </View>
-                    <View style={{alignItems: 'center', gap: 6}}>
-                        <SkeletonItem style={{ width: 60, height: 24 }} />
-                        <SkeletonItem style={{ width: 40, height: 12 }} />
-                    </View>
-                    <View style={{alignItems: 'center', gap: 6}}>
-                        <SkeletonItem style={{ width: 60, height: 24 }} />
-                        <SkeletonItem style={{ width: 40, height: 12 }} />
-                    </View>
+                <View style={[styles.rowBetween, { marginTop: 20 }]}>
+                    {[1, 2, 3].map((i) => (
+                        <View key={i} style={{ alignItems: 'center', gap: 8 }}>
+                            <SkeletonItem style={{ width: 60, height: 24 }} />
+                            <SkeletonItem style={{ width: 40, height: 12 }} />
+                        </View>
+                    ))}
                 </View>
             </View>
 
-            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16}}>
+            {/* Timeline Header */}
+            <View style={[styles.rowBetween, { marginBottom: 16 }]}>
                 <SkeletonItem style={{ width: 140, height: 20 }} />
-                <View style={{flexDirection: 'row', gap: 12}}>
-                    <SkeletonItem style={{ width: 36, height: 36, borderRadius: 18 }} />
-                    <SkeletonItem style={{ width: 36, height: 36, borderRadius: 18 }} />
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                    <SkeletonItem style={{ width: 36, height: 36 }} borderRadius={18} />
+                    <SkeletonItem style={{ width: 36, height: 36 }} borderRadius={18} />
                 </View>
             </View>
             
-            <View style={{ padding: 20, backgroundColor: theme.colors.card, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, height: 200 }}>
-                <View style={{flexDirection: 'row', marginBottom: 20}}>
-                    <SkeletonItem style={{ width: 50, height: 14, marginRight: 20 }} />
-                    <SkeletonItem style={{ width: 12, height: 12, borderRadius: 6, marginRight: 20 }} />
-                    <View style={{gap: 6}}>
-                        <SkeletonItem style={{ width: 120, height: 16 }} />
-                        <SkeletonItem style={{ width: 80, height: 12 }} />
+            {/* Timeline List */}
+            <View style={[styles.skeletonCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, height: 250, justifyContent: 'flex-start', gap: 24 }]}>
+                {[1, 2, 3].map((i) => (
+                    <View key={i} style={{ flexDirection: 'row' }}>
+                        <SkeletonItem style={{ width: 50, height: 14, marginRight: 20 }} />
+                        <SkeletonItem style={{ width: 12, height: 12 }} borderRadius={6} />
+                        <View style={{ marginLeft: 20, gap: 8 }}>
+                            <SkeletonItem style={{ width: width * 0.4, height: 16 }} />
+                            <SkeletonItem style={{ width: width * 0.2, height: 12 }} />
+                        </View>
                     </View>
-                </View>
-                <View style={{flexDirection: 'row'}}>
-                    <SkeletonItem style={{ width: 50, height: 14, marginRight: 20 }} />
-                    <SkeletonItem style={{ width: 12, height: 12, borderRadius: 6, marginRight: 20 }} />
-                    <View style={{gap: 6}}>
-                        <SkeletonItem style={{ width: 120, height: 16 }} />
-                        <SkeletonItem style={{ width: 80, height: 12 }} />
-                    </View>
-                </View>
+                ))}
             </View>
         </View>
     );
 };
 
-const JobSetupCard = ({ theme, router, isOffline }: any) => {
-    return (
-        <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, padding: 24, borderRadius: 24, flexDirection: 'row', alignItems: 'center' }}>
-            <View style={{ width: 56, height: 56, borderRadius: 16, backgroundColor: theme.colors.primary + '20', alignItems: 'center', justifyContent: 'center', marginRight: 16 }}>
-                {isOffline ? <HugeiconsIcon icon={WifiOffIcon} size={28} color={theme.colors.primary} /> : <HugeiconsIcon icon={Briefcase01Icon} size={28} color={theme.colors.primary} />}
-            </View>
-            <View style={{ flex: 1 }}>
-                <Text style={{ color: theme.colors.text, fontSize: 16, fontWeight: '800', marginBottom: 4 }}>
-                    {isOffline ? 'Offline Mode' : 'No Active Job'}
-                </Text>
-                {isOffline ? (
-                     <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>Using cached details.</Text>
-                ) : (
-                    <>
-                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>Please select an active job to continue.</Text>
-                        <TouchableOpacity onPress={() => router.push('/job/job')} style={{ backgroundColor: theme.colors.primary, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 10, alignSelf: 'flex-start' }}>
-                            <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>Manage Jobs</Text>
-                        </TouchableOpacity>
-                    </>
-                )}
-            </View>
+const JobSetupCard = ({ theme, router, isOffline }: any) => (
+    <View style={[styles.jobCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+        <View style={[styles.jobIconBox, { backgroundColor: theme.colors.primary + '20' }]}>
+            <HugeiconsIcon icon={isOffline ? WifiOffIcon : Briefcase01Icon} size={28} color={theme.colors.primary} />
         </View>
-    );
-};
+        <View style={{ flex: 1 }}>
+            <Text style={[styles.jobTitle, { color: theme.colors.text }]}>
+                {isOffline ? 'Offline Mode' : 'No Active Job'}
+            </Text>
+            {isOffline ? (
+                 <Text style={{ color: theme.colors.textSecondary, fontSize: 12 }}>Using cached details.</Text>
+            ) : (
+                <>
+                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginBottom: 8 }}>Please select an active job to continue.</Text>
+                    <TouchableOpacity onPress={() => router.push('/job/job')} style={[styles.jobButton, { backgroundColor: theme.colors.primary }]}>
+                        <Text style={styles.jobButtonText}>Manage Jobs</Text>
+                    </TouchableOpacity>
+                </>
+            )}
+        </View>
+    </View>
+);
 
+// --- MAIN COMPONENT ---
 export default function Home() {
     const insets = useSafeAreaInsets();
     const router = useRouter();
@@ -200,54 +221,53 @@ export default function Home() {
     const { triggerSync, syncStatus } = useSync(); 
     const successPlayer = useAudioPlayer(require('../../assets/success.mp3'));
 
+    // Loading & Refresh States
     const [loading, setLoading] = useState(false);
     const [isInitialLoading, setIsInitialLoading] = useState(true); 
     const [refreshing, setRefreshing] = useState(false);
-    
-    // UI State
     const [timelineLoading, setTimelineLoading] = useState(false);
     const [calendarLoading, setCalendarLoading] = useState(false);
-    const [isBreakMode, setIsBreakMode] = useState(false); 
-    
+
+    // Data States
     const [profile, setProfile] = useState<any>(null);
     const [activeJobId, setActiveJobId] = useState<string | null>(null);
     const [jobSettings, setJobSettings] = useState<any>(null); 
     const [todaysRecords, setTodaysRecords] = useState<any[]>([]);
-    
     const [tasks, setTasks] = useState<any[]>([]);
-    
+    const [timelineData, setTimelineData] = useState<any[]>([]);
+    const [dailyGoal, setDailyGoal] = useState(8); 
+    const [workedMinutes, setWorkedMinutes] = useState(0);
+    const [selectedDate, setSelectedDate] = useState(new Date());
+
+    // Status Flags
+    const [isBreakMode, setIsBreakMode] = useState(false); 
+    const [isBreak, setIsBreak] = useState(false);
+    const [otExpiry, setOtExpiry] = useState<string | null>(null);
+    const [hasShownInitialNotif, setHasShownInitialNotif] = useState(false);
+
+    // Notifications
     const [notifications, setNotifications] = useState<any[]>([]);
     const [notifModalVisible, setNotifModalVisible] = useState(false);
     const notificationListener = useRef<any>(null);
-    
-    const [dailyGoal, setDailyGoal] = useState(8); 
-    const [timelineData, setTimelineData] = useState<any[]>([]);
-    const [appSettings, setAppSettings] = useState({ vibrationEnabled: true, soundEnabled: true, notificationsEnabled: true });
-    
-    const [workedMinutes, setWorkedMinutes] = useState(0);
-    const [selectedDate, setSelectedDate] = useState(new Date());
-    const [isBreak, setIsBreak] = useState(false);
-    const [otExpiry, setOtExpiry] = useState<string | null>(null);
-    
-    // Timeline Picker State
+
+    // Modals & Alerts
     const [timelinePickerVisible, setTimelinePickerVisible] = useState(false);
     const [markedDates, setMarkedDates] = useState<string[]>([]);
-    
     const [alertVisible, setAlertVisible] = useState(false);
     const [alertMessage, setAlertMessage] = useState("");
     const [alertType, setAlertType] = useState<'success' | 'check-in' | 'check-out'>('success');
-    
     const [modernAlertConfig, setModernAlertConfig] = useState<any>({ visible: false });
     const [otModalVisible, setOtModalVisible] = useState(false);
 
+    // Settings
+    const [appSettings, setAppSettings] = useState({ vibrationEnabled: true, soundEnabled: true, notificationsEnabled: true });
+
+    // Derived State
     const latestRecord = todaysRecords.length > 0 ? todaysRecords[0] : null;
     const isClockedIn = latestRecord?.status === 'pending';
     const isSessionOvertime = latestRecord?.remarks?.includes('Overtime');
     const unreadNotifsCount = notifications.filter(n => !n.read).length;
-
-    // Track if we have shown the initial banner for this session
-    const [hasShownInitialNotif, setHasShownInitialNotif] = useState(false);
-
+    
     const displayName = profile ? (() => {
         const titlePart = profile.title ? `${profile.title.trim()} ` : '';
         const firstName = profile.first_name ? profile.first_name.trim() : (profile.full_name ? profile.full_name.split(' ')[0] : 'User');
@@ -255,6 +275,13 @@ export default function Home() {
     })() : 'User';
 
     const activityTitle = isToday(selectedDate) ? "Today's Activity" : `Activity • ${format(selectedDate, 'MMM d')}`;
+
+    // --- LOGIC ---
+
+    useEffect(() => {
+        // [REFINE] Initialize categories once on mount
+        initNotificationSystem();
+    }, []);
 
     const handleHideAlert = useCallback(() => { setAlertVisible(false); }, []);
 
@@ -285,6 +312,7 @@ export default function Home() {
         const shiftEnd = new Date();
         shiftEnd.setHours(endH, endM, 0, 0);
 
+        // Warning phase (Shift End -> Shift End + 30s)
         if (isAfter(now, shiftEnd) && !isAfter(now, addSeconds(shiftEnd, 30))) {
             const warningKey = `shift_end_notif_${dateStr}`;
             const hasWarned = await AsyncStorage.getItem(warningKey);
@@ -297,6 +325,7 @@ export default function Home() {
             }
         }
 
+        // Action phase (> Shift End + 30s)
         if (isAfter(now, addSeconds(shiftEnd, 30))) {
             const db = await getDB();
             const endIso = shiftEnd.toISOString();
@@ -401,7 +430,6 @@ export default function Home() {
                 await AsyncStorage.removeItem('active_ot_expiry');
                 setOtExpiry(null);
                 
-                // Clear persistent notification & Reset flags
                 await clearAttendanceNotification();
                 setHasShownInitialNotif(false); 
                 setIsBreakMode(false);
@@ -436,18 +464,15 @@ export default function Home() {
                 
                 await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', ['attendance', record.id, 'INSERT', JSON.stringify(record)]);
                 
-                // Reset so banner shows again
                 setHasShownInitialNotif(false);
                 setAlertMessage(isOvertime ? "Overtime Started!" : "Welcome In!"); 
                 setAlertType('check-in');
             }
             
-            if (appSettings.soundEnabled) {
+            if (appSettings.soundEnabled && successPlayer) {
                 try {
-                    if (successPlayer) {
-                        successPlayer.seekTo(0); 
-                        successPlayer.play(); 
-                    }
+                    successPlayer.seekTo(0); 
+                    successPlayer.play(); 
                 } catch (audioErr) {
                     console.log("Audio play failed (non-fatal):", audioErr);
                 }
@@ -487,14 +512,10 @@ export default function Home() {
 
     // Notification Setup
     useEffect(() => {
-        registerForPushNotificationsAsync();
-        setupNotificationCategories();
         loadNotifications();
 
         notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
             const content = notification.request.content;
-            
-            // Ignore our persistent notification from showing in the local app list
             if (notification.request.identifier === 'attendance_persistent') return;
 
             const newNotif = {
@@ -537,7 +558,6 @@ export default function Home() {
     // Main Timer Loop
     useEffect(() => {
         const timer = setInterval(async () => {
-            // Worked Minutes
             if (!isBreakMode) {
                 let totalMs = 0;
                 todaysRecords.forEach((record) => {
@@ -548,7 +568,6 @@ export default function Home() {
                 setWorkedMinutes(totalMs / (1000 * 60));
             }
 
-            // Notification Update Logic
             if (isClockedIn && latestRecord?.clock_in) {
                 if (appSettings.notificationsEnabled !== false) {
                     const shouldBanner = !hasShownInitialNotif;
@@ -602,6 +621,7 @@ export default function Home() {
     }, [todaysRecords, tasks]);
 
     const handleEdit = (t: any) => { router.push({ pathname: '/reports/add-entry', params: { id: t.id } }); };
+    
     const handleDeleteTask = (t: any) => { setModernAlertConfig({ visible: true, type: 'warning', title: 'Delete Entry?', message: 'This will remove the entry from your history.', confirmText: 'Delete', cancelText: 'Cancel', onConfirm: async () => { setModernAlertConfig((prev: any) => ({ ...prev, visible: false })); setLoading(true); try { const db = await getDB(); await db.runAsync('DELETE FROM accomplishments WHERE id = ?', [t.id]); await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action) VALUES (?, ?, ?)', ['accomplishments', t.id, 'DELETE']); await loadData(); triggerSync(); setAlertMessage("Entry deleted"); setAlertType('success'); setAlertVisible(true); } catch (e) { console.log(e); } finally { setLoading(false); } }, onCancel: () => setModernAlertConfig((prev: any) => ({ ...prev, visible: false })) }); };
 
     const handleTitlePress = () => {
@@ -619,13 +639,10 @@ export default function Home() {
     return (
         <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
             <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} translucent backgroundColor="transparent" />
+            
             <ModernAlert {...modernAlertConfig} />
             <OvertimeModal visible={otModalVisible} onClose={() => setOtModalVisible(false)} onConfirm={(hrs: number) => { setOtModalVisible(false); processClockAction(true, hrs); }} theme={theme} />
-            
-            <BreakModeAlert 
-                visible={isBreakMode} 
-                onResume={() => setIsBreakMode(false)} 
-            />
+            <BreakModeAlert visible={isBreakMode} onResume={() => setIsBreakMode(false)} />
 
             <DatePicker 
                 visible={timelinePickerVisible}
@@ -644,8 +661,24 @@ export default function Home() {
                 theme={theme}
             />
 
-            <View style={StyleSheet.absoluteFill} pointerEvents="none"><Svg height="100%" width="100%"><Defs><LinearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1"><Stop offset="0" stopColor={theme.colors.bgGradientStart} stopOpacity="1" /><Stop offset="1" stopColor={theme.colors.bgGradientEnd} stopOpacity="1" /></LinearGradient></Defs><Rect x="0" y="0" width="100%" height="100%" fill="url(#bgGrad)" /></Svg></View>
-            <View style={{ position: 'absolute', top: 0, height: insets.top + 40, width: '100%', zIndex: 90 }}><Svg height="100%" width="100%"><Rect x="0" y="0" width="100%" height="100%" fill={theme.colors.bgGradientStart} opacity={0.8} /></Svg></View>
+            {/* Background Gradient */}
+            <View style={StyleSheet.absoluteFill} pointerEvents="none">
+                <Svg height="100%" width="100%">
+                    <Defs>
+                        <LinearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+                            <Stop offset="0" stopColor={theme.colors.bgGradientStart} stopOpacity="1" />
+                            <Stop offset="1" stopColor={theme.colors.bgGradientEnd} stopOpacity="1" />
+                        </LinearGradient>
+                    </Defs>
+                    <Rect x="0" y="0" width="100%" height="100%" fill="url(#bgGrad)" />
+                </Svg>
+            </View>
+            
+            <View style={{ position: 'absolute', top: 0, height: insets.top + 40, width: '100%', zIndex: 90 }}>
+                <Svg height="100%" width="100%">
+                    <Rect x="0" y="0" width="100%" height="100%" fill={theme.colors.bgGradientStart} opacity={0.8} />
+                </Svg>
+            </View>
 
             <DynamicHeader 
                 selectedDate={selectedDate} 
@@ -657,97 +690,201 @@ export default function Home() {
                 isLoading={isInitialLoading}
             />
 
-            {isInitialLoading ? (
-                <HomeSkeleton insetTop={insets.top} />
-            ) : (
-                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24, paddingTop: 120 + insets.top, paddingBottom: 140 }} refreshControl={<RefreshControl refreshing={refreshing || syncStatus === 'syncing'} onRefresh={onRefresh} progressViewOffset={insets.top + 100} tintColor={theme.colors.primary} />}>
-                    <View style={{ alignItems: 'center', marginBottom: 40 }}>
-                        <DynamicBar 
-                            nameToDisplay={displayName}
-                            alertVisible={alertVisible}
-                            alertMessage={alertMessage}
-                            alertType={alertType}
-                            onHideAlert={handleHideAlert}
-                            customGreeting={isBreakMode ? "You are on break" : (isBreak ? "Happy Break Time" : null)} 
+            <ScrollView 
+                showsVerticalScrollIndicator={false} 
+                contentContainerStyle={{ padding: 24, paddingTop: 120 + insets.top, paddingBottom: 140 }} 
+                refreshControl={<RefreshControl refreshing={refreshing || syncStatus === 'syncing'} onRefresh={onRefresh} progressViewOffset={insets.top + 100} tintColor={theme.colors.primary} />}
+            >
+                <View style={{ alignItems: 'center', marginBottom: 40 }}>
+                    <DynamicBar 
+                        nameToDisplay={displayName}
+                        alertVisible={alertVisible}
+                        alertMessage={alertMessage}
+                        alertType={alertType}
+                        onHideAlert={handleHideAlert}
+                        customGreeting={isBreakMode ? "You are on break" : (isBreak ? "Happy Break Time" : null)} 
+                    />
+                    
+                    <View style={{ opacity: isBreakMode ? 0.5 : 1 }} pointerEvents={isBreakMode ? 'none' : 'auto'}>
+                        <BiometricButton 
+                            onSuccess={handleClockButtonPress} 
+                            isClockedIn={isClockedIn} 
+                            isLoading={loading} 
+                            settings={appSettings} 
                         />
-                        
-                        <View style={{ opacity: isBreakMode ? 0.5 : 1 }} pointerEvents={isBreakMode ? 'none' : 'auto'}>
-                            <BiometricButton 
-                                onSuccess={handleClockButtonPress} 
-                                isClockedIn={isClockedIn} 
-                                isLoading={loading} 
-                                settings={appSettings} 
-                            />
-                        </View>
                     </View>
+                </View>
 
-                    <View style={{ marginBottom: 24 }} collapsable={false}>
-                        {jobSettings ? (
-                            <DailySummaryCard 
-                                totalMinutes={workedMinutes} 
-                                isClockedIn={isClockedIn} 
-                                theme={theme} 
-                                dailyGoal={dailyGoal} 
-                                isOvertime={isSessionOvertime} 
-                                startTime={latestRecord?.clock_in}
-                                otExpiry={otExpiry}
-                            />
+                <View style={{ marginBottom: 24 }} collapsable={false}>
+                    {jobSettings ? (
+                        <DailySummaryCard 
+                            totalMinutes={workedMinutes} 
+                            isClockedIn={isClockedIn} 
+                            theme={theme} 
+                            dailyGoal={dailyGoal} 
+                            isOvertime={isSessionOvertime} 
+                            startTime={latestRecord?.clock_in}
+                            otExpiry={otExpiry}
+                        />
+                    ) : (
+                        <JobSetupCard theme={theme} router={router} isOffline={false} />
+                    )}
+                </View>
+
+                <View style={styles.sectionHeader}>
+                    <TouchableOpacity 
+                        onPress={handleTitlePress}
+                        activeOpacity={0.6}
+                        disabled={calendarLoading}
+                        style={styles.titleRow}
+                    >
+                        <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+                            {activityTitle}
+                        </Text>
+                        {calendarLoading ? (
+                            <ActivityIndicator size="small" color={theme.colors.textSecondary} />
                         ) : (
-                            <JobSetupCard theme={theme} router={router} isOffline={false} />
+                            <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.textSecondary} />
                         )}
-                    </View>
-
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                    </TouchableOpacity>
+                    
+                    <View style={styles.actionRow}>
                         <TouchableOpacity 
-                            onPress={handleTitlePress}
-                            activeOpacity={0.6}
-                            disabled={calendarLoading}
-                            style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}
+                            onPress={() => setNotifModalVisible(true)} 
+                            style={[styles.iconButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
                         >
-                            <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800', letterSpacing: -0.5 }}>
-                                {activityTitle}
-                            </Text>
-                            {calendarLoading ? (
-                                <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                            ) : (
-                                <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.textSecondary} />
+                            <HugeiconsIcon icon={Notification01Icon} size={18} color={theme.colors.text} />
+                            {unreadNotifsCount > 0 && (
+                                <View style={[styles.badge, { backgroundColor: theme.colors.danger, borderColor: theme.colors.card }]} />
                             )}
                         </TouchableOpacity>
-                        
-                        <View style={{ flexDirection: 'row', gap: 12 }}>
-                            <TouchableOpacity 
-                                onPress={() => setNotifModalVisible(true)} 
-                                style={{ backgroundColor: theme.colors.card, borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.colors.border }}
-                            >
-                                <HugeiconsIcon icon={Notification01Icon} size={18} color={theme.colors.text} />
-                                {unreadNotifsCount > 0 && (
-                                    <View style={{ position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.danger, borderWidth: 1.5, borderColor: theme.colors.card }} />
-                                )}
-                            </TouchableOpacity>
 
-                            <TouchableOpacity 
-                                disabled={!isClockedIn} 
-                                onPress={() => router.push({ pathname: '/reports/add-entry', params: { jobId: activeJobId } })} 
-                                style={{ backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background, borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' }}
-                            >
-                                <HugeiconsIcon icon={PlusSignIcon} size={20} color={isClockedIn ? theme.colors.primary : theme.colors.icon} />
-                            </TouchableOpacity>
-                        </View>
+                        <TouchableOpacity 
+                            disabled={!isClockedIn} 
+                            onPress={() => router.push({ pathname: '/reports/add-entry', params: { jobId: activeJobId } })} 
+                            style={[styles.iconButton, { backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background }]}
+                        >
+                            <HugeiconsIcon icon={PlusSignIcon} size={20} color={isClockedIn ? theme.colors.primary : theme.colors.icon} />
+                        </TouchableOpacity>
                     </View>
-                    
-                    <View style={{ backgroundColor: theme.colors.card, borderRadius: 24, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' }} collapsable={false}>
-                        <View style={{ padding: 20 }}>
-                            <ActivityTimeline 
-                                timelineData={timelineData} 
-                                theme={theme} 
-                                onEditTask={handleEdit} 
-                                onDeleteTask={handleDeleteTask} 
-                                isLoading={timelineLoading}
-                            />
-                        </View>
+                </View>
+                
+                <View style={[styles.timelineCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]} collapsable={false}>
+                    <View style={{ padding: 20 }}>
+                        <ActivityTimeline 
+                            timelineData={timelineData} 
+                            theme={theme} 
+                            onEditTask={handleEdit} 
+                            onDeleteTask={handleDeleteTask} 
+                            isLoading={timelineLoading}
+                        />
                     </View>
-                </ScrollView>
-            )}
+                </View>
+            </ScrollView>
         </View>
     );
 }
+
+const styles = StyleSheet.create({
+    skeletonContainer: {
+        flex: 1,
+        paddingHorizontal: 24,
+    },
+    skeletonHeader: {
+        marginBottom: 40,
+        alignItems: 'center',
+        width: '100%',
+    },
+    skeletonHeaderRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        width: '100%',
+        justifyContent: 'space-between',
+        marginBottom: 20,
+    },
+    skeletonCard: {
+        marginBottom: 24,
+        borderRadius: 24,
+        padding: 20,
+        borderWidth: 1,
+        justifyContent: 'space-between',
+    },
+    rowBetween: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+    },
+    jobCard: {
+        borderWidth: 1,
+        padding: 24,
+        borderRadius: 24,
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    jobIconBox: {
+        width: 56,
+        height: 56,
+        borderRadius: 16,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 16,
+    },
+    jobTitle: {
+        fontSize: 16,
+        fontWeight: '800',
+        marginBottom: 4,
+    },
+    jobButton: {
+        paddingVertical: 8,
+        paddingHorizontal: 16,
+        borderRadius: 10,
+        alignSelf: 'flex-start',
+    },
+    jobButtonText: {
+        color: '#fff',
+        fontSize: 12,
+        fontWeight: 'bold',
+    },
+    sectionHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 16,
+    },
+    titleRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    sectionTitle: {
+        fontSize: 18,
+        fontWeight: '800',
+        letterSpacing: -0.5,
+    },
+    actionRow: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    iconButton: {
+        borderRadius: 20,
+        width: 36,
+        height: 36,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: 'transparent', // Default
+    },
+    badge: {
+        position: 'absolute',
+        top: 8,
+        right: 8,
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+        borderWidth: 1.5,
+    },
+    timelineCard: {
+        borderRadius: 24,
+        borderWidth: 1,
+        overflow: 'hidden',
+    },
+});

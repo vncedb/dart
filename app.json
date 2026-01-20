@@ -58,7 +58,7 @@
       ],
       "expo-audio",
       "expo-sqlite",
-      "./plugins/withNotificationIcons"
+      "./plugins/withNotificationIcons" 
     ],
     "experiments": {
       "typedRoutes": true

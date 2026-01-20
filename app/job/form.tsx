@@ -29,7 +29,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AddBreakModal from '../../components/AddBreakModal';
-import DatePicker from '../../components/DatePicker'; // FIXED IMPORT
+import DatePicker from '../../components/DatePicker';
 import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
@@ -38,6 +38,7 @@ import TimePickerModal from '../../components/TimePicker';
 
 import { JOBS_LIST } from '../../constants/Jobs';
 import { useAppTheme } from '../../constants/theme';
+import { useAuth } from '../../context/AuthContext'; // [OPTIMIZATION] Import Auth Context
 import { generateUUID, queueSyncItem, saveJobLocal } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
@@ -92,6 +93,9 @@ export default function JobForm() {
     const theme = useAppTheme();
     const params = useLocalSearchParams();
     const jobId = params.id as string;
+    
+    // [OPTIMIZATION] Use context user instead of fetching from server
+    const { user } = useAuth(); 
 
     const [saving, setSaving] = useState(false);
     const [initialLoading, setInitialLoading] = useState(true);
@@ -278,8 +282,9 @@ export default function JobForm() {
 
         setSaving(true);
         try {
-            const { data: { user } } = await supabase.auth.getUser();
+            // [OPTIMIZATION] Replaced await supabase.auth.getUser() with context user
             if (!user) throw new Error('No user found');
+            
             const formatDBTime = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
             const salaryValue = parseCurrency(salaryDisplay);
             
@@ -304,25 +309,32 @@ export default function JobForm() {
             };
 
             if (!jobId) (payload as any).created_at = now;
+            
+            // 1. Fast Local Save
             await saveJobLocal(payload);
             await queueSyncItem('job_positions', finalJobId, jobId ? 'UPDATE' : 'INSERT', payload);
             
             if (!jobId) {
                 const db = await getDB();
                 await db.runAsync('UPDATE profiles SET current_job_id = ? WHERE id = ?', [finalJobId, user.id]);
-                await queueSyncItem('profiles', user.id, 'UPDATE', { current_job_id: finalJobId });
+                // Background Sync Queue
+                queueSyncItem('profiles', user.id, 'UPDATE', { current_job_id: finalJobId }).then();
+                // [OPTIMIZATION] Do not await remote updates if local is done
                 supabase.from('profiles').update({ current_job_id: finalJobId }).eq('id', user.id).then();
             }
 
+            // [OPTIMIZATION] Fire and forget remote update
             supabase.from('job_positions').upsert(payload).then();
+            
+            // 2. Immediate Navigation
             setIsDirty(false);
+            setSaving(false);
             router.back();
 
         } catch (e: any) { 
             console.log(e); 
+            setSaving(false);
             setAlertConfig({ visible: true, type: 'error', title: 'Save Failed', message: e.message || 'Error saving job.', confirmText: 'Close', onConfirm: () => setAlertConfig((prev:any) => ({ ...prev, visible: false })) }); 
-        } finally { 
-            setSaving(false); 
         }
     };
 
@@ -352,7 +364,6 @@ export default function JobForm() {
             <SearchableSelectionModal visible={jobSelectorVisible} onClose={() => setJobSelectorVisible(false)} onSelect={handleJobSelect} title="Select Job Title" options={jobOptions} placeholder="Search job title..." currentValue={position} />
             <SearchableSelectionModal visible={statusSelectorVisible} onClose={() => setStatusSelectorVisible(false)} onSelect={(val) => markDirty(setEmploymentStatus, val)} title="Employment Status" options={EMPLOYMENT_STATUS_OPTIONS} placeholder="Select Status" currentValue={employmentStatus} />
             
-            {/* FIXED USAGE HERE: */}
             <DatePicker 
                 visible={calendarVisible} 
                 onClose={() => setCalendarVisible(false)} 
