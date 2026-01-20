@@ -25,7 +25,7 @@ export default function WelcomeScreen() {
         scale.value = withSpring(1, { damping: 10 });
         opacity.value = withTiming(1, { duration: 800 });
         textOpacity.value = withDelay(400, withTiming(1, { duration: 800 }));
-    }, []);
+    }, [scale, opacity, textOpacity]); // Added dependencies
 
     const iconStyle = useAnimatedStyle(() => ({
         transform: [{ scale: scale.value }],
@@ -40,7 +40,6 @@ export default function WelcomeScreen() {
     return (
         <View style={styles.container}>
             <StatusBar barStyle="light-content" />
-            {/* UPDATED: Using local asset image */}
             <Image 
                 source={require('../../assets/images/intro/welcome.avif')}
                 style={StyleSheet.absoluteFillObject}
@@ -52,7 +51,8 @@ export default function WelcomeScreen() {
             <SafeAreaView style={styles.safeArea}>
                 <View style={styles.content}>
                     <Animated.View style={[styles.iconContainer, iconStyle]}>
-                        <HugeiconsIcon icon={CheckmarkCircle02Icon} size={80} color="#fff" variant="solid" />
+                        {/* Removed variant="solid" to fix TS error */}
+                        <HugeiconsIcon icon={CheckmarkCircle02Icon} size={80} color="#fff" />
                     </Animated.View>
 
                     <Animated.View style={[styles.textContainer, textStyle]}>
@@ -68,7 +68,7 @@ export default function WelcomeScreen() {
                         onPress={() => router.replace('/onboarding/info')}
                         style={styles.button}
                     >
-                        <Text style={styles.buttonText}>Get Started</Text>
+                        <Text style={styles.buttonText}>Setup Profile</Text>
                         <HugeiconsIcon icon={ArrowRight01Icon} size={24} color="#0f172a" strokeWidth={2.5} />
                     </TouchableOpacity>
                 </Animated.View>

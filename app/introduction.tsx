@@ -28,7 +28,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width, height } = Dimensions.get('window');
 
-// --- SLIDES DATA ---
 const SLIDES = [
   {
     id: '1',
@@ -56,7 +55,6 @@ const SLIDES = [
   }
 ];
 
-// --- PRIVACY POLICY MODAL ---
 const PrivacyModal = ({ visible, onAgree, isDark }: { visible: boolean, onAgree: () => void, isDark: boolean }) => {
   return (
     <Modal visible={visible} animationType="slide" transparent>
@@ -132,21 +130,11 @@ export default function IntroductionScreen() {
     scrollX.value = event.contentOffset.x;
   });
 
-  // --- PERMISSION LOGIC ---
   const requestPermissions = async () => {
     try {
-      // 1. Request Media Library Permission
-      const { status: mediaStatus } = await MediaLibrary.requestPermissionsAsync();
-      
-      // 2. Request Notification Permission
-      const { status: notificationStatus } = await Notifications.requestPermissionsAsync();
-
-      console.log('Media Permission:', mediaStatus);
-      console.log('Notification Permission:', notificationStatus);
-
-      // 3. Open Privacy Modal regardless of permission outcome
+      await MediaLibrary.requestPermissionsAsync();
+      await Notifications.requestPermissionsAsync();
       setShowPrivacy(true);
-
     } catch (error) {
       console.log('Permission Error:', error);
       setShowPrivacy(true); 
@@ -165,7 +153,8 @@ export default function IntroductionScreen() {
   const handlePrivacyAgree = () => {
     setShowPrivacy(false);
     setTimeout(() => {
-      router.push('/onboarding/info');
+      // Go to the Welcome (All Set) screen
+      router.push('/onboarding/welcome');
     }, 300);
   };
 
@@ -176,25 +165,9 @@ export default function IntroductionScreen() {
         index * width,
         (index + 1) * width,
       ];
-      
-      const scale = interpolate(
-        scrollX.value,
-        inputRange,
-        [0.5, 1, 0.5],
-        Extrapolation.CLAMP
-      );
-      
-      const opacity = interpolate(
-        scrollX.value,
-        inputRange,
-        [0.5, 1, 0.5],
-        Extrapolation.CLAMP
-      );
-
-      return {
-        transform: [{ scale }],
-        opacity,
-      };
+      const scale = interpolate(scrollX.value, inputRange, [0.5, 1, 0.5], Extrapolation.CLAMP);
+      const opacity = interpolate(scrollX.value, inputRange, [0.5, 1, 0.5], Extrapolation.CLAMP);
+      return { transform: [{ scale }], opacity };
     });
 
     return (
@@ -205,7 +178,6 @@ export default function IntroductionScreen() {
                 height: width * 0.8, 
                 marginBottom: 40, 
                 borderRadius: 40, 
-                // Updated Background Color Logic
                 backgroundColor: isDark ? '#27235E' : '#e0e7ff', 
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -219,18 +191,10 @@ export default function IntroductionScreen() {
                 elevation: 10 
             }, animatedStyle]}
         >
-             <Image 
-                source={item.image} 
-                style={{ width: '100%', height: '100%' }} 
-                resizeMode="contain"
-             />
+             <Image source={item.image} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
         </Animated.View>
-        <Text className="mb-4 text-3xl font-extrabold text-center text-slate-900 dark:text-white">
-            {item.title}
-        </Text>
-        <Text className="px-5 text-base leading-6 text-center text-slate-500 dark:text-slate-300">
-            {item.description}
-        </Text>
+        <Text className="mb-4 text-3xl font-extrabold text-center text-slate-900 dark:text-white">{item.title}</Text>
+        <Text className="px-5 text-base leading-6 text-center text-slate-500 dark:text-slate-300">{item.description}</Text>
       </View>
     );
   };
@@ -238,33 +202,14 @@ export default function IntroductionScreen() {
   return (
     <View className="flex-1">
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-      
-      <PrivacyModal 
-        visible={showPrivacy} 
-        onAgree={handlePrivacyAgree} 
-        isDark={isDark} 
-      />
-
-      {/* Modern Gradient Background */}
+      <PrivacyModal visible={showPrivacy} onAgree={handlePrivacyAgree} isDark={isDark} />
       <LinearGradient
-        colors={
-            isDark 
-            ? ['#0F172A', '#1E1B4B'] // Slate 900 -> Indigo 950 (Dark Mode)
-            : ['#F8FAFC', '#E0E7FF'] // Slate 50 -> Indigo 100 (Light Mode)
-        }
+        colors={isDark ? ['#0F172A', '#1E1B4B'] : ['#F8FAFC', '#E0E7FF']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={{ position: 'absolute', width: '100%', height: '100%' }}
       />
       
-      <View className="absolute inset-0 w-full h-full opacity-10">
-         <Image 
-            source={{ uri: "https://images.unsplash.com/photo-1614850523459-c2f4c699c52e?q=80&w=2670&auto=format&fit=crop" }} 
-            style={{ width: '100%', height: '100%', position: 'absolute' }}
-            resizeMode="cover"
-         />
-      </View>
-
       <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom }}>
         <View style={{ flex: 3 }}>
           <Animated.FlatList
@@ -288,23 +233,9 @@ export default function IntroductionScreen() {
           <View className="flex-row items-center h-10">
             {SLIDES.map((_, index) => {
               const animatedDotStyle = useAnimatedStyle(() => {
-                const inputRange = [
-                  (index - 1) * width,
-                  index * width,
-                  (index + 1) * width,
-                ];
-                const widthDot = interpolate(
-                  scrollX.value,
-                  inputRange,
-                  [10, 30, 10],
-                  Extrapolation.CLAMP
-                );
-                const opacity = interpolate(
-                  scrollX.value,
-                  inputRange,
-                  [0.5, 1, 0.5],
-                  Extrapolation.CLAMP
-                );
+                const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
+                const widthDot = interpolate(scrollX.value, inputRange, [10, 30, 10], Extrapolation.CLAMP);
+                const opacity = interpolate(scrollX.value, inputRange, [0.5, 1, 0.5], Extrapolation.CLAMP);
                 return { width: widthDot, opacity };
               });
               return <Animated.View key={index.toString()} className="h-2.5 rounded-full bg-indigo-500 mx-1.5" style={animatedDotStyle} />;

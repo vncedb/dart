@@ -14,12 +14,12 @@ import {
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useColorScheme } from "nativewind";
-import { useEffect, useRef, useState } from "react";
-import { Animated, LogBox, StyleSheet, View } from "react-native";
+import { useEffect, useState } from "react";
+import { LogBox, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
-import AppSplash from "../components/AppSplash";
+import AnimatedSplashScreen from "../components/AnimatedSplashScreen"; // Use the animated component
 import BiometricLockScreen from "../components/BiometricLockScreen";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { SyncProvider } from "../context/SyncContext";
@@ -32,19 +32,16 @@ LogBox.ignoreLogs([
   "Warning: SafeAreaView",
 ]);
 
-// [REMOVED] Notifee background handler is gone.
-// Expo Notifications handles background interactions differently (usually via response listeners in the Service/Home).
-
 SplashScreen.preventAutoHideAsync();
 
 function RootLayoutNav() {
-  const { session, isLoading: isAuthLoading } = useAuth();
-  const [isAuthorized, setIsAuthorized] = useState(false);
-  const [isCheckingBio, setIsCheckingBio] = useState(true);
-  const [isAppReady, setIsAppReady] = useState(false);
-  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const { isLoading: isAuthLoading } = useAuth();
   const { colorScheme, setColorScheme } = useColorScheme();
-  const hasCheckedBio = useRef(false);
+  
+  const [isBiometricAuthorized, setIsBiometricAuthorized] = useState(false);
+  const [isBiometricCheckDone, setIsBiometricCheckDone] = useState(false);
+  const [isSplashAnimationFinished, setIsSplashAnimationFinished] = useState(false);
+  const [isReady, setIsReady] = useState(false);
 
   const [fontsLoaded] = useFonts({
     Nunito_400Regular,
@@ -53,69 +50,89 @@ function RootLayoutNav() {
     Nunito_700Bold,
   });
 
+  // 1. Load Theme
   useEffect(() => {
     AsyncStorage.getItem("user-theme").then((theme) => {
       setColorScheme(theme === "dark" ? "dark" : "light");
     });
   }, []);
 
-  const checkBioSettings = async () => {
-    if (isAuthLoading) return;
-    if (session?.user) {
+  // 2. Check Biometrics
+  useEffect(() => {
+    const checkBio = async () => {
       try {
         const settingsJson = await AsyncStorage.getItem("appSettings");
         if (settingsJson) {
           const settings = JSON.parse(settingsJson);
+          // If enabled, user is NOT authorized initially
           if (settings.biometricEnabled === true) {
-            setIsAuthorized(false);
+            setIsBiometricAuthorized(false);
           } else {
-            setIsAuthorized(true);
+            setIsBiometricAuthorized(true);
           }
         } else {
-          setIsAuthorized(true);
+          // Default to authorized if no settings found
+          setIsBiometricAuthorized(true);
         }
       } catch (e) {
-        console.log("Error reading biometric settings:", e);
-        setIsAuthorized(true);
+        setIsBiometricAuthorized(true);
+      } finally {
+        setIsBiometricCheckDone(true);
       }
-    } else {
-      setIsAuthorized(true);
-    }
-    hasCheckedBio.current = true;
-    setIsCheckingBio(false);
-  };
+    };
 
-  useEffect(() => {
-    if (!isAuthLoading && fontsLoaded && !hasCheckedBio.current) {
-      checkBioSettings();
+    if (!isAuthLoading) {
+        checkBio();
     }
-  }, [isAuthLoading, fontsLoaded, session]);
+  }, [isAuthLoading]);
 
+  // 3. Determine Readiness (Fonts + Auth + Bio Check)
   useEffect(() => {
-    if (fontsLoaded && !isAuthLoading && !isCheckingBio) {
-      setTimeout(() => {
+    if (fontsLoaded && !isAuthLoading && isBiometricCheckDone) {
+        setIsReady(true);
+    }
+  }, [fontsLoaded, isAuthLoading, isBiometricCheckDone]);
+
+  // 4. Handle System Splash Hide
+  useEffect(() => {
+    if (isReady) {
+        // Hide system splash immediately so our AnimatedSplashScreen takes over
         SplashScreen.hideAsync();
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 500,
-          useNativeDriver: true,
-        }).start(() => setIsAppReady(true));
-      }, 500);
     }
-  }, [fontsLoaded, isAuthLoading, isCheckingBio]);
+  }, [isReady]);
 
-  if (!fontsLoaded || isAuthLoading || isCheckingBio) return null;
 
-  if (!isAuthorized) {
-    return <BiometricLockScreen onUnlock={() => setIsAuthorized(true)} />;
+  // RENDER BLOCKS
+  
+  // A. Still Loading Essentials -> Show Nothing (System Splash covers this)
+  if (!isReady) {
+    return null; 
   }
 
+  // B. Animation Phase -> Show Animated Splash
+  // We keep showing this until the animation calls onFinish
+  if (!isSplashAnimationFinished) {
+      return (
+          <AnimatedSplashScreen 
+              onFinish={() => setIsSplashAnimationFinished(true)} 
+          />
+      );
+  }
+
+  // C. Biometric Lock -> Show Lock Screen if needed
+  if (!isBiometricAuthorized) {
+    return <BiometricLockScreen onUnlock={() => setIsBiometricAuthorized(true)} />;
+  }
+
+  // D. Main App Content
   return (
     <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <View style={{ flex: 1 }}>
         <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
           <Stack.Screen name="index" />
           <Stack.Screen name="auth" />
+          
+          {/* Onboarding Stack */}
           <Stack.Screen
             name="introduction"
             options={{ animation: "slide_from_right" }}
@@ -128,69 +145,22 @@ function RootLayoutNav() {
             name="onboarding/info"
             options={{ animation: "slide_from_right" }}
           />
+
           <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
 
-          <Stack.Screen
-            name="settings"
-            options={{ animation: "slide_from_right" }}
-          />
-          <Stack.Screen
-            name="settings/account-security"
-            options={{ animation: "slide_from_right" }}
-          />
-          <Stack.Screen
-            name="settings/notifications"
-            options={{ animation: "slide_from_right" }}
-          />
-          <Stack.Screen
-            name="settings/privacy-policy"
-            options={{ animation: "slide_from_right" }}
-          />
-          <Stack.Screen
-            name="edit-profile"
-            options={{ animation: "slide_from_right" }}
-          />
-
-          <Stack.Screen
-            name="job/job"
-            options={{ animation: "slide_from_right" }}
-          />
-          <Stack.Screen
-            name="job/form"
-            options={{ animation: "slide_from_right", presentation: "modal" }}
-          />
-
-          <Stack.Screen
-            name="reports/details"
-            options={{ animation: "slide_from_right", presentation: "modal" }}
-          />
-
-          <Stack.Screen
-            name="reports/saved-reports"
-            options={{ animation: "slide_from_right" }}
-          />
-
-          <Stack.Screen
-            name="reports/generate"
-            options={{ animation: "slide_from_right" }}
-          />
-          <Stack.Screen
-            name="reports/preview"
-            options={{ animation: "slide_from_right" }}
-          />
+          {/* Settings & Other Screens */}
+          <Stack.Screen name="settings" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="settings/account-security" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="settings/notifications" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="settings/privacy-policy" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="edit-profile" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="job/job" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="job/form" options={{ animation: "slide_from_right", presentation: "modal" }} />
+          <Stack.Screen name="reports/details" options={{ animation: "slide_from_right", presentation: "modal" }} />
+          <Stack.Screen name="reports/saved-reports" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="reports/generate" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="reports/preview" options={{ animation: "slide_from_right" }} />
         </Stack>
-
-        {!isAppReady && (
-          <Animated.View
-            style={[
-              StyleSheet.absoluteFill,
-              { opacity: fadeAnim, zIndex: 9999 },
-            ]}
-            pointerEvents="none"
-          >
-            <AppSplash />
-          </Animated.View>
-        )}
       </View>
     </ThemeProvider>
   );

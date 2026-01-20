@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useColorScheme } from 'nativewind';
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Image, ImageBackground, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
@@ -12,39 +12,17 @@ import { useAuth } from '../context/AuthContext';
 export default function LandingScreen() {
   const router = useRouter();
   const { colorScheme, toggleColorScheme } = useColorScheme();
-  const { session, isLoading } = useAuth();
+  const { isLoading } = useAuth(); // AuthContext handles redirect if session exists
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
   
-  const [isCheckingOnboarding, setIsCheckingOnboarding] = useState(true);
-
-  useEffect(() => {
-    const checkRedirect = async () => {
-        if (isLoading) return;
-
-        if (session) {
-            const hasOnboarded = await AsyncStorage.getItem('isOnboarded');
-            
-            if (hasOnboarded === 'true') {
-                router.replace('/(tabs)/home');
-            } else {
-                // [FIX] Redirect to Welcome screen instead of Info
-                router.replace('/onboarding/welcome');
-            }
-        }
-        setIsCheckingOnboarding(false);
-    };
-
-    checkRedirect();
-  }, [session, isLoading]);
-
   const handleToggleTheme = async () => {
     toggleColorScheme();
     const newTheme = isDark ? 'light' : 'dark';
     await AsyncStorage.setItem('user-theme', newTheme);
   };
 
-  if (isLoading || (session && isCheckingOnboarding)) return null;
+  if (isLoading) return null;
 
   return (
     <ImageBackground 
@@ -114,7 +92,7 @@ export default function LandingScreen() {
             </TouchableOpacity>
 
             <Text className={`mt-4 text-xs font-medium text-center ${isDark ? 'text-slate-400 opacity-60' : 'text-slate-400'}`}>
-                Powered by Project Vdb
+                Developed by Project Vdb
             </Text>
         </View>
 

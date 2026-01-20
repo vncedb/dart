@@ -51,7 +51,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const initAuth = async () => {
       try {
-        // A. Fast Path: Check Local Storage first
+        // A. Fast Path: Check Local Storage first for immediate UI feedback
         const localOnboarding = await AsyncStorage.getItem('isOnboarded');
         if (mounted && localOnboarding === 'true') {
           _setIsOnboarded(true);
@@ -65,7 +65,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           setUser(currentSession?.user ?? null);
 
           if (currentSession?.user) {
-            // Background verification with DB
+            // Background verification with DB to ensure local storage isn't stale
             checkOnboardingStatus(currentSession.user.id);
           }
         }
@@ -87,7 +87,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (event === 'SIGNED_OUT') {
           await setIsOnboarded(false);
           setIsLoading(false);
-        } else if (session?.user) {
+        } else if (event === 'SIGNED_IN' && session?.user) {
+           // On explicit sign-in, check status
           await checkOnboardingStatus(session.user.id);
           setIsLoading(false);
         }
@@ -100,7 +101,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, []);
 
-  // 2. Real-time Database Sync
+  // 2. Real-time Database Sync (Optional but good for multi-device sync)
   useEffect(() => {
     if (!user) return;
 
@@ -140,40 +141,58 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (!error && data && data.job_title) {
         await setIsOnboarded(true);
       } else {
-        // Only force false if we are sure (optional: might want to keep true if offline)
-         // await setIsOnboarded(false); 
+        // If DB says incomplete, update state (but be careful of offline mode)
+        // For production, if data is successfully fetched and job_title is missing, it IS incomplete.
+        if (data && !data.job_title) {
+            await setIsOnboarded(false);
+        }
       }
     } catch (e) {
       console.log('Error checking onboarding:', e);
-      // Do not overwrite local true state on error to prevent blocking offline users
     }
   };
 
-  // 4. Navigation Guard
+  // 4. Navigation Guard (The Gatekeeper)
   useEffect(() => {
     if (isLoading) return;
 
-    const inAuthGroup = segments[0] === '(tabs)';
-    const inPublicGroup = segments[0] === 'auth' || segments[0] === 'index' || segments[0] === 'recover-account' || segments[0] === 'update-password';
-    const inOnboardingGroup = segments[0] === 'introduction' || segments[0] === 'onboarding';
+    // Define Route Groups
+    const inAuthGroup = segments[0] === 'auth';
+    const inTabsGroup = segments[0] === '(tabs)';
+    const inPublicGroup = segments[0] === 'index' || segments[0] === 'recover-account' || segments[0] === 'update-password';
+    
+    // Explicitly list onboarding routes so we don't redirect users OUT of them
+    const inOnboardingFlow = 
+        segments[0] === 'introduction' || 
+        segments[0] === 'onboarding' || 
+        segments[0] === 'job'; // Job selection is part of onboarding
 
     if (!session) {
-      // User NOT logged in
-      if (inAuthGroup || inOnboardingGroup) {
+      // SCENARIO 1: Not Logged In
+      // Prevent access to Tabs or Onboarding (except maybe intro if you want it public, but usually intro is post-signup here)
+      if (inTabsGroup || inOnboardingFlow) {
         router.replace('/'); 
       }
     } else {
-      // User IS logged in
+      // SCENARIO 2: Logged In
       if (isOnboarded) {
-        // Fully Setup -> Go Home
-        if (inPublicGroup || inOnboardingGroup) {
+        // 2a. Fully Setup -> Should be Home
+        // Redirect away from Auth, Public, or Onboarding screens back to Home
+        if (inAuthGroup || inPublicGroup || inOnboardingFlow) {
           router.replace('/(tabs)/home');
         }
       } else {
-        // [FIX] Redirect to 'welcome' instead of 'info' for the full flow
-        if (inAuthGroup || (segments[0] === 'index') || (segments[0] === 'introduction')) {
-          router.replace('/onboarding/welcome');
+        // 2b. Profile Incomplete -> Must finish Onboarding
+        // If they are in Tabs (Home), kick them back to start of flow
+        if (inTabsGroup) {
+          router.replace('/introduction');
         }
+        // If they are in Auth or Index (Public), kick them to start of flow
+        if (inAuthGroup || inPublicGroup) {
+            router.replace('/introduction');
+        }
+        // If they are ALREADY in 'introduction', 'onboarding', or 'job', DO NOTHING.
+        // Let them navigate strictly within that flow.
       }
     }
   }, [session, isOnboarded, segments, isLoading]);
