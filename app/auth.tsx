@@ -42,6 +42,7 @@ import { ModernAlert, ModernToast } from '../components/ModernUI';
 import OtpVerificationModal from '../components/OtpVerificationModal';
 import { supabase } from '../lib/supabase';
 
+// Helper to ensure the browser session closes correctly
 WebBrowser.maybeCompleteAuthSession();
 
 // --- ANIMATED TOOLTIP COMPONENT ---
@@ -54,7 +55,7 @@ const AnimatedTooltip = ({ message, isDark }: { message: string, isDark: boolean
         RNAnimated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true, easing: RNEasing.out(RNEasing.back(1.5)) }),
         RNAnimated.timing(slideAnim, { toValue: 0, duration: 400, useNativeDriver: true, easing: RNEasing.out(RNEasing.cubic) }),
       ]).start();
-    }, []);
+    }, [fadeAnim, slideAnim]);
   
     return (
       <RNAnimated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }} className="absolute right-0 z-50 w-64 top-14">
@@ -122,7 +123,7 @@ const ResetPasswordModal = ({ visible, onSubmit, onCancel }: any) => {
 
 export default function AuthScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams();
+  const routeParams = useLocalSearchParams(); // Renamed to avoid conflict
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
@@ -147,11 +148,11 @@ export default function AuthScreen() {
   const spin = useSharedValue(0);
 
   useEffect(() => {
-    if (params.mode === 'signup') {
+    if (routeParams.mode === 'signup') {
         setIsLogin(false);
         spin.value = 1; 
     }
-  }, [params.mode]);
+  }, [routeParams.mode, spin]);
 
   const toggleAuthMode = () => {
     Keyboard.dismiss();
@@ -266,12 +267,10 @@ export default function AuthScreen() {
                 if (data.user) {
                     await checkAppRegistration(data.user.id);
                     setToastVisible(true);
-                    // Login Success -> Home
                     setTimeout(() => { setToastVisible(false); router.replace('/(tabs)/home'); }, 1000);
                 }
             }
         } else {
-            // Signup Flow
             const exists = await checkUserExists(email);
             if (exists) {
                 setLoading(false);
@@ -293,7 +292,6 @@ export default function AuthScreen() {
             } else {
                 if (session) {
                      await checkAppRegistration(session.user.id);
-                     // Signup Success -> Introduction (Tour)
                      router.replace('/introduction');
                 } else {
                     setShowOtp(true);
@@ -344,28 +342,74 @@ export default function AuthScreen() {
     }
   };
 
+  // --- GOOGLE LOGIN FIX ---
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     try {
-      const redirectTo = makeRedirectUri({ path: 'auth/callback' });
-      const { data, error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo, skipBrowserRedirect: true }, });
+      const redirectTo = makeRedirectUri({
+        scheme: 'dartapp', 
+        path: 'auth/callback',
+      });
+      
+      console.log('Redirecting to:', redirectTo); 
+
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo,
+          skipBrowserRedirect: true, 
+        },
+      });
+
       if (error) throw error;
-      if (!data?.url) throw new Error('No auth URL returned');
+      if (!data?.url) throw new Error('No auth URL returned from Supabase');
+
       const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+
       if (res.type === 'success') {
         const { url } = res;
-        const { params } = QueryParams.getQueryParams(url.replace('#', '?'));
-        if (params.access_token && params.refresh_token) {
-            const { data: { user } } = await supabase.auth.setSession({ access_token: params.access_token, refresh_token: params.refresh_token });
+        if (!url) throw new Error('No URL returned from auth session');
+
+        // Parse result.
+        // Supabase returns fragment (#) usually.
+        const paramsStr = url.includes('#') ? url.split('#')[1] : url.split('?')[1];
+        
+        // Use the library to parse the string into an object
+        const result = QueryParams.getQueryParams('?' + paramsStr);
+        const authParams = result.params; // Get the dictionary
+
+        if (authParams['access_token'] && authParams['refresh_token']) {
+            const { data: { user }, error: sessionError } = await supabase.auth.setSession({
+                access_token: authParams['access_token'],
+                refresh_token: authParams['refresh_token'],
+            });
+            
+            if (sessionError) throw sessionError;
             if (user) await checkAppRegistration(user.id);
+            
             router.replace('/(tabs)/home');
+        } else {
+            // Fallback: Check if session is somehow already set
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session) {
+                if (session.user) await checkAppRegistration(session.user.id);
+                router.replace('/(tabs)/home');
+            }
         }
       }
     } catch (error: any) {
         if (error.message !== 'User cancelled the auth session') {
-            setAlertConfig({ visible: true, type: 'error', title: 'Google Sign In Failed', message: error.message, onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) });
+            setAlertConfig({ 
+                visible: true, 
+                type: 'error', 
+                title: 'Google Sign In Failed', 
+                message: error.message || "Could not sign in.", 
+                onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) 
+            });
         }
-    } finally { setGoogleLoading(false); }
+    } finally { 
+        setGoogleLoading(false); 
+    }
   };
 
   const renderCardContent = (mode: 'login' | 'signup') => (
@@ -509,7 +553,6 @@ export default function AuthScreen() {
                 if(isLogin) {
                     setShowResetPass(true);
                 } else {
-                    // Signup verify success -> Introduction
                     if (session?.user?.email) {
                         supabase.functions.invoke('send-email', {
                             body: { email: session.user.email, type: 'WELCOME' }
