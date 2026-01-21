@@ -33,6 +33,15 @@ import { deleteJobLocal, queueSyncItem } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 
+// Helper to safely parse JSON without crashing
+const safeParse = (str: any) => {
+    try {
+        return typeof str === 'string' ? JSON.parse(str) : str;
+    } catch (e) {
+        return null;
+    }
+};
+
 const formatRateDisplay = (amount: number, type: string) => {
     const formattedAmount = amount.toLocaleString('en-PH', { style: 'currency', currency: 'PHP' });
     let unit = 'hour';
@@ -45,7 +54,7 @@ const formatTime12h = (time24: string) => {
     if (!time24) return '';
     const [h, m] = time24.split(':');
     const date = new Date();
-    date.setHours(parseInt(h), parseInt(m));
+    date.setHours(parseInt(h || '0'), parseInt(m || '0'));
     return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
 };
 
@@ -89,15 +98,23 @@ export default function MyJobsScreen() {
 
     const fetchJobs = async () => {
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return;
+            // FIX: Use getSession (cached) instead of getUser (network) to prevent hanging
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session?.user) {
+                console.log("No user session found in MyJobs");
+                return;
+            }
+            
+            const user = session.user;
             const db = await getDB();
 
             const localJobs = await db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ? ORDER BY created_at DESC', [user.id]);
+            
+            // FIX: Safe parsing for schedule data
             let parsedLocalJobs = (localJobs as any[]).map(j => ({
                 ...j,
-                work_schedule: typeof j.work_schedule === 'string' ? JSON.parse(j.work_schedule) : j.work_schedule,
-                break_schedule: typeof j.break_schedule === 'string' ? JSON.parse(j.break_schedule) : j.break_schedule
+                work_schedule: safeParse(j.work_schedule),
+                break_schedule: safeParse(j.break_schedule)
             }));
 
             const profile: any = await db.getFirstAsync('SELECT current_job_id FROM profiles WHERE id = ?', [user.id]);
@@ -120,20 +137,24 @@ export default function MyJobsScreen() {
             setIsOffline(!netInfo.isConnected);
             
         } catch (error) { 
-            console.log('Error fetching jobs:', error); 
+            console.error('Error fetching jobs:', error); 
         } finally { 
             setLoading(false); 
         }
     };
 
-    useFocusEffect(useCallback(() => { fetchJobs(); }, []));
+    useFocusEffect(useCallback(() => { 
+        setLoading(true);
+        fetchJobs(); 
+    }, []));
 
     const handleSetActive = async (jobId: string) => {
         setLoadingMessage('Updating profile...');
         setProcessing(true);
         try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) return;
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session?.user) return;
+            const user = session.user;
             
             const db = await getDB();
             await db.runAsync('UPDATE profiles SET current_job_id = ? WHERE id = ?', [jobId, user.id]);
@@ -169,8 +190,9 @@ export default function MyJobsScreen() {
                 setProcessing(true);
                 try {
                     const db = await getDB();
-                    const { data: { user } } = await supabase.auth.getUser();
-                    if(!user) return;
+                    const { data: { session } } = await supabase.auth.getSession();
+                    if (!session?.user) return;
+                    const user = session.user;
 
                     if (activeJobId === id) {
                         await db.runAsync('UPDATE profiles SET current_job_id = NULL WHERE id = ?', [user.id]);
@@ -264,11 +286,11 @@ export default function MyJobsScreen() {
             <LoadingOverlay visible={processing} message={loadingMessage} />
             <ModernAlert {...alertConfig} />
             
-            {/* Logic Logic: Only show '+' if we have jobs */}
             <Header 
                 title="My Jobs" 
                 rightElement={
-                    !isOffline && jobs.length > 0 ? (
+                    // Allow adding jobs unless offline
+                    !isOffline ? (
                         <TouchableOpacity 
                             onPress={() => router.push('/job/form')} 
                             style={{ backgroundColor: theme.colors.primaryLight, padding: 8, borderRadius: 20 }}

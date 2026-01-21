@@ -131,24 +131,21 @@ const SkeletonItem = ({ style, borderRadius = 8 }: { style?: ViewStyle, borderRa
     );
 };
 
-const HomeSkeleton = ({ insetTop }: { insetTop: number }) => {
+const HomeContentSkeleton = () => {
     const theme = useAppTheme();
     return (
-        <View style={[styles.skeletonContainer, { paddingTop: 120 + insetTop }]}>
-            {/* Header Area */}
-            <View style={styles.skeletonHeader}>
-                <View style={styles.skeletonHeaderRow}>
-                    <View style={{ gap: 8 }}>
-                        <SkeletonItem style={{ width: 100, height: 14 }} />
-                        <SkeletonItem style={{ width: 180, height: 28 }} borderRadius={8} />
-                    </View>
-                    <SkeletonItem style={{ width: 44, height: 44 }} borderRadius={22} />
+        <View style={styles.skeletonContainer}>
+            {/* Dynamic Bar Skeleton */}
+            <View style={{ alignItems: 'center', marginBottom: 40, width: '100%' }}>
+                <SkeletonItem style={{ width: '90%', maxWidth: 380, height: 60, borderRadius: 30, marginBottom: 32 }} />
+                {/* Biometric Skeleton */}
+                <View style={{ alignItems: 'center' }}>
+                     <SkeletonItem style={{ width: 120, height: 120, borderRadius: 60 }} />
+                     <SkeletonItem style={{ width: 100, height: 14, marginTop: 20 }} />
                 </View>
-                {/* Biometric Circle */}
-                <SkeletonItem style={{ width: 180, height: 180 }} borderRadius={90} />
             </View>
 
-            {/* Stats Card */}
+            {/* Stats Card Skeleton */}
             <View style={[styles.skeletonCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                 <View style={styles.rowBetween}>
                     <SkeletonItem style={{ width: 80, height: 14 }} />
@@ -279,7 +276,6 @@ export default function Home() {
     // --- LOGIC ---
 
     useEffect(() => {
-        // [REFINE] Initialize categories once on mount
         initNotificationSystem();
     }, []);
 
@@ -632,10 +628,6 @@ export default function Home() {
         }, 50);
     };
 
-    if (isInitialLoading) {
-        return <HomeSkeleton insetTop={insets.top} />;
-    }
-
     return (
         <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
             <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} translucent backgroundColor="transparent" />
@@ -680,6 +672,7 @@ export default function Home() {
                 </Svg>
             </View>
 
+            {/* HEADER - Always visible, handles internal loading state */}
             <DynamicHeader 
                 selectedDate={selectedDate} 
                 onSelectDate={(date) => setSelectedDate(date)} 
@@ -695,91 +688,97 @@ export default function Home() {
                 contentContainerStyle={{ padding: 24, paddingTop: 120 + insets.top, paddingBottom: 140 }} 
                 refreshControl={<RefreshControl refreshing={refreshing || syncStatus === 'syncing'} onRefresh={onRefresh} progressViewOffset={insets.top + 100} tintColor={theme.colors.primary} />}
             >
-                <View style={{ alignItems: 'center', marginBottom: 40 }}>
-                    <DynamicBar 
-                        nameToDisplay={displayName}
-                        alertVisible={alertVisible}
-                        alertMessage={alertMessage}
-                        alertType={alertType}
-                        onHideAlert={handleHideAlert}
-                        customGreeting={isBreakMode ? "You are on break" : (isBreak ? "Happy Break Time" : null)} 
-                    />
-                    
-                    <View style={{ opacity: isBreakMode ? 0.5 : 1 }} pointerEvents={isBreakMode ? 'none' : 'auto'}>
-                        <BiometricButton 
-                            onSuccess={handleClockButtonPress} 
-                            isClockedIn={isClockedIn} 
-                            isLoading={loading} 
-                            settings={appSettings} 
-                        />
-                    </View>
-                </View>
+                {isInitialLoading ? (
+                    <HomeContentSkeleton />
+                ) : (
+                    <>
+                        <View style={{ alignItems: 'center', marginBottom: 40 }}>
+                            <DynamicBar 
+                                nameToDisplay={displayName}
+                                alertVisible={alertVisible}
+                                alertMessage={alertMessage}
+                                alertType={alertType}
+                                onHideAlert={handleHideAlert}
+                                customGreeting={isBreakMode ? "You are on break" : (isBreak ? "Happy Break Time" : null)} 
+                            />
+                            
+                            <View style={{ opacity: isBreakMode ? 0.5 : 1 }} pointerEvents={isBreakMode ? 'none' : 'auto'}>
+                                <BiometricButton 
+                                    onSuccess={handleClockButtonPress} 
+                                    isClockedIn={isClockedIn} 
+                                    isLoading={loading} 
+                                    settings={appSettings} 
+                                />
+                            </View>
+                        </View>
 
-                <View style={{ marginBottom: 24 }} collapsable={false}>
-                    {jobSettings ? (
-                        <DailySummaryCard 
-                            totalMinutes={workedMinutes} 
-                            isClockedIn={isClockedIn} 
-                            theme={theme} 
-                            dailyGoal={dailyGoal} 
-                            isOvertime={isSessionOvertime} 
-                            startTime={latestRecord?.clock_in}
-                            otExpiry={otExpiry}
-                        />
-                    ) : (
-                        <JobSetupCard theme={theme} router={router} isOffline={false} />
-                    )}
-                </View>
-
-                <View style={styles.sectionHeader}>
-                    <TouchableOpacity 
-                        onPress={handleTitlePress}
-                        activeOpacity={0.6}
-                        disabled={calendarLoading}
-                        style={styles.titleRow}
-                    >
-                        <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-                            {activityTitle}
-                        </Text>
-                        {calendarLoading ? (
-                            <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-                        ) : (
-                            <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.textSecondary} />
-                        )}
-                    </TouchableOpacity>
-                    
-                    <View style={styles.actionRow}>
-                        <TouchableOpacity 
-                            onPress={() => setNotifModalVisible(true)} 
-                            style={[styles.iconButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
-                        >
-                            <HugeiconsIcon icon={Notification01Icon} size={18} color={theme.colors.text} />
-                            {unreadNotifsCount > 0 && (
-                                <View style={[styles.badge, { backgroundColor: theme.colors.danger, borderColor: theme.colors.card }]} />
+                        <View style={{ marginBottom: 24 }} collapsable={false}>
+                            {jobSettings ? (
+                                <DailySummaryCard 
+                                    totalMinutes={workedMinutes} 
+                                    isClockedIn={isClockedIn} 
+                                    theme={theme} 
+                                    dailyGoal={dailyGoal} 
+                                    isOvertime={isSessionOvertime} 
+                                    startTime={latestRecord?.clock_in}
+                                    otExpiry={otExpiry}
+                                />
+                            ) : (
+                                <JobSetupCard theme={theme} router={router} isOffline={false} />
                             )}
-                        </TouchableOpacity>
+                        </View>
 
-                        <TouchableOpacity 
-                            disabled={!isClockedIn} 
-                            onPress={() => router.push({ pathname: '/reports/add-entry', params: { jobId: activeJobId } })} 
-                            style={[styles.iconButton, { backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background }]}
-                        >
-                            <HugeiconsIcon icon={PlusSignIcon} size={20} color={isClockedIn ? theme.colors.primary : theme.colors.icon} />
-                        </TouchableOpacity>
-                    </View>
-                </View>
-                
-                <View style={[styles.timelineCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]} collapsable={false}>
-                    <View style={{ padding: 20 }}>
-                        <ActivityTimeline 
-                            timelineData={timelineData} 
-                            theme={theme} 
-                            onEditTask={handleEdit} 
-                            onDeleteTask={handleDeleteTask} 
-                            isLoading={timelineLoading}
-                        />
-                    </View>
-                </View>
+                        <View style={styles.sectionHeader}>
+                            <TouchableOpacity 
+                                onPress={handleTitlePress}
+                                activeOpacity={0.6}
+                                disabled={calendarLoading}
+                                style={styles.titleRow}
+                            >
+                                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+                                    {activityTitle}
+                                </Text>
+                                {calendarLoading ? (
+                                    <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+                                ) : (
+                                    <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.textSecondary} />
+                                )}
+                            </TouchableOpacity>
+                            
+                            <View style={styles.actionRow}>
+                                <TouchableOpacity 
+                                    onPress={() => setNotifModalVisible(true)} 
+                                    style={[styles.iconButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+                                >
+                                    <HugeiconsIcon icon={Notification01Icon} size={18} color={theme.colors.text} />
+                                    {unreadNotifsCount > 0 && (
+                                        <View style={[styles.badge, { backgroundColor: theme.colors.danger, borderColor: theme.colors.card }]} />
+                                    )}
+                                </TouchableOpacity>
+
+                                <TouchableOpacity 
+                                    disabled={!isClockedIn} 
+                                    onPress={() => router.push({ pathname: '/reports/add-entry', params: { jobId: activeJobId } })} 
+                                    style={[styles.iconButton, { backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background }]}
+                                >
+                                    <HugeiconsIcon icon={PlusSignIcon} size={20} color={isClockedIn ? theme.colors.primary : theme.colors.icon} />
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                        
+                        <View style={[styles.timelineCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]} collapsable={false}>
+                            <View style={{ padding: 20 }}>
+                                <ActivityTimeline 
+                                    timelineData={timelineData} 
+                                    theme={theme} 
+                                    onEditTask={handleEdit} 
+                                    onDeleteTask={handleDeleteTask} 
+                                    isLoading={timelineLoading}
+                                />
+                            </View>
+                        </View>
+                    </>
+                )}
             </ScrollView>
         </View>
     );
@@ -788,19 +787,7 @@ export default function Home() {
 const styles = StyleSheet.create({
     skeletonContainer: {
         flex: 1,
-        paddingHorizontal: 24,
-    },
-    skeletonHeader: {
-        marginBottom: 40,
-        alignItems: 'center',
-        width: '100%',
-    },
-    skeletonHeaderRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        width: '100%',
-        justifyContent: 'space-between',
-        marginBottom: 20,
+        paddingHorizontal: 0,
     },
     skeletonCard: {
         marginBottom: 24,
