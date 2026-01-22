@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Session } from '@supabase/supabase-js';
-import { useRouter, useSegments } from 'expo-router';
+import { usePathname, useRouter, useSegments } from 'expo-router';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
@@ -30,6 +30,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   
   const router = useRouter();
   const segments = useSegments();
+  const pathname = usePathname();
 
   const setIsOnboarded = useCallback(async (value: boolean) => {
     _setIsOnboarded(value);
@@ -44,12 +45,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, []);
 
-  // Check Database for 'is_onboarded' flag
   const checkOnboardingStatus = useCallback(async (userId: string) => {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('is_onboarded') // Changed from job_title to explicit flag
+        .select('is_onboarded')
         .eq('id', userId)
         .single();
         
@@ -113,7 +113,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
   }, [setIsOnboarded, checkOnboardingStatus]);
 
-  // Real-time listener for profile updates
   useEffect(() => {
     if (!user) return;
     const channel = supabase
@@ -134,35 +133,39 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const inAuthGroup = segments[0] === 'auth';
     const inTabsGroup = segments[0] === '(tabs)';
-    const inPublicGroup = segments.length === 0 || segments[0] === 'recover-account' || segments[0] === 'introduction';
     
-    // Allowed routes for incomplete profiles (Sign Up Flow)
+    // Check path explicitly to prevent premature redirects during password reset
+    const isPasswordResetFlow = pathname.includes('update-password') || pathname.includes('forgot-password');
+
     const inOnboardingFlow = 
         segments[0] === 'onboarding' || 
-        segments[0] === 'job' || 
-        segments[0] === 'update-password'; // Allow setting password during onboarding
+        segments[0] === 'job';
 
     if (!session) {
-      // Not Logged In: Block access to protected areas
-      if (inTabsGroup || inOnboardingFlow) {
+      // Not Logged In
+      // Allow auth routes and public routes
+      if (inTabsGroup || (inOnboardingFlow && !isPasswordResetFlow)) {
         router.replace('/'); 
       }
     } else {
       // Logged In
+      
+      // CRITICAL: If user is in password reset flow, DO NOT redirect them.
+      if (isPasswordResetFlow) return;
+
       if (isOnboarded) {
         // Fully Setup -> Go Home
-        if (inAuthGroup || inPublicGroup || inOnboardingFlow) {
+        if (inAuthGroup || segments[0] === 'introduction' || inOnboardingFlow) {
           router.replace('/(tabs)/home');
         }
       } else {
-        // Profile Incomplete -> Go to Onboarding Welcome
-        // Allow them to stay in 'update-password' or 'onboarding' logic
+        // Profile Incomplete -> Go to Onboarding
         if (!inOnboardingFlow) {
             router.replace('/onboarding/welcome');
         }
       }
     }
-  }, [session, isOnboarded, segments, isLoading, router]);
+  }, [session, isOnboarded, segments, isLoading, router, pathname]);
 
   return (
     <AuthContext.Provider value={{ session, user, isOnboarded, setIsOnboarded, isLoading }}>

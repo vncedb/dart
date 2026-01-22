@@ -1,86 +1,83 @@
 import {
-  ArrowLeft02Icon,
-  ArrowRight01Icon,
-  Camera01Icon,
-  Logout02Icon,
-  PencilEdit02Icon,
-  UserCircleIcon
+    ArrowLeft02Icon,
+    ArrowRight01Icon,
+    Camera01Icon,
+    InformationCircleIcon,
+    Logout02Icon,
+    UserCircleIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import NetInfo from '@react-native-community/netinfo';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useColorScheme } from 'nativewind';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  BackHandler,
-  Image,
-  Platform,
-  Pressable,
-  ScrollView,
-  Text,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    BackHandler,
+    Image,
+    Keyboard,
+    KeyboardAvoidingView,
+    Platform,
+    Pressable, // <--- Added missing import
+    Text,
+    TextInput,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    View
 } from 'react-native';
-import Animated, {
-  interpolateColor,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming
-} from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeInUp, interpolateColor, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import Button from '../../components/Button';
-import Footer from '../../components/Footer';
-import InputModal from '../../components/InputModal';
-import LoadingOverlay from '../../components/LoadingOverlay';
-import { ModernAlert } from '../../components/ModernUI'; // Ensuring we use the correct UI kit
+import { ModernAlert } from '../../components/ModernUI';
 import { useAuth } from '../../context/AuthContext';
 import { saveProfileLocal } from '../../lib/database';
 import { supabase } from '../../lib/supabase';
 
-const shadowStyle = Platform.select({
-    ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4 },
-    android: { elevation: 2 }
-});
-
 const TIMEOUT_LIMIT = 30000; // 30 Seconds
 
-const NameCard = ({ label, value, onPress, required, isDark, error }: any) => (
-    <View className="mb-4">
-        <Text className={`mb-2 text-xs font-bold uppercase tracking-wider ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-            {label} {required && <Text className="text-red-500">*</Text>}
-        </Text>
-        <TouchableOpacity 
-            onPress={onPress} 
-            activeOpacity={0.7}
-            style={[
-                shadowStyle,
-                { 
-                    backgroundColor: isDark ? '#1e293b' : '#fff',
-                    borderColor: error ? '#ef4444' : (isDark ? '#334155' : '#e2e8f0'),
-                    borderWidth: 1,
-                    borderRadius: 16,
-                    padding: 16,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    height: 60
-                }
-            ]}
-        >
-            <Text 
-                className={`text-lg font-semibold ${value ? (isDark ? 'text-white' : 'text-slate-900') : 'text-slate-400'}`}
-                numberOfLines={1}
-            >
-                {value || 'Not Set'}
-            </Text>
-            <HugeiconsIcon icon={PencilEdit02Icon} size={20} color={isDark ? '#475569' : '#cbd5e1'} />
-        </TouchableOpacity>
-        {error && <Text className="mt-1 ml-1 text-xs text-red-500">{error}</Text>}
-    </View>
-);
+// --- TOOLTIP FROM AUTH.TSX ---
+const AnimatedTooltip = ({ message, isDark }: { message: string, isDark: boolean }) => {
+    const fadeAnim = useRef(new Animated.Value(0)).current; // Using RN Animated for this simple case or Reanimated
+    // Since we are using Reanimated generally, let's stick to the one used in Auth.tsx. 
+    // If Auth.tsx used RN Animated, we can adapt. 
+    // Based on previous context, Auth.tsx used RN Animated for Tooltip.
+    // Let's use Reanimated consistent with this file imports if possible, or RN Animated.
+    // For consistency with the provided imports (RNAnimated removed in this file version, using Reanimated),
+    // let's use Reanimated.
+    
+    const sv = useSharedValue(0);
+    const translateY = useSharedValue(15);
+
+    useEffect(() => {
+        sv.value = withSpring(1);
+        translateY.value = withSpring(0);
+    }, []);
+
+    const style = useAnimatedStyle(() => ({
+        opacity: sv.value,
+        transform: [{ translateY: translateY.value }]
+    }));
+  
+    return (
+      <Animated.View style={[style, { position: 'absolute', right: 0, top: '100%', marginTop: 8, zIndex: 50, width: 256 }]}>
+        <TouchableWithoutFeedback>
+          <View style={{ width: '100%' }}>
+              <View style={{ position: 'absolute', right: 20, top: -8, width: 16, height: 16, transform: [{ rotate: '45deg' }], backgroundColor: isDark ? '#334155' : '#ffffff', borderLeftWidth: 1, borderTopWidth: 1, borderColor: isDark ? '#475569' : '#e2e8f0' }} />
+              <View style={{ padding: 16, borderRadius: 12, shadowColor: '#000', shadowOffset: {width: 0, height: 2}, shadowOpacity: 0.1, shadowRadius: 4, elevation: 5, backgroundColor: isDark ? '#334155' : '#ffffff', borderWidth: 1, borderColor: isDark ? '#475569' : '#e2e8f0' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+                      <View style={{ marginTop: 2 }}><HugeiconsIcon icon={InformationCircleIcon} size={18} color="#ef4444" /></View>
+                      <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 12, fontWeight: 'bold', marginBottom: 4, color: isDark ? 'white' : '#0f172a' }}>Attention Needed</Text>
+                          <Text style={{ fontSize: 12, lineHeight: 16, color: isDark ? '#cbd5e1' : '#64748b' }}>{message}</Text>
+                      </View>
+                  </View>
+              </View>
+          </View>
+        </TouchableWithoutFeedback>
+      </Animated.View>
+    );
+};
 
 export default function InfoScreen() {
   const router = useRouter();
@@ -95,11 +92,10 @@ export default function InfoScreen() {
   
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<{ firstName?: string; lastName?: string }>({});
+  const [visibleTooltip, setVisibleTooltip] = useState<'firstName' | 'lastName' | null>(null);
   const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
-  const [modalVisible, setModalVisible] = useState(false);
-  const [activeField, setActiveField] = useState<'first' | 'middle' | 'last' | null>(null);
-
+  // Animation Refs
   const scale = useSharedValue(1);
   const borderProgress = useSharedValue(0); 
 
@@ -151,7 +147,7 @@ export default function InfoScreen() {
         mediaTypes: ImagePicker.MediaTypeOptions.Images, 
         allowsEditing: true, 
         aspect: [1, 1], 
-        quality: 0.5, // Reduced quality for faster upload
+        quality: 0.5, 
     });
     if (!result.canceled) setAvatarUrl(result.assets[0].uri);
   };
@@ -171,13 +167,11 @@ export default function InfoScreen() {
     } catch (error) { throw error; }
   };
 
-  // --- MAIN SETUP LOGIC WITH TIMEOUT ---
   const performSetup = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("User not found.");
 
       let finalAvatarUrl = avatarUrl;
-      // Only upload if it's a local file
       if (avatarUrl && !avatarUrl.startsWith('http')) {
           finalAvatarUrl = await uploadAvatar(avatarUrl, user.id);
       }
@@ -193,11 +187,9 @@ export default function InfoScreen() {
           is_onboarded: true, 
       };
 
-      // Critical Update - If this succeeds, we consider setup done
       const { error } = await supabase.from('profiles').update(profileData).eq('id', user.id);
       if (error) throw error;
 
-      // Background tasks (Fire & Forget) - Don't await these to speed up UI
       Promise.all([saveProfileLocal(profileData), setIsOnboarded(true)])
         .catch(e => console.log('Background Sync Error', e));
 
@@ -205,13 +197,23 @@ export default function InfoScreen() {
   };
 
   const handleNext = async () => {
+      Keyboard.dismiss();
+      setVisibleTooltip(null);
+      
       // 1. Validation
       const newErrors: typeof errors = {};
       let hasError = false;
-      if (!firstName.trim()) { newErrors.firstName = "Required"; hasError = true; }
-      if (!lastName.trim()) { newErrors.lastName = "Required"; hasError = true; }
+      if (!firstName.trim()) { newErrors.firstName = "First name is required."; hasError = true; }
+      else if (!lastName.trim()) { newErrors.lastName = "Last name is required."; hasError = true; }
+      
       setErrors(newErrors);
-      if (hasError) return;
+      
+      if (hasError) {
+          // Show tooltip 1-by-1
+          if (newErrors.firstName) setVisibleTooltip('firstName');
+          else if (newErrors.lastName) setVisibleTooltip('lastName');
+          return;
+      }
 
       // 2. Connectivity Check
       const netInfo = await NetInfo.fetch();
@@ -224,57 +226,22 @@ export default function InfoScreen() {
 
       // 3. Race against Timeout
       try {
-          // Create a timeout promise that rejects after 30s
           const timeoutPromise = new Promise((_, reject) => 
               setTimeout(() => reject(new Error("Timeout")), TIMEOUT_LIMIT)
           );
 
-          // Race the actual setup against the timeout
           await Promise.race([performSetup(), timeoutPromise]);
-
-          // If successful (and beat the timeout)
           router.replace('/(tabs)/home');
 
       } catch (error: any) {
           setLoading(false);
-          
           if (error.message === "Timeout") {
-              setAlertConfig({ 
-                  visible: true, 
-                  type: 'error', 
-                  title: 'Connection Timeout', 
-                  message: 'The setup is taking longer than expected (30s). Please check your internet connection and try again.', 
-                  onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) 
-              });
+              setAlertConfig({ visible: true, type: 'error', title: 'Connection Timeout', message: 'The setup is taking longer than expected. Please try again.', onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) });
           } else {
-              setAlertConfig({ 
-                  visible: true, 
-                  type: 'error', 
-                  title: 'Setup Failed', 
-                  message: error.message || "An unexpected error occurred.", 
-                  onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) 
-              });
+              setAlertConfig({ visible: true, type: 'error', title: 'Setup Failed', message: error.message || "An unexpected error occurred.", onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) });
           }
       }
   };
-
-  // --- MODAL & LOGOUT HANDLERS ---
-  const openModal = (field: 'first' | 'middle' | 'last') => {
-      if (field === 'first') setErrors(prev => ({ ...prev, firstName: '' }));
-      if (field === 'last') setErrors(prev => ({ ...prev, lastName: '' }));
-      setActiveField(field);
-      setModalVisible(true);
-  };
-
-  const getModalConfig = () => {
-      switch (activeField) {
-          case 'first': return { title: 'First Name', val: firstName, set: setFirstName, ph: 'e.g. John' };
-          case 'middle': return { title: 'Middle Name', val: middleName, set: setMiddleName, ph: 'e.g. Doe (Optional)' };
-          case 'last': return { title: 'Last Name', val: lastName, set: setLastName, ph: 'e.g. Smith' };
-          default: return { title: '', val: '', set: () => {}, ph: '' };
-      }
-  };
-  const { title, val, set, ph } = getModalConfig();
 
   const handleBack = () => {
       router.replace('/onboarding/welcome');
@@ -301,100 +268,125 @@ export default function InfoScreen() {
 
   return (
       <SafeAreaView style={{ flex: 1 }} className="bg-white dark:bg-slate-900" edges={['top', 'bottom']}>
-          <LoadingOverlay visible={loading} message="Finalizing setup..." />
           <ModernAlert {...alertConfig} />
           
-          <InputModal 
-            visible={modalVisible} 
-            onClose={() => setModalVisible(false)} 
-            title={title} 
-            initialValue={val} 
-            placeholder={ph} 
-            onConfirm={(txt) => set(txt)} 
-          />
-
+          {/* Header */}
           <View className="flex-row items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800">
-              <TouchableOpacity 
-                onPress={handleBack} 
-                className="items-center justify-center w-10 h-10 rounded-full bg-slate-50 dark:bg-slate-800"
-              >
+              <TouchableOpacity onPress={handleBack} className="items-center justify-center w-10 h-10 rounded-full bg-slate-50 dark:bg-slate-800">
                   <HugeiconsIcon icon={ArrowLeft02Icon} size={20} color={isDark ? '#e2e8f0' : '#475569'} />
               </TouchableOpacity>
-              
               <Text className="text-lg font-bold text-slate-900 dark:text-white">Your Profile</Text>
-              
-              <TouchableOpacity 
-                onPress={handleLogout} 
-                className="items-center justify-center w-10 h-10 rounded-full bg-red-50 dark:bg-red-900/20"
-              >
+              <TouchableOpacity onPress={handleLogout} className="items-center justify-center w-10 h-10 rounded-full bg-red-50 dark:bg-red-900/20">
                   <HugeiconsIcon icon={Logout02Icon} size={20} color="#ef4444" />
               </TouchableOpacity>
           </View>
 
-          <View style={{ flex: 1 }}>
-              <ScrollView contentContainerStyle={{ padding: 24 }} showsVerticalScrollIndicator={false}>
-                  <View className="items-center py-6">
-                      <Pressable 
-                        onPress={pickImage} 
-                        onPressIn={() => { scale.value = withSpring(1.15); borderProgress.value = withTiming(1); }} 
-                        onPressOut={() => { scale.value = withSpring(1); borderProgress.value = withTiming(0); }} 
-                        className="relative mb-6"
-                      >
-                          <Animated.View style={[{ width: 120, height: 120, borderRadius: 60, overflow: 'hidden', justifyContent: 'center', alignItems: 'center', backgroundColor: isDark ? '#1e293b' : '#f1f5f9' }, animatedImageStyle]}>
-                              {avatarUrl ? (
-                                <Image source={{ uri: avatarUrl }} className="w-full h-full" resizeMode="cover" />
-                              ) : (
-                                <HugeiconsIcon icon={UserCircleIcon} size={64} color={isDark ? "#475569" : "#cbd5e1"} />
-                              )}
-                          </Animated.View>
-                          
-                          <View 
-                            style={[
-                                { 
-                                    position: 'absolute', 
-                                    bottom: 0, 
-                                    right: 0, 
-                                    width: 38, 
-                                    height: 38, 
-                                    borderRadius: 19, 
-                                    alignItems: 'center', 
-                                    justifyContent: 'center', 
-                                    borderWidth: 3,
-                                    backgroundColor: isDark ? '#1e293b' : '#ffffff', 
-                                    borderColor: isDark ? '#334155' : '#e2e8f0', 
-                                }
-                            ]}
-                          >
-                              <HugeiconsIcon 
-                                icon={Camera01Icon} 
-                                size={16} 
-                                color={isDark ? '#f1f5f9' : '#0f172a'} 
-                              />
-                          </View>
-                      </Pressable>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1">
+              <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setVisibleTooltip(null); }}>
+                  <View className="flex-1 px-8 pt-6">
                       
-                      <Text className="text-2xl font-bold text-slate-900 dark:text-white">Let&apos;s get to know you!</Text>
-                      <Text className="mt-1 text-center text-slate-500 dark:text-slate-400">Please provide your details below.</Text>
-                  </View>
+                      {/* Avatar Section */}
+                      <Animated.View entering={FadeInUp.duration(600).springify()} className="items-center mb-8">
+                          <Pressable 
+                            onPress={pickImage} 
+                            onPressIn={() => { scale.value = withSpring(1.15); borderProgress.value = withTiming(1); }} 
+                            onPressOut={() => { scale.value = withSpring(1); borderProgress.value = withTiming(0); }} 
+                            className="relative mb-4"
+                          >
+                              <Animated.View style={[{ width: 120, height: 120, borderRadius: 60, overflow: 'hidden', justifyContent: 'center', alignItems: 'center', backgroundColor: isDark ? '#1e293b' : '#f1f5f9' }, animatedImageStyle]}>
+                                  {avatarUrl ? (
+                                    <Image source={{ uri: avatarUrl }} className="w-full h-full" resizeMode="cover" />
+                                  ) : (
+                                    <HugeiconsIcon icon={UserCircleIcon} size={64} color={isDark ? "#475569" : "#cbd5e1"} />
+                                  )}
+                              </Animated.View>
+                              <View className="absolute bottom-0 right-0 items-center justify-center w-10 h-10 bg-indigo-600 border-4 border-white rounded-full dark:border-slate-900">
+                                  <HugeiconsIcon icon={Camera01Icon} size={16} color="white" />
+                              </View>
+                          </Pressable>
+                          <Text className="text-2xl font-bold text-slate-900 dark:text-white">Let&apos;s get to know you!</Text>
+                      </Animated.View>
 
-                  <View className="mt-4">
-                      <NameCard label="First Name" value={firstName} onPress={() => openModal('first')} required isDark={isDark} error={errors.firstName} />
-                      <NameCard label="Middle Name" value={middleName} onPress={() => openModal('middle')} isDark={isDark} />
-                      <NameCard label="Last Name" value={lastName} onPress={() => openModal('last')} required isDark={isDark} error={errors.lastName} />
-                  </View>
-              </ScrollView>
-          </View>
+                      {/* Inputs Matching Auth.tsx Style */}
+                      <Animated.View entering={FadeInUp.delay(200).duration(600).springify()} className="gap-6">
+                          
+                          {/* First Name */}
+                          <View className="relative z-50 w-full">
+                              <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'} ${errors.firstName ? 'border-red-500' : ''}`}>
+                                  <HugeiconsIcon icon={UserCircleIcon} color={errors.firstName ? "#ef4444" : "#94a3b8"} size={22} />
+                                  <TextInput 
+                                      placeholder="First Name" placeholderTextColor="#94a3b8" 
+                                      className={`flex-1 h-full ml-3 font-sans font-medium ${errors.firstName ? 'text-red-500' : (isDark ? 'text-white' : 'text-slate-700')}`} 
+                                      value={firstName} 
+                                      onFocus={() => setVisibleTooltip(null)}
+                                      onChangeText={(t) => { setFirstName(t); setErrors((prev) => ({...prev, firstName: undefined})); setVisibleTooltip(null); }} 
+                                  />
+                                  {errors.firstName && (
+                                      <TouchableOpacity onPress={() => setVisibleTooltip(visibleTooltip === 'firstName' ? null : 'firstName')}>
+                                          <HugeiconsIcon icon={InformationCircleIcon} size={22} color="#ef4444" />
+                                      </TouchableOpacity>
+                                  )}
+                              </View>
+                              {errors.firstName && visibleTooltip === 'firstName' && <AnimatedTooltip message={errors.firstName} isDark={isDark} />}
+                          </View>
 
-          <Footer>
-              <Button 
-                title={loading ? "Setting up..." : "Complete Setup"}
-                onPress={handleNext}
-                disabled={loading}
-                variant="primary"
-                style={{ width: '100%' }}
-                icon={!loading ? <HugeiconsIcon icon={ArrowRight01Icon} color="white" size={20} /> : undefined}
-              />
-          </Footer>
+                          {/* Middle Name */}
+                          <View className="relative z-40 w-full">
+                              <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                                  <HugeiconsIcon icon={UserCircleIcon} color="#94a3b8" size={22} />
+                                  <TextInput 
+                                      placeholder="Middle Name (Optional)" placeholderTextColor="#94a3b8" 
+                                      className={`flex-1 h-full ml-3 font-sans font-medium ${isDark ? 'text-white' : 'text-slate-700'}`} 
+                                      value={middleName} 
+                                      onFocus={() => setVisibleTooltip(null)}
+                                      onChangeText={setMiddleName} 
+                                  />
+                              </View>
+                          </View>
+
+                          {/* Last Name */}
+                          <View className="relative z-30 w-full">
+                              <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'} ${errors.lastName ? 'border-red-500' : ''}`}>
+                                  <HugeiconsIcon icon={UserCircleIcon} color={errors.lastName ? "#ef4444" : "#94a3b8"} size={22} />
+                                  <TextInput 
+                                      placeholder="Last Name" placeholderTextColor="#94a3b8" 
+                                      className={`flex-1 h-full ml-3 font-sans font-medium ${errors.lastName ? 'text-red-500' : (isDark ? 'text-white' : 'text-slate-700')}`} 
+                                      value={lastName} 
+                                      onFocus={() => setVisibleTooltip(null)}
+                                      onChangeText={(t) => { setLastName(t); setErrors((prev) => ({...prev, lastName: undefined})); setVisibleTooltip(null); }} 
+                                  />
+                                  {errors.lastName && (
+                                      <TouchableOpacity onPress={() => setVisibleTooltip(visibleTooltip === 'lastName' ? null : 'lastName')}>
+                                          <HugeiconsIcon icon={InformationCircleIcon} size={22} color="#ef4444" />
+                                      </TouchableOpacity>
+                                  )}
+                              </View>
+                              {errors.lastName && visibleTooltip === 'lastName' && <AnimatedTooltip message={errors.lastName} isDark={isDark} />}
+                          </View>
+
+                      </Animated.View>
+
+                      {/* Footer Button */}
+                      <Animated.View entering={FadeInDown.delay(400).duration(600).springify()} className="pb-8 mt-auto">
+                          <TouchableOpacity 
+                              onPress={handleNext}
+                              disabled={loading}
+                              className={`w-full h-16 rounded-2xl flex-row items-center justify-center gap-3 shadow-lg ${loading ? 'bg-slate-300 dark:bg-slate-700' : 'bg-indigo-600 shadow-indigo-500/30'}`}
+                          >
+                              {loading ? (
+                                  <ActivityIndicator color={isDark ? "#94a3b8" : "white"} />
+                              ) : (
+                                  <>
+                                      <Text className="text-xl font-bold text-white">Complete Setup</Text>
+                                      <HugeiconsIcon icon={ArrowRight01Icon} size={24} color="white" strokeWidth={2.5} />
+                                  </>
+                              )}
+                          </TouchableOpacity>
+                      </Animated.View>
+
+                  </View>
+              </TouchableWithoutFeedback>
+          </KeyboardAvoidingView>
       </SafeAreaView>
   );
 }
