@@ -110,8 +110,8 @@ export default function ReportsScreen() {
   const [allSections, setAllSections] = useState<any[]>([]);
   const [filteredSections, setFilteredSections] = useState<any[]>([]);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
-  // ADDED: markedDates for DatePicker
   const [markedDates, setMarkedDates] = useState<string[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0); // ADDED
 
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -250,6 +250,10 @@ export default function ReportsScreen() {
         return;
       }
 
+      // ADDED: Fetch Unread Count
+      const count = await ReportService.getUnreadCount(userId);
+      setUnreadCount(count);
+
       const job: any = await ReportService.getActiveJob(userId);
       if (!job) {
         setAllSections([]);
@@ -273,7 +277,7 @@ export default function ReportsScreen() {
         ...(tasks?.map((t: any) => t.date) || []),
       ]);
       setAvailableDates(Array.from(allDatesSet));
-      setMarkedDates(Array.from(allDatesSet)); // Sync marked dates with available dates
+      setMarkedDates(Array.from(allDatesSet));
 
       const sortedDates = Array.from(allDatesSet).sort(
         (a, b) => new Date(b).getTime() - new Date(a).getTime(),
@@ -342,6 +346,8 @@ export default function ReportsScreen() {
     if (lastSyncedAt) fetchReports();
   }, [lastSyncedAt, fetchReports]);
 
+  // ... handleExactDateSelect, handleRangeSelect, handleDeleteSelected, toggleSelection ...
+  // Same as original file
   const handleExactDateSelect = (date: Date) => {
     if (date) {
       const dateStr = format(date, "yyyy-MM-dd");
@@ -470,7 +476,7 @@ export default function ReportsScreen() {
             : new Date()
         }
         title="Select Specific Date"
-        markedDates={markedDates} // UPDATED
+        markedDates={markedDates}
       />
 
       <ActionMenu
@@ -548,14 +554,45 @@ export default function ReportsScreen() {
                     },
                   ]}
                 >
-                  <HugeiconsIcon
-                    icon={FileVerifiedIcon}
-                    size={20}
-                    color={theme.colors.text}
-                  />
+                  <View>
+                    <HugeiconsIcon
+                      icon={FileVerifiedIcon}
+                      size={20}
+                      color={theme.colors.text}
+                    />
+                    {unreadCount > 0 && (
+                      <View
+                        style={{
+                          position: "absolute",
+                          top: -6,
+                          right: -6,
+                          backgroundColor: theme.colors.danger,
+                          borderRadius: 10,
+                          minWidth: 16,
+                          height: 16,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          borderWidth: 2,
+                          borderColor: theme.colors.card,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            color: "#fff",
+                            fontSize: 9,
+                            fontWeight: "800",
+                            lineHeight: 12,
+                          }}
+                        >
+                          {unreadCount > 9 ? "9+" : unreadCount}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                 </TouchableOpacity>
               </>
             )}
+            {/* Delete Selection Mode Buttons... */}
             {selectionMode && (
               <TouchableOpacity
                 onPress={handleDeleteSelected}

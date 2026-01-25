@@ -42,6 +42,7 @@ import { useAppTheme } from "../../constants/theme";
 import { useSync } from "../../context/SyncContext";
 import {
   deleteReportLocal,
+  markReportRead,
   queueSyncItem,
   renameReportLocal,
   saveReportLocal,
@@ -82,9 +83,7 @@ export default function SavedReportsScreen() {
     duration?: number;
   }>({ visible: false, message: "", type: "success", position: "bottom" });
 
-  // Refs for Undo Logic
   const deletedItemRef = useRef<any>(null);
-  // FIXED: Proper type for timer ref
   const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchReports = useCallback(async () => {
@@ -159,43 +158,81 @@ export default function SavedReportsScreen() {
     setMenuVisible(true);
   };
 
+  // --- CRITICAL FIX FOR FILE OPENING ---
   const prepareFileForShare = async (item: any) => {
-    const fileInfo = await FileSystem.getInfoAsync(item.file_path);
+    // 1. Define a stable local path based on ID (ensures persistence)
+    const extension = item.file_type === "pdf" ? "pdf" : "xlsx";
+    const fileName = `report_${item.id}.${extension}`;
+    const localTargetUri = `${FileSystem.documentDirectory}${fileName}`;
 
-    let sourceUri = item.file_path;
-    if (!fileInfo.exists) {
-      if (item.remote_url) {
+    // 2. Helper to download and save
+    const downloadAndSave = async () => {
+        if (!item.remote_url) throw new Error("File not found locally or remotely.");
+        
         setFloatingAlert({
           visible: true,
           message: "Downloading file...",
           type: "info",
           position: "top",
         });
-        const downloadRes = await FileSystem.downloadAsync(
-          item.remote_url,
-          item.file_path,
-        );
-        sourceUri = downloadRes.uri;
+
+        const { uri } = await FileSystem.downloadAsync(item.remote_url, localTargetUri);
+        
+        // UPDATE LOCAL DB with the new valid local path
+        try {
+            const db = await getDB();
+            // We use SQL directly to avoid triggering a 'sync' operation for this local path update
+            // (Since 'saveReportLocal' might trigger sync logic or timestamps we don't want to change yet)
+            await db.runAsync('UPDATE saved_reports SET file_path = ? WHERE id = ?', [uri, item.id]);
+            
+            // Refresh list to update UI state
+            fetchReports();
+        } catch (e) {
+            console.log("Failed to update local DB path", e);
+        }
+
         setFloatingAlert((prev) => ({ ...prev, visible: false }));
-      } else {
-        throw new Error("File not found");
-      }
+        return uri;
+    };
+
+    // 3. Logic: Check if we have a valid local file
+    try {
+        // A. If file_path is null/empty or looks like a URL (corruption fix), treat as missing
+        if (!item.file_path || item.file_path.startsWith('http')) {
+            return await downloadAndSave();
+        }
+
+        // B. If file_path looks local, check if it actually exists on disk
+        const fileInfo = await FileSystem.getInfoAsync(item.file_path);
+        
+        if (fileInfo.exists) {
+            return item.file_path; // Good to go!
+        } else {
+            // Path exists in DB but file is missing from disk -> Re-download
+            return await downloadAndSave();
+        }
+    } catch (e) {
+        console.log("Error in file prep:", e);
+        // Fallback catch-all
+        return await downloadAndSave();
     }
-
-    const extension = item.file_type === "pdf" ? "pdf" : "xlsx";
-    const safeTitle =
-      item.title.replace(/[^a-zA-Z0-9 \-_]/g, "").trim() || "Report";
-    const fileName = `${safeTitle}.${extension}`;
-    const tempPath = `${FileSystem.cacheDirectory}${fileName}`;
-
-    await FileSystem.copyAsync({ from: sourceUri, to: tempPath });
-
-    return tempPath;
   };
 
   const openFile = async (item: any) => {
     try {
+      // 1. Mark as read immediately (UI update)
+      if (!item.is_read) {
+        await markReportRead(item.id);
+        // Optimistic UI update
+        const updater = (r: any) => r.id === item.id ? { ...r, is_read: 1 } : r;
+        setReports(prev => prev.map(updater));
+        setFilteredReports(prev => prev.map(updater));
+      }
+
+      // 2. Prepare/Download file
       const uriToOpen = await prepareFileForShare(item);
+      
+      // 3. Share/Open
       const mimeType =
         item.file_type === "pdf"
           ? "application/pdf"
@@ -209,7 +246,8 @@ export default function SavedReportsScreen() {
             : "com.microsoft.excel.xls",
         dialogTitle: item.title,
       });
-    } catch {
+    } catch (e) {
+      console.log(e);
       setFloatingAlert({
         visible: true,
         message: "Could not open file.",
@@ -238,10 +276,15 @@ export default function SavedReportsScreen() {
 
   const finalizeDeletion = async (item: any) => {
     try {
-      const fileInfo = await FileSystem.getInfoAsync(item.file_path);
-      if (fileInfo.exists) {
-        await FileSystem.deleteAsync(item.file_path, { idempotent: true });
+      // FIX: Strict check for local file URI to avoid Java Crash
+      if (item.file_path && item.file_path.startsWith('file://')) {
+          const fileInfo = await FileSystem.getInfoAsync(item.file_path);
+          if (fileInfo.exists) {
+            await FileSystem.deleteAsync(item.file_path, { idempotent: true });
+          }
       }
+      
+      // Handle cloud deletion
       if (item.remote_url) {
         await queueSyncItem("saved_reports", item.id, "DELETE", {
           remote_url: item.remote_url,
@@ -357,6 +400,8 @@ export default function SavedReportsScreen() {
 
   const renderItem = ({ item }: { item: any }) => {
     const isPdf = item.file_type === "pdf";
+    const isUnread = !item.is_read; 
+
     return (
       <TouchableOpacity
         onPress={() => openFile(item)}
@@ -365,7 +410,8 @@ export default function SavedReportsScreen() {
           styles.card,
           {
             backgroundColor: theme.colors.card,
-            borderColor: theme.colors.border,
+            borderColor: isUnread ? theme.colors.primary : theme.colors.border,
+            borderWidth: isUnread ? 1.5 : 1,
           },
         ]}
       >
@@ -383,12 +429,18 @@ export default function SavedReportsScreen() {
         </View>
 
         <View style={{ flex: 1, gap: 2 }}>
-          <Text
-            numberOfLines={1}
-            style={[styles.cardTitle, { color: theme.colors.text }]}
-          >
-            {item.title}
-          </Text>
+          <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
+             <Text
+                numberOfLines={1}
+                style={[styles.cardTitle, { color: theme.colors.text, flex: 1, fontWeight: isUnread ? '700' : '600' }]}
+              >
+                {item.title}
+              </Text>
+              {isUnread && (
+                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.primary }} />
+              )}
+          </View>
+          
           <View style={styles.metaRow}>
             <Text
               style={[styles.metaText, { color: theme.colors.textSecondary }]}

@@ -1,13 +1,12 @@
 import {
     Calendar03Icon,
     Camera01Icon,
-    CheckmarkCircle03Icon, // UPDATED ICON
+    CheckmarkCircle03Icon,
     Delete02Icon,
     Image01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { format } from 'date-fns';
-// FIXED: Use legacy import to resolve readAsStringAsync deprecation
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
@@ -149,10 +148,10 @@ export default function AddEntry() {
         try {
             let result: ImagePicker.ImagePickerResult; 
             const options: ImagePicker.ImagePickerOptions = {
+                // FIXED: Using MediaTypeOptions to satisfy current installed version
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
                 quality: 0.7,
                 allowsEditing: true,
-                // FORCE 4:3 LANDSCAPE CROP (Width 4, Height 3)
                 aspect: [4, 3], 
             };
 
@@ -169,7 +168,7 @@ export default function AddEntry() {
                 setImages(prev => [...prev, newUri]);
                 setIsDirty(true);
             }
-        } catch (e) { 
+        } catch (_) { // FIXED: Removed unused variable
             setAlertConfig({
                 visible: true,
                 type: 'error',
@@ -367,14 +366,13 @@ export default function AddEntry() {
                             </TouchableOpacity>
                         </View>
 
-                        {/* Large Full-Width Images with 4:3 Ratio */}
                         <View style={{ gap: 16 }}>
                             {images.map((uri, idx) => (
                                 <View 
                                     key={idx} 
                                     style={{ 
                                         width: '100%', 
-                                        aspectRatio: 4/3, // MATCHES CROP (Width 4 : Height 3)
+                                        aspectRatio: 4/3,
                                         borderRadius: 16, 
                                         overflow: 'hidden', 
                                         backgroundColor: theme.colors.card, 

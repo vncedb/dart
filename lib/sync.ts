@@ -1,6 +1,5 @@
 import NetInfo from "@react-native-community/netinfo";
 import { decode } from "base64-arraybuffer";
-// FIXED: Use legacy import for Expo 50+ compatibility
 import * as FileSystem from "expo-file-system/legacy";
 import { getDB } from "./db-client";
 import { supabase } from "./supabase";
@@ -96,17 +95,18 @@ export const syncPush = async () => {
         }
         
         if (table_name === "saved_reports") {
+           // We ONLY upload if we have a local file path.
+           // We do NOT send the local path to the DB, we expect Supabase to just store the metadata + remote_url
            if (payload.file_path && payload.file_path.startsWith("file://") && action !== "DELETE") {
              const remoteUrl = await uploadFileToSupabase(payload.file_path, payload.user_id, "reports");
              if (remoteUrl) {
                payload.remote_url = remoteUrl;
-               delete payload.file_path; // Don't sync local path
+               delete payload.file_path; // Don't sync local path string to cloud DB
              }
            }
         }
       } catch (e: any) {
         console.error(`[Sync] Pre-flight failed for ${id}:`, e);
-        // ... (Error handling logic)
         continue;
       }
 
@@ -154,7 +154,7 @@ export const syncPull = async (userId: string) => {
     const lastSyncedAt = result?.value || "1970-01-01T00:00:00.000Z";
     const newSyncTime = new Date().toISOString();
 
-    // 1. PULL JOBS (New)
+    // 1. PULL JOBS
     const { data: jobsData } = await supabase.from('job_positions').select('*').eq('user_id', userId).gt('updated_at', lastSyncedAt);
     if (jobsData && jobsData.length > 0) {
       for (const job of jobsData) {
@@ -172,12 +172,20 @@ export const syncPull = async (userId: string) => {
       }
     }
 
-    // 2. PULL PROFILE (New - for current_job_id)
+    // 2. PULL PROFILE
     const { data: profileData } = await supabase.from('profiles').select('*').eq('id', userId).gt('updated_at', lastSyncedAt).single();
     if (profileData) {
        await db.runAsync(
-         `UPDATE profiles SET current_job_id = ?, first_name = ?, last_name = ?, full_name = ?, updated_at = ? WHERE id = ?`,
-         [profileData.current_job_id, profileData.first_name, profileData.last_name, profileData.full_name, profileData.updated_at, userId]
+         `UPDATE profiles SET current_job_id = ?, first_name = ?, last_name = ?, full_name = ?, is_onboarded = ?, updated_at = ? WHERE id = ?`,
+         [
+             profileData.current_job_id, 
+             profileData.first_name, 
+             profileData.last_name, 
+             profileData.full_name, 
+             profileData.is_onboarded ? 1 : 0, 
+             profileData.updated_at, 
+             userId
+         ]
        );
     }
 
@@ -197,19 +205,31 @@ export const syncPull = async (userId: string) => {
     if (taskData) {
       for (const row of taskData) {
          await db.runAsync(
-           `INSERT OR REPLACE INTO accomplishments (id, user_id, job_id, date, description, remarks, image_url, created_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+           `INSERT OR REPLACE INTO accomplishments (id, user_id, job_id, date, description, remarks, image_url, created_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
            [row.id, row.user_id, row.job_id, row.date, row.description, row.remarks, row.image_url, row.created_at]
          );
       }
     }
     
-    // 5. PULL Reports
+    // 5. PULL Reports (FIXED)
     const { data: reportsData } = await supabase.from("saved_reports").select("*").eq("user_id", userId).gt("created_at", lastSyncedAt);
     if (reportsData) {
         for (const row of reportsData) {
+            // CRITICAL FIX: Do NOT put row.remote_url into file_path. 
+            // We pass NULL for file_path so the app knows it needs to download it.
             await db.runAsync(
                 `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, remote_url, created_at, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-                [row.id, row.user_id, row.title, row.remote_url, row.file_type, row.file_size, row.remote_url, row.created_at, row.updated_at]
+                [
+                  row.id, 
+                  row.user_id, 
+                  row.title, 
+                  null, // <--- CHANGED: Was row.remote_url, which broke local FS checks
+                  row.file_type, 
+                  row.file_size, 
+                  row.remote_url, 
+                  row.created_at, 
+                  row.updated_at
+                ]
             );
         }
     }

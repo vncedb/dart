@@ -33,24 +33,40 @@ export const initDatabase = async () => {
       is_synced INTEGER DEFAULT 0
     );
     
-    -- NEW: Saved Reports Table
     CREATE TABLE IF NOT EXISTS saved_reports (
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
       title TEXT NOT NULL,
-      file_path TEXT NOT NULL, -- Local URI
-      file_type TEXT NOT NULL, -- 'pdf' or 'xlsx'
+      file_path TEXT NOT NULL,
+      file_type TEXT NOT NULL,
       file_size INTEGER DEFAULT 0,
       remote_url TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      is_synced INTEGER DEFAULT 0
+      is_synced INTEGER DEFAULT 0,
+      is_read INTEGER DEFAULT 0,
+      period_key TEXT
     );
 
     CREATE TABLE IF NOT EXISTS sync_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, table_name TEXT NOT NULL, row_id TEXT, action TEXT NOT NULL, data TEXT, status TEXT DEFAULT 'PENDING', retry_count INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT);
 
-    CREATE TABLE IF NOT EXISTS profiles (id TEXT PRIMARY KEY NOT NULL, email TEXT, first_name TEXT, last_name TEXT, middle_name TEXT, title TEXT, professional_suffix TEXT, current_job_id TEXT, full_name TEXT, avatar_url TEXT, local_avatar_path TEXT, updated_at TEXT);
+    CREATE TABLE IF NOT EXISTS profiles (
+      id TEXT PRIMARY KEY NOT NULL, 
+      email TEXT, 
+      first_name TEXT, 
+      last_name TEXT, 
+      middle_name TEXT, 
+      title TEXT, 
+      professional_suffix TEXT, 
+      current_job_id TEXT, 
+      full_name TEXT, 
+      avatar_url TEXT, 
+      local_avatar_path TEXT, 
+      is_onboarded INTEGER DEFAULT 0,
+      updated_at TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS job_positions (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, title TEXT, company TEXT, department TEXT, employment_status TEXT, rate REAL, rate_type TEXT, payout_type TEXT, work_schedule TEXT, break_schedule TEXT, created_at TEXT, updated_at TEXT);
     
     CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance(user_id, date);
@@ -79,17 +95,23 @@ export const initDatabase = async () => {
   await addColumn("profiles", "full_name", "TEXT");
   await addColumn("profiles", "avatar_url", "TEXT");
   await addColumn("profiles", "local_avatar_path", "TEXT");
+  await addColumn("profiles", "is_onboarded", "INTEGER DEFAULT 0");
+  
   await addColumn("job_positions", "company", "TEXT");
   await addColumn("job_positions", "department", "TEXT");
   await addColumn("job_positions", "employment_status", "TEXT");
   await addColumn("job_positions", "rate", "REAL");
   await addColumn("job_positions", "rate_type", "TEXT");
   await addColumn("job_positions", "payout_type", "TEXT");
+  
   await addColumn("accomplishments", "updated_at", "TEXT");
   await addColumn("attendance", "job_id", "TEXT");
   await addColumn("accomplishments", "job_id", "TEXT");
   await addColumn("attendance", "is_synced", "INTEGER DEFAULT 0");
   await addColumn("accomplishments", "is_synced", "INTEGER DEFAULT 0");
+  
+  await addColumn("saved_reports", "is_read", "INTEGER DEFAULT 0");
+  await addColumn("saved_reports", "period_key", "TEXT");
 
   console.log("Database initialized and migrated.");
 };
@@ -112,17 +134,13 @@ export const queueSyncItem = async (
   const db = await getDB();
   if (!rowId) return;
   try {
-    if (
-      ["attendance", "accomplishments", "saved_reports"].includes(tableName)
-    ) {
+    if (["attendance", "accomplishments", "saved_reports"].includes(tableName)) {
       try {
         await db.runAsync(
           `UPDATE ${tableName} SET is_synced = 0 WHERE id = ?`,
           [rowId],
         );
-      } catch (e) {
-        /* ignore */
-      }
+      } catch (e) { /* ignore */ }
     }
 
     await db.runAsync(
@@ -147,7 +165,7 @@ export const getPendingSyncCount = async () => {
 export const saveProfileLocal = async (profile: any) => {
   const db = await getDB();
   await db.runAsync(
-    `INSERT OR REPLACE INTO profiles (id, email, first_name, last_name, middle_name, title, professional_suffix, current_job_id, full_name, avatar_url, local_avatar_path, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO profiles (id, email, first_name, last_name, middle_name, title, professional_suffix, current_job_id, full_name, avatar_url, local_avatar_path, is_onboarded, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       profile.id,
       profile.email || "",
@@ -160,6 +178,7 @@ export const saveProfileLocal = async (profile: any) => {
       profile.full_name || "",
       profile.avatar_url || null,
       profile.local_avatar_path || null,
+      profile.is_onboarded ? 1 : 0, 
       profile.updated_at || new Date().toISOString(),
     ],
   );
@@ -179,12 +198,8 @@ export const saveJobLocal = async (job: any) => {
       job.rate || 0,
       job.rate_type || "hourly",
       job.payout_type || "Semi-Monthly",
-      typeof job.work_schedule === "string"
-        ? job.work_schedule
-        : JSON.stringify(job.work_schedule),
-      typeof job.break_schedule === "string"
-        ? job.break_schedule
-        : JSON.stringify(job.break_schedule),
+      typeof job.work_schedule === "string" ? job.work_schedule : JSON.stringify(job.work_schedule),
+      typeof job.break_schedule === "string" ? job.break_schedule : JSON.stringify(job.break_schedule),
       job.created_at || new Date().toISOString(),
       job.updated_at || new Date().toISOString(),
     ],
@@ -215,7 +230,7 @@ export const deleteJobLocal = async (id: string) => {
 export const saveReportLocal = async (report: any) => {
   const db = await getDB();
   await db.runAsync(
-    `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, remote_url, created_at, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, remote_url, created_at, updated_at, is_synced, is_read, period_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
     [
       report.id,
       report.user_id,
@@ -226,6 +241,8 @@ export const saveReportLocal = async (report: any) => {
       report.remote_url,
       report.created_at,
       new Date().toISOString(),
+      report.is_read ? 1 : 0,
+      report.period_key || null
     ],
   );
 };
@@ -241,4 +258,28 @@ export const renameReportLocal = async (id: string, newTitle: string) => {
     "UPDATE saved_reports SET title = ?, updated_at = ?, is_synced = 0 WHERE id = ?",
     [newTitle, new Date().toISOString(), id],
   );
+};
+
+// Mark all as read (e.g. clear all button)
+export const markReportsAsRead = async (userId: string) => {
+  const db = await getDB();
+  await db.runAsync(
+    "UPDATE saved_reports SET is_read = 1 WHERE user_id = ? AND is_read = 0",
+    [userId]
+  );
+};
+
+// Mark specific report as read
+export const markReportRead = async (id: string) => {
+  const db = await getDB();
+  await db.runAsync("UPDATE saved_reports SET is_read = 1 WHERE id = ?", [id]);
+};
+
+export const getUnreadReportsCount = async (userId: string) => {
+  const db = await getDB();
+  const res: any = await db.getFirstAsync(
+    "SELECT COUNT(*) as count FROM saved_reports WHERE user_id = ? AND is_read = 0",
+    [userId]
+  );
+  return res?.count || 0;
 };

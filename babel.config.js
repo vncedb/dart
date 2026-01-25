@@ -6,7 +6,7 @@ module.exports = function (api) {
       "nativewind/babel",
     ],
     plugins: [
-      ["@babel/plugin-proposal-decorators", { "legacy": true }], // <--- CRITICAL: MUST BE FIRST
+      ["@babel/plugin-proposal-decorators", { "legacy": true }],
       "react-native-reanimated/plugin",
     ],
   };

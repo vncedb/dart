@@ -9,13 +9,20 @@ export function useActiveJob() {
   const [loading, setLoading] = useState(true);
 
   const fetchActiveJob = useCallback(async () => {
-    if (!user) return;
+    // CRITICAL FIX: Explicitly handle missing user OR missing user.id
+    if (!user || !user.id) {
+        setLoading(false);
+        return;
+    }
+    
+    const userId = String(user.id);
+
     try {
       const db = await getDB();
       // 1. Get Profile to find active ID
       const profile: any = await db.getFirstAsync(
         'SELECT current_job_id FROM profiles WHERE id = ?', 
-        [user.id]
+        [userId]
       );
       
       if (profile?.current_job_id) {

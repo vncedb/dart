@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Session } from '@supabase/supabase-js';
 import { usePathname, useRouter, useSegments } from 'expo-router';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { getDB } from '../lib/db-client';
 import { supabase } from '../lib/supabase';
 
 type AuthContextType = {
@@ -47,19 +48,30 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const checkOnboardingStatus = useCallback(async (userId: string) => {
     try {
+      const db = await getDB();
+      
+      // 1. Check Local DB first (Faster & Offline friendly)
+      const localProfile: any = await db.getFirstAsync('SELECT is_onboarded FROM profiles WHERE id = ?', [userId]);
+      if (localProfile) {
+        await setIsOnboarded(!!localProfile.is_onboarded);
+      }
+
+      // 2. Check Supabase (Source of Truth)
       const { data, error } = await supabase
         .from('profiles')
         .select('is_onboarded')
         .eq('id', userId)
         .single();
         
-      if (!error && data?.is_onboarded) {
-        await setIsOnboarded(true);
-      } else {
-        await setIsOnboarded(false);
-      }
+      if (!error && data) {
+        const serverStatus = !!data.is_onboarded;
+        await setIsOnboarded(serverStatus);
+        
+        // 3. Update Local DB to match server
+        await db.runAsync('UPDATE profiles SET is_onboarded = ? WHERE id = ?', [serverStatus ? 1 : 0, userId]);
+      } 
     } catch (e) {
-      console.log('Error checking onboarding:', e);
+      console.log('Error checking onboarding (falling back to local):', e);
     }
   }, [setIsOnboarded]);
 
@@ -118,9 +130,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const channel = supabase
       .channel(`public:profiles:${user.id}`)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` }, 
-      (payload) => {
+      async (payload) => {
           if (payload.new) {
-             setIsOnboarded(!!payload.new.is_onboarded);
+             const newVal = !!payload.new.is_onboarded;
+             setIsOnboarded(newVal);
+             try {
+                const db = await getDB();
+                await db.runAsync('UPDATE profiles SET is_onboarded = ? WHERE id = ?', [newVal ? 1 : 0, user.id]);
+             } catch(e) { console.error("Realtime update local db error:", e); }
           }
       })
       .subscribe();
@@ -134,33 +151,38 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const inAuthGroup = segments[0] === 'auth';
     const inTabsGroup = segments[0] === '(tabs)';
     
-    // Check path explicitly to prevent premature redirects during password reset
-    const isPasswordResetFlow = pathname.includes('update-password') || pathname.includes('forgot-password');
+    // "Strict" Onboarding is ONLY the initial setup screens.
+    // We REMOVE 'job' from here because 'job' is used by both new users (setup) and existing users (managing jobs).
+    const inStrictOnboarding = segments[0] === 'onboarding'; 
+    const inJobRoute = segments[0] === 'job';
 
-    const inOnboardingFlow = 
-        segments[0] === 'onboarding' || 
-        segments[0] === 'job';
+    const isPasswordResetFlow = pathname.includes('update-password') || pathname.includes('forgot-password');
+    
+    // FIX: Explicitly cast 'segments' to 'string[]' to resolve the TS error
+    const isRootIndex = (segments as string[]).length === 0;
 
     if (!session) {
       // Not Logged In
-      // Allow auth routes and public routes
-      if (inTabsGroup || (inOnboardingFlow && !isPasswordResetFlow)) {
+      // Allow auth routes, password reset, and root
+      // Redirect if user tries to access tabs, job pages, or strict onboarding without being logged in
+      if (inTabsGroup || (inStrictOnboarding && !isPasswordResetFlow) || inJobRoute) {
         router.replace('/'); 
       }
     } else {
       // Logged In
-      
-      // CRITICAL: If user is in password reset flow, DO NOT redirect them.
       if (isPasswordResetFlow) return;
 
       if (isOnboarded) {
         // Fully Setup -> Go Home
-        if (inAuthGroup || segments[0] === 'introduction' || inOnboardingFlow) {
+        // Redirect ONLY if trying to access Auth, Introduction, or STRICT Onboarding (welcome/info)
+        // We explicitly ALLOW 'job' and '(tabs)' here.
+        if (inAuthGroup || segments[0] === 'introduction' || inStrictOnboarding || isRootIndex) {
           router.replace('/(tabs)/home');
         }
       } else {
         // Profile Incomplete -> Go to Onboarding
-        if (!inOnboardingFlow) {
+        // Allow access to 'onboarding' AND 'job' (to create first job)
+        if (!inStrictOnboarding && !inJobRoute) {
             router.replace('/onboarding/welcome');
         }
       }
