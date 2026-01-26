@@ -215,15 +215,13 @@ export const syncPull = async (userId: string) => {
     const { data: reportsData } = await supabase.from("saved_reports").select("*").eq("user_id", userId).gt("created_at", lastSyncedAt);
     if (reportsData) {
         for (const row of reportsData) {
-            // CRITICAL FIX: Do NOT put row.remote_url into file_path. 
-            // We pass NULL for file_path so the app knows it needs to download it.
             await db.runAsync(
                 `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, remote_url, created_at, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
                 [
                   row.id, 
                   row.user_id, 
                   row.title, 
-                  null, // <--- CHANGED: Was row.remote_url, which broke local FS checks
+                  "", // <--- FIX: Empty string instead of null to satisfy NOT NULL constraint
                   row.file_type, 
                   row.file_size, 
                   row.remote_url, 

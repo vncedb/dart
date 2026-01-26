@@ -11,6 +11,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import * as FileSystem from "expo-file-system/legacy";
+import * as IntentLauncher from "expo-intent-launcher"; // Required for Android Open
 import { useFocusEffect } from "expo-router";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useRef, useState } from "react";
@@ -19,6 +20,7 @@ import {
   Dimensions,
   FlatList,
   GestureResponderEvent,
+  Platform,
   RefreshControl,
   StatusBar,
   StyleSheet,
@@ -63,6 +65,7 @@ export default function SavedReportsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [openingId, setOpeningId] = useState<string | null>(null);
 
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectedItem, setSelectedItem] = useState<any>(null);
@@ -86,17 +89,18 @@ export default function SavedReportsScreen() {
   const deletedItemRef = useRef<any>(null);
   const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // --- LOAD REPORTS ---
   const fetchReports = useCallback(async () => {
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
+      
       const db = await getDB();
       const data = await db.getAllAsync(
         "SELECT * FROM saved_reports WHERE user_id = ? ORDER BY created_at DESC",
         [user.id],
       );
+      
       setReports(data as any[]);
       if (!searchQuery) {
         setFilteredReports(data as any[]);
@@ -158,16 +162,18 @@ export default function SavedReportsScreen() {
     setMenuVisible(true);
   };
 
-  // --- CRITICAL FIX FOR FILE OPENING ---
-  const prepareFileForShare = async (item: any) => {
-    // 1. Define a stable local path based on ID (ensures persistence)
+  // --- FILE PREPARATION (Check Local -> Download -> Save Path) ---
+  const prepareFileLocal = async (item: any) => {
+    // 1. Determine safe local path
     const extension = item.file_type === "pdf" ? "pdf" : "xlsx";
-    const fileName = `report_${item.id}.${extension}`;
+    // Sanitize title for filename
+    const safeTitle = item.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    const fileName = `report_${item.id}_${safeTitle}.${extension}`;
     const localTargetUri = `${FileSystem.documentDirectory}${fileName}`;
 
-    // 2. Helper to download and save
+    // 2. Helper to download and update DB
     const downloadAndSave = async () => {
-        if (!item.remote_url) throw new Error("File not found locally or remotely.");
+        if (!item.remote_url) throw new Error("File missing locally and no remote URL.");
         
         setFloatingAlert({
           visible: true,
@@ -178,14 +184,11 @@ export default function SavedReportsScreen() {
 
         const { uri } = await FileSystem.downloadAsync(item.remote_url, localTargetUri);
         
-        // UPDATE LOCAL DB with the new valid local path
+        // Update DB so we don't download again
         try {
             const db = await getDB();
-            // We use SQL directly to avoid triggering a 'sync' operation for this local path update
-            // (Since 'saveReportLocal' might trigger sync logic or timestamps we don't want to change yet)
             await db.runAsync('UPDATE saved_reports SET file_path = ? WHERE id = ?', [uri, item.id]);
-            
-            // Refresh list to update UI state
+            // Quietly refresh list to sync state
             fetchReports();
         } catch (e) {
             console.log("Failed to update local DB path", e);
@@ -195,65 +198,70 @@ export default function SavedReportsScreen() {
         return uri;
     };
 
-    // 3. Logic: Check if we have a valid local file
+    // 3. Logic: Check existence
     try {
-        // A. If file_path is null/empty or looks like a URL (corruption fix), treat as missing
-        if (!item.file_path || item.file_path.startsWith('http')) {
-            return await downloadAndSave();
+        // If DB says we have it, verify it exists on disk
+        if (item.file_path && item.file_path.startsWith('file://')) {
+            const fileInfo = await FileSystem.getInfoAsync(item.file_path);
+            if (fileInfo.exists) {
+                return item.file_path; 
+            }
         }
-
-        // B. If file_path looks local, check if it actually exists on disk
-        const fileInfo = await FileSystem.getInfoAsync(item.file_path);
-        
-        if (fileInfo.exists) {
-            return item.file_path; // Good to go!
-        } else {
-            // Path exists in DB but file is missing from disk -> Re-download
-            return await downloadAndSave();
-        }
+        // If missing or invalid path, download
+        return await downloadAndSave();
     } catch (e) {
-        console.log("Error in file prep:", e);
-        // Fallback catch-all
+        console.log("Error preparing file:", e);
+        // Fallback try download
         return await downloadAndSave();
     }
   };
 
-  const openFile = async (item: any) => {
+  // --- OPEN FILE HANDLER ---
+  const openReport = async (item: any) => {
+    if (openingId) return; // Prevent double taps
+    setOpeningId(item.id);
+
     try {
-      // 1. Mark as read immediately (UI update)
+      // 1. Mark as read
       if (!item.is_read) {
         await markReportRead(item.id);
-        // Optimistic UI update
-        const updater = (r: any) => r.id === item.id ? { ...r, is_read: 1 } : r;
-        setReports(prev => prev.map(updater));
-        setFilteredReports(prev => prev.map(updater));
+        const updateRead = (r: any) => r.id === item.id ? { ...r, is_read: 1 } : r;
+        setReports(prev => prev.map(updateRead));
+        setFilteredReports(prev => prev.map(updateRead));
       }
 
-      // 2. Prepare/Download file
-      const uriToOpen = await prepareFileForShare(item);
-      
-      // 3. Share/Open
-      const mimeType =
-        item.file_type === "pdf"
-          ? "application/pdf"
-          : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      // 2. Get local URI (downloads if needed)
+      const uri = await prepareFileLocal(item);
+      const mimeType = item.file_type === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-      await Sharing.shareAsync(uriToOpen, {
-        mimeType,
-        UTI:
-          item.file_type === "pdf"
-            ? "com.adobe.pdf"
-            : "com.microsoft.excel.xls",
-        dialogTitle: item.title,
-      });
+      // 3. Open Logic
+      if (Platform.OS === 'android') {
+        // Android: Open directly using IntentLauncher
+        const contentUri = await FileSystem.getContentUriAsync(uri);
+        await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+          data: contentUri,
+          flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+          type: mimeType,
+        });
+      } else {
+        // iOS: Use Sharing to preview/open
+        await Sharing.shareAsync(uri, {
+          UTI: item.file_type === "pdf" ? "com.adobe.pdf" : "com.microsoft.excel.xls",
+          mimeType,
+          dialogTitle: item.title,
+        });
+      }
+
     } catch (e) {
-      console.log(e);
+      console.log("Open error:", e);
       setFloatingAlert({
         visible: true,
         message: "Could not open file.",
         type: "error",
         position: "top",
       });
+    } finally {
+      setOpeningId(null);
     }
   };
 
@@ -262,7 +270,7 @@ export default function SavedReportsScreen() {
     if (!selectedItem) return;
 
     try {
-      const uriToShare = await prepareFileForShare(selectedItem);
+      const uriToShare = await prepareFileLocal(selectedItem);
       await Sharing.shareAsync(uriToShare, { dialogTitle: selectedItem.title });
     } catch {
       setFloatingAlert({
@@ -274,17 +282,15 @@ export default function SavedReportsScreen() {
     }
   };
 
+  // --- DELETE LOGIC ---
   const finalizeDeletion = async (item: any) => {
     try {
-      // FIX: Strict check for local file URI to avoid Java Crash
       if (item.file_path && item.file_path.startsWith('file://')) {
           const fileInfo = await FileSystem.getInfoAsync(item.file_path);
           if (fileInfo.exists) {
             await FileSystem.deleteAsync(item.file_path, { idempotent: true });
           }
       }
-      
-      // Handle cloud deletion
       if (item.remote_url) {
         await queueSyncItem("saved_reports", item.id, "DELETE", {
           remote_url: item.remote_url,
@@ -401,11 +407,13 @@ export default function SavedReportsScreen() {
   const renderItem = ({ item }: { item: any }) => {
     const isPdf = item.file_type === "pdf";
     const isUnread = !item.is_read; 
+    const isOpening = openingId === item.id;
 
     return (
       <TouchableOpacity
-        onPress={() => openFile(item)}
+        onPress={() => openReport(item)}
         activeOpacity={0.7}
+        disabled={isOpening}
         style={[
           styles.card,
           {
@@ -421,11 +429,15 @@ export default function SavedReportsScreen() {
             { backgroundColor: isPdf ? "#D9151910" : "#107C4110" },
           ]}
         >
-          <HugeiconsIcon
-            icon={isPdf ? Pdf01Icon : Xls01Icon}
-            size={24}
-            color={isPdf ? "#D91519" : "#107C41"}
-          />
+          {isOpening ? (
+             <ActivityIndicator size="small" color={isPdf ? "#D91519" : "#107C41"} />
+          ) : (
+             <HugeiconsIcon
+                icon={isPdf ? Pdf01Icon : Xls01Icon}
+                size={24}
+                color={isPdf ? "#D91519" : "#107C41"}
+             />
+          )}
         </View>
 
         <View style={{ flex: 1, gap: 2 }}>

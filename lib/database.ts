@@ -37,7 +37,7 @@ export const initDatabase = async () => {
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
       title TEXT NOT NULL,
-      file_path TEXT NOT NULL,
+      file_path TEXT,
       file_type TEXT NOT NULL,
       file_size INTEGER DEFAULT 0,
       remote_url TEXT,
@@ -282,4 +282,12 @@ export const getUnreadReportsCount = async (userId: string) => {
     [userId]
   );
   return res?.count || 0;
+};
+
+export const updateReportPath = async (id: string, filePath: string) => {
+  const db = await getDB();
+  await db.runAsync(
+    "UPDATE saved_reports SET file_path = ? WHERE id = ?",
+    [filePath, id]
+  );
 };
