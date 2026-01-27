@@ -6,7 +6,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import { differenceInMinutes, format } from "date-fns";
-import * as FileSystem from "expo-file-system/legacy"; // Keeping the fix for SDK 52+
+import * as FileSystem from "expo-file-system/legacy";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useEffect, useState } from "react";
@@ -24,10 +24,11 @@ import { WebView } from "react-native-webview";
 import Button from "../../components/Button";
 import Footer from "../../components/Footer";
 import Header from "../../components/Header";
-import ModernAlert from "../../components/ModernAlert"; // Imported ModernAlert
+import ModernAlert from "../../components/ModernAlert";
 import { useAppTheme } from "../../constants/theme";
 import { useSync } from "../../context/SyncContext";
 import {
+  checkReportTitleExists,
   generateUUID,
   queueSyncItem,
   saveReportLocal,
@@ -45,31 +46,29 @@ export default function PreviewReportScreen() {
 
   const [fileUri, setFileUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [alertConfig, setAlertConfig] = useState<any>({ visible: false }); // Alert State
+  const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
   const generateFile = useCallback(async () => {
     setLoading(true);
     try {
       const options = config ? JSON.parse(config as string) : {};
-
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      const userId = user?.id;
-      if (!userId) return;
+      if (!user) return;
 
-      const job: any = await ReportService.getActiveJob(userId);
+      const job: any = await ReportService.getActiveJob(user.id);
       let items: any = { attendance: [], tasks: [] };
 
       if (startDate && endDate) {
         items = await ReportService.getReportRange(
-          userId,
+          user.id,
           job?.id,
           startDate as string,
           endDate as string,
         );
       } else if (date) {
-        const res = await ReportService.getDailyReport(userId, date as string);
+        const res = await ReportService.getDailyReport(user.id, date as string);
         items = {
           attendance: res.attendance ? [res.attendance] : [],
           tasks: res.tasks,
@@ -85,7 +84,6 @@ export default function PreviewReportScreen() {
         .sort()
         .map((d) => {
           const att = (items.attendance || []).find((a: any) => a.date === d);
-
           const dayTasks = (items.tasks || [])
             .filter((t: any) => t.date === d)
             .map((t: any) => {
@@ -111,7 +109,6 @@ export default function PreviewReportScreen() {
             const start = new Date(att.clock_in);
             const end = new Date(att.clock_out);
             let diff = differenceInMinutes(end, start);
-
             if (options.timeFormat === "round_15")
               diff = Math.round(diff / 15) * 15;
             else if (options.timeFormat === "round_30")
@@ -132,9 +129,8 @@ export default function PreviewReportScreen() {
           let formattedDate = d;
           try {
             formattedDate = format(dateObj, options.dateFormat || "MM/dd/yyyy");
-            if (options.includeDay) {
+            if (options.includeDay)
               formattedDate += `\n${format(dateObj, "EEEE")}`;
-            }
           } catch (e) {
             formattedDate = d as string;
           }
@@ -175,10 +171,9 @@ export default function PreviewReportScreen() {
         uri = await exportToExcel({
           ...meta,
           data: processedData,
-          fileName: `Report_${options.meta.period.replace(/ /g, "_")}`,
+          fileName: options.meta.period,
         });
       }
-
       setFileUri(uri);
     } catch (e) {
       console.error("Preview Generation Error:", e);
@@ -214,60 +209,72 @@ export default function PreviewReportScreen() {
       } = await supabase.auth.getUser();
       if (!user) return;
 
-      // 1. Define Permanent Path
-      const fileName =
-        options.format === "pdf"
-          ? `Report_${options.meta.period.replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}.pdf`
-          : `Report_${options.meta.period.replace(/[^a-zA-Z0-9]/g, "_")}_${Date.now()}.xlsx`;
+      const reportTitle = options.meta.period;
+      const fileFormat = options.format;
+      const exists = await checkReportTitleExists(
+        reportTitle,
+        fileFormat,
+        user.id,
+      );
 
+      if (exists) {
+        setAlertConfig({
+          visible: true,
+          type: "warning",
+          title: "Duplicate File",
+          message: `A ${fileFormat.toUpperCase()} report named "${reportTitle}" already exists.`,
+          confirmText: "OK",
+          onConfirm: () =>
+            setAlertConfig((prev: any) => ({ ...prev, visible: false })),
+        });
+        setLoading(false);
+        return;
+      }
+
+      const safeFilename = reportTitle.replace(/[^a-zA-Z0-9 _-]/g, "_");
+      const ext = fileFormat === "pdf" ? "pdf" : "xlsx";
+      const fileName = `${safeFilename}.${ext}`;
       const baseDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
-      const permDir = (baseDir || "") + "reports/";
+      const reportsDir = (baseDir || "") + "reports/";
+      await FileSystem.makeDirectoryAsync(reportsDir, { intermediates: true });
+      const permUri = reportsDir + fileName;
 
-      await FileSystem.makeDirectoryAsync(permDir, { intermediates: true });
-      const permUri = permDir + fileName;
-
-      // 2. Move File to Permanent Storage
       await FileSystem.copyAsync({ from: fileUri, to: permUri });
-
-      // 3. Get File Info
       const info = await FileSystem.getInfoAsync(permUri);
 
-      // 4. Save to DB (Local)
       const reportId = generateUUID();
       const reportData = {
         id: reportId,
         user_id: user.id,
-        title: options.meta.period,
+        title: reportTitle,
         file_path: permUri,
-        file_type: options.format,
+        file_type: fileFormat,
         file_size: info.exists ? info.size : 0,
         created_at: new Date().toISOString(),
         remote_url: null,
       };
 
       await saveReportLocal(reportData);
-
-      // 5. Queue Sync (Upload)
       await queueSyncItem("saved_reports", reportId, "INSERT", reportData);
       triggerSync();
 
-      // 6. Show Success Alert
       setAlertConfig({
         visible: true,
         type: "success",
         title: "Report Saved",
         message: "Your report has been saved successfully.",
-        cancelText: "View", // Left button
-        confirmText: "Done", // Right button
+        cancelText: "View",
+        confirmText: "Done",
         onCancel: () => {
           setAlertConfig((prev: any) => ({ ...prev, visible: false }));
-          router.dismissAll();
-          router.push("/reports/saved-reports"); // Navigate to Saved Reports
+          // Use replace to swap current screen with saved reports
+          // This prevents triggering 'beforeRemove' on previous screens (Unsaved Changes)
+          router.replace("/reports/saved-reports");
         },
         onConfirm: () => {
           setAlertConfig((prev: any) => ({ ...prev, visible: false }));
           router.dismissAll();
-          router.push("/(tabs)/reports"); // Navigate to Home/Reports tab
+          router.replace("/(tabs)/reports");
         },
       });
     } catch (e) {
@@ -331,7 +338,6 @@ export default function PreviewReportScreen() {
       <ModernAlert {...alertConfig} />
       <Header
         title="Preview"
-        // Share Button moved to Header
         rightElement={
           <TouchableOpacity
             onPress={handleShare}
@@ -374,7 +380,6 @@ export default function PreviewReportScreen() {
       </View>
 
       <Footer>
-        {/* Single Save Button in Footer */}
         <Button
           title="Save Report"
           onPress={handleSave}

@@ -1,17 +1,17 @@
 import {
+  Cancel01Icon,
   Delete02Icon,
   Download01Icon,
   File02Icon,
   MoreVerticalCircle01Icon,
-  Pdf01Icon,
   PencilEdit02Icon,
   Search01Icon,
   Share01Icon,
-  Xls01Icon,
+  Tick02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import * as FileSystem from "expo-file-system/legacy";
-import * as IntentLauncher from "expo-intent-launcher"; // Required for Android Open
+import * as IntentLauncher from "expo-intent-launcher";
 import { useFocusEffect } from "expo-router";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useRef, useState } from "react";
@@ -20,6 +20,9 @@ import {
   Dimensions,
   FlatList,
   GestureResponderEvent,
+  Image,
+  Keyboard,
+  LayoutAnimation,
   Platform,
   RefreshControl,
   StatusBar,
@@ -27,6 +30,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  UIManager,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -52,6 +56,14 @@ import {
 import { getDB } from "../../lib/db-client";
 import { supabase } from "../../lib/supabase";
 
+// Enable LayoutAnimation on Android
+if (
+  Platform.OS === "android" &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 export default function SavedReportsScreen() {
@@ -61,11 +73,15 @@ export default function SavedReportsScreen() {
   const [reports, setReports] = useState<any[]>([]);
   const [filteredReports, setFilteredReports] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [openingId, setOpeningId] = useState<string | null>(null);
+
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const [menuVisible, setMenuVisible] = useState(false);
   const [selectedItem, setSelectedItem] = useState<any>(null);
@@ -74,7 +90,6 @@ export default function SavedReportsScreen() {
   >(undefined);
 
   const [renameModalVisible, setRenameModalVisible] = useState(false);
-
   const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
   const [floatingAlert, setFloatingAlert] = useState<{
     visible: boolean;
@@ -88,19 +103,19 @@ export default function SavedReportsScreen() {
 
   const deletedItemRef = useRef<any>(null);
   const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchInputRef = useRef<TextInput>(null);
 
-  // --- LOAD REPORTS ---
   const fetchReports = useCallback(async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) return;
-      
       const db = await getDB();
       const data = await db.getAllAsync(
         "SELECT * FROM saved_reports WHERE user_id = ? ORDER BY created_at DESC",
         [user.id],
       );
-      
       setReports(data as any[]);
       if (!searchQuery) {
         setFilteredReports(data as any[]);
@@ -143,6 +158,19 @@ export default function SavedReportsScreen() {
     }
   };
 
+  const toggleSearch = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (isSearching) {
+      setIsSearching(false);
+      setSearchQuery("");
+      setFilteredReports(reports);
+      Keyboard.dismiss();
+    } else {
+      setIsSearching(true);
+      setTimeout(() => searchInputRef.current?.focus(), 100);
+    }
+  };
+
   const formatSize = (bytes: number) => {
     if (bytes === 0) return "0 B";
     const k = 1024;
@@ -151,109 +179,218 @@ export default function SavedReportsScreen() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
   };
 
+  // --- Header Renderers ---
+  const renderHeaderTitle = () => {
+    if (isSearching) {
+      return (
+        <View style={styles.searchHeaderContainer}>
+          <TextInput
+            ref={searchInputRef}
+            value={searchQuery}
+            onChangeText={handleSearch}
+            placeholder="Search reports..."
+            placeholderTextColor={theme.colors.textSecondary}
+            textAlignVertical="center"
+            style={[
+              styles.searchInput,
+              { color: theme.colors.text, backgroundColor: theme.colors.card },
+            ]}
+          />
+        </View>
+      );
+    }
+    if (selectionMode) {
+      return `${selectedIds.size} Selected`;
+    }
+    return "Saved Reports";
+  };
+
+  const renderLeftElement = () => {
+    if (isSearching) return null;
+    if (selectionMode) {
+      return (
+        <TouchableOpacity
+          onPress={cancelSelection}
+          style={styles.headerIconButton}
+        >
+          <HugeiconsIcon
+            icon={Cancel01Icon}
+            size={24}
+            color={theme.colors.text}
+          />
+        </TouchableOpacity>
+      );
+    }
+    return null;
+  };
+
+  const renderRightElement = () => {
+    if (isSearching) {
+      return (
+        <TouchableOpacity onPress={toggleSearch} style={styles.headerIconButton}>
+          <HugeiconsIcon
+            icon={Cancel01Icon}
+            size={24}
+            color={theme.colors.text}
+          />
+        </TouchableOpacity>
+      );
+    }
+    if (selectionMode) {
+      return (
+        <TouchableOpacity
+          onPress={handleBulkDelete}
+          style={styles.headerIconButton}
+        >
+          <HugeiconsIcon
+            icon={Delete02Icon}
+            size={24}
+            color={theme.colors.danger}
+          />
+        </TouchableOpacity>
+      );
+    }
+    return (
+      <TouchableOpacity onPress={toggleSearch} style={styles.headerIconButton}>
+        <HugeiconsIcon
+          icon={Search01Icon}
+          size={24}
+          color={theme.colors.text}
+        />
+      </TouchableOpacity>
+    );
+  };
+
+  // --- ACTIONS ---
   const handleMenu = (event: GestureResponderEvent, item: any) => {
     const { pageY, locationY } = event.nativeEvent;
     const anchorX = SCREEN_WIDTH - 20;
-    const buttonHeight = 32;
-    const anchorY = pageY - locationY + buttonHeight;
-
+    const anchorY = pageY - locationY + 32;
     setMenuAnchor({ x: anchorX, y: anchorY });
     setSelectedItem(item);
     setMenuVisible(true);
   };
 
-  // --- FILE PREPARATION (Check Local -> Download -> Save Path) ---
-  const prepareFileLocal = async (item: any) => {
-    // 1. Determine safe local path
-    const extension = item.file_type === "pdf" ? "pdf" : "xlsx";
-    // Sanitize title for filename
-    const safeTitle = item.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-    const fileName = `report_${item.id}_${safeTitle}.${extension}`;
-    const localTargetUri = `${FileSystem.documentDirectory}${fileName}`;
-
-    // 2. Helper to download and update DB
-    const downloadAndSave = async () => {
-        if (!item.remote_url) throw new Error("File missing locally and no remote URL.");
-        
-        setFloatingAlert({
-          visible: true,
-          message: "Downloading file...",
-          type: "info",
-          position: "top",
-        });
-
-        const { uri } = await FileSystem.downloadAsync(item.remote_url, localTargetUri);
-        
-        // Update DB so we don't download again
-        try {
-            const db = await getDB();
-            await db.runAsync('UPDATE saved_reports SET file_path = ? WHERE id = ?', [uri, item.id]);
-            // Quietly refresh list to sync state
-            fetchReports();
-        } catch (e) {
-            console.log("Failed to update local DB path", e);
-        }
-
-        setFloatingAlert((prev) => ({ ...prev, visible: false }));
-        return uri;
-    };
-
-    // 3. Logic: Check existence
-    try {
-        // If DB says we have it, verify it exists on disk
-        if (item.file_path && item.file_path.startsWith('file://')) {
-            const fileInfo = await FileSystem.getInfoAsync(item.file_path);
-            if (fileInfo.exists) {
-                return item.file_path; 
-            }
-        }
-        // If missing or invalid path, download
-        return await downloadAndSave();
-    } catch (e) {
-        console.log("Error preparing file:", e);
-        // Fallback try download
-        return await downloadAndSave();
+  const toggleSelection = (id: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    const newSet = new Set(selectedIds);
+    if (newSet.has(id)) {
+      newSet.delete(id);
+      if (newSet.size === 0) setSelectionMode(false);
+    } else {
+      newSet.add(id);
     }
+    setSelectedIds(newSet);
   };
 
-  // --- OPEN FILE HANDLER ---
+  const activateSelection = (id: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSelectionMode(true);
+    setSelectedIds(new Set([id]));
+    setIsSearching(false);
+  };
+
+  const cancelSelection = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const prepareFileLocal = async (item: any) => {
+    const safeFilename = item.title.replace(/[^a-zA-Z0-9 _-]/g, "_");
+    const ext = item.file_type === "pdf" ? "pdf" : "xlsx";
+    const expectedPath = `${FileSystem.documentDirectory}reports/${safeFilename}.${ext}`;
+
+    if (item.file_path && item.file_path.startsWith("file://")) {
+      const dbFileInfo = await FileSystem.getInfoAsync(item.file_path);
+      if (dbFileInfo.exists) return item.file_path;
+    }
+
+    const expectedInfo = await FileSystem.getInfoAsync(expectedPath);
+    if (expectedInfo.exists) {
+      if (item.file_path !== expectedPath) {
+        const db = await getDB();
+        await db.runAsync(
+          "UPDATE saved_reports SET file_path = ? WHERE id = ?",
+          [expectedPath, item.id],
+        );
+      }
+      return expectedPath;
+    }
+
+    if (!item.remote_url)
+      throw new Error("File missing locally and no remote URL.");
+
+    setFloatingAlert({
+      visible: true,
+      message: "Downloading file...",
+      type: "info",
+      position: "top",
+    });
+
+    await FileSystem.makeDirectoryAsync(
+      `${FileSystem.documentDirectory}reports/`,
+      { intermediates: true },
+    );
+
+    const { uri } = await FileSystem.downloadAsync(
+      item.remote_url,
+      expectedPath,
+    );
+
+    try {
+      const db = await getDB();
+      await db.runAsync(
+        "UPDATE saved_reports SET file_path = ? WHERE id = ?",
+        [uri, item.id],
+      );
+      fetchReports();
+    } catch {
+      /* ignore */
+    }
+
+    setFloatingAlert((prev) => ({ ...prev, visible: false }));
+    return uri;
+  };
+
   const openReport = async (item: any) => {
-    if (openingId) return; // Prevent double taps
+    if (openingId) return;
     setOpeningId(item.id);
 
     try {
-      // 1. Mark as read
       if (!item.is_read) {
         await markReportRead(item.id);
-        const updateRead = (r: any) => r.id === item.id ? { ...r, is_read: 1 } : r;
-        setReports(prev => prev.map(updateRead));
-        setFilteredReports(prev => prev.map(updateRead));
+        const updateRead = (r: any) =>
+          r.id === item.id ? { ...r, is_read: 1 } : r;
+        setReports((prev) => prev.map(updateRead));
+        setFilteredReports((prev) => prev.map(updateRead));
       }
 
-      // 2. Get local URI (downloads if needed)
       const uri = await prepareFileLocal(item);
-      const mimeType = item.file_type === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      const mimeType =
+        item.file_type === "pdf"
+          ? "application/pdf"
+          : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-      // 3. Open Logic
-      if (Platform.OS === 'android') {
-        // Android: Open directly using IntentLauncher
+      if (Platform.OS === "android") {
         const contentUri = await FileSystem.getContentUriAsync(uri);
         await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
           data: contentUri,
-          flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+          flags: 1,
           type: mimeType,
         });
       } else {
-        // iOS: Use Sharing to preview/open
         await Sharing.shareAsync(uri, {
-          UTI: item.file_type === "pdf" ? "com.adobe.pdf" : "com.microsoft.excel.xls",
+          UTI:
+            item.file_type === "pdf"
+              ? "com.adobe.pdf"
+              : "com.microsoft.excel.xls",
           mimeType,
           dialogTitle: item.title,
         });
       }
-
     } catch (e) {
-      console.log("Open error:", e);
+      console.log("Open Error", e);
       setFloatingAlert({
         visible: true,
         message: "Could not open file.",
@@ -268,7 +405,6 @@ export default function SavedReportsScreen() {
   const handleShare = async () => {
     setMenuVisible(false);
     if (!selectedItem) return;
-
     try {
       const uriToShare = await prepareFileLocal(selectedItem);
       await Sharing.shareAsync(uriToShare, { dialogTitle: selectedItem.title });
@@ -282,14 +418,13 @@ export default function SavedReportsScreen() {
     }
   };
 
-  // --- DELETE LOGIC ---
   const finalizeDeletion = async (item: any) => {
     try {
-      if (item.file_path && item.file_path.startsWith('file://')) {
-          const fileInfo = await FileSystem.getInfoAsync(item.file_path);
-          if (fileInfo.exists) {
-            await FileSystem.deleteAsync(item.file_path, { idempotent: true });
-          }
+      if (item.file_path && item.file_path.startsWith("file://")) {
+        const fileInfo = await FileSystem.getInfoAsync(item.file_path);
+        if (fileInfo.exists) {
+          await FileSystem.deleteAsync(item.file_path, { idempotent: true });
+        }
       }
       if (item.remote_url) {
         await queueSyncItem("saved_reports", item.id, "DELETE", {
@@ -297,26 +432,23 @@ export default function SavedReportsScreen() {
         });
         await triggerSync();
       }
-    } catch (e) {
-      console.log("Error finalizing deletion", e);
+    } catch {
+      /* ignore */
     }
   };
 
   const performUndo = async () => {
     const itemToRestore = deletedItemRef.current;
     if (!itemToRestore) return;
-
     if (deleteTimerRef.current) {
       clearTimeout(deleteTimerRef.current);
       deleteTimerRef.current = null;
     }
-
     try {
       setFloatingAlert((prev) => ({ ...prev, visible: false }));
       await saveReportLocal(itemToRestore);
       deletedItemRef.current = null;
       fetchReports();
-
       setTimeout(() => {
         setFloatingAlert({
           visible: true,
@@ -325,8 +457,7 @@ export default function SavedReportsScreen() {
           position: "top",
         });
       }, 300);
-    } catch (e) {
-      console.error("Undo failed", e);
+    } catch {
       setFloatingAlert({
         visible: true,
         message: "Failed to restore.",
@@ -334,6 +465,63 @@ export default function SavedReportsScreen() {
         position: "top",
       });
     }
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedIds.size === 0) return;
+    setAlertConfig({
+      visible: true,
+      type: "confirm",
+      title: "Delete Reports",
+      message: `Are you sure you want to delete ${selectedIds.size} selected items?`,
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      onConfirm: async () => {
+        setAlertConfig((prev: any) => ({ ...prev, visible: false }));
+        setIsDeleting(true);
+        try {
+          const ids = Array.from(selectedIds);
+          for (const id of ids) {
+            const item = reports.find((r) => r.id === id);
+            if (item) {
+              await deleteReportLocal(id);
+              if (item.file_path && item.file_path.startsWith("file://")) {
+                const fileInfo = await FileSystem.getInfoAsync(item.file_path);
+                if (fileInfo.exists)
+                  await FileSystem.deleteAsync(item.file_path, {
+                    idempotent: true,
+                  });
+              }
+              if (item.remote_url) {
+                await queueSyncItem("saved_reports", id, "DELETE", {
+                  remote_url: item.remote_url,
+                });
+              }
+            }
+          }
+          triggerSync();
+          await fetchReports();
+          cancelSelection();
+          setFloatingAlert({
+            visible: true,
+            message: "Reports deleted.",
+            type: "success",
+            position: "bottom",
+          });
+        } catch {
+          setFloatingAlert({
+            visible: true,
+            message: "Failed to delete reports.",
+            type: "error",
+            position: "top",
+          });
+        } finally {
+          setIsDeleting(false);
+        }
+      },
+      onCancel: () =>
+        setAlertConfig((prev: any) => ({ ...prev, visible: false })),
+    });
   };
 
   const handleDelete = () => {
@@ -348,23 +536,18 @@ export default function SavedReportsScreen() {
       onConfirm: async () => {
         setAlertConfig((prev: any) => ({ ...prev, visible: false }));
         if (!selectedItem) return;
-
         setIsDeleting(true);
         const itemToDelete = { ...selectedItem };
         deletedItemRef.current = itemToDelete;
-
         try {
           await deleteReportLocal(itemToDelete.id);
           await fetchReports();
-
           setIsDeleting(false);
-
           const duration = 4000;
           deleteTimerRef.current = setTimeout(() => {
             finalizeDeletion(itemToDelete);
             deletedItemRef.current = null;
           }, duration);
-
           setFloatingAlert({
             visible: true,
             message: "Report deleted.",
@@ -374,8 +557,7 @@ export default function SavedReportsScreen() {
             onAction: performUndo,
             duration: duration,
           });
-        } catch (e) {
-          console.log(e);
+        } catch {
           setIsDeleting(false);
           setFloatingAlert({
             visible: true,
@@ -393,7 +575,22 @@ export default function SavedReportsScreen() {
   const saveRename = async (newName: string) => {
     if (!selectedItem) return;
     try {
-      await renameReportLocal(selectedItem.id, newName);
+      const ext = selectedItem.file_type === "pdf" ? "pdf" : "xlsx";
+      const safeName = newName.replace(/[^a-zA-Z0-9 _-]/g, "_");
+      const newFileName = `${safeName}.${ext}`;
+      const reportsDir = `${FileSystem.documentDirectory}reports/`;
+      const newPath = `${reportsDir}${newFileName}`;
+      const oldPath = selectedItem.file_path;
+
+      if (oldPath && oldPath.startsWith("file://")) {
+        const fileInfo = await FileSystem.getInfoAsync(oldPath);
+        if (fileInfo.exists) {
+           await FileSystem.makeDirectoryAsync(reportsDir, { intermediates: true });
+           await FileSystem.moveAsync({ from: oldPath, to: newPath });
+        }
+      }
+
+      await renameReportLocal(selectedItem.id, newName, newPath);
       await queueSyncItem("saved_reports", selectedItem.id, "UPDATE", {
         title: newName,
       });
@@ -406,23 +603,49 @@ export default function SavedReportsScreen() {
 
   const renderItem = ({ item }: { item: any }) => {
     const isPdf = item.file_type === "pdf";
-    const isUnread = !item.is_read; 
+    const isUnread = !item.is_read;
     const isOpening = openingId === item.id;
+    const isSelected = selectedIds.has(item.id);
 
     return (
       <TouchableOpacity
-        onPress={() => openReport(item)}
+        onPress={() =>
+          selectionMode ? toggleSelection(item.id) : openReport(item)
+        }
+        onLongPress={() => !selectionMode && activateSelection(item.id)}
         activeOpacity={0.7}
         disabled={isOpening}
         style={[
           styles.card,
           {
-            backgroundColor: theme.colors.card,
-            borderColor: isUnread ? theme.colors.primary : theme.colors.border,
-            borderWidth: isUnread ? 1.5 : 1,
+            backgroundColor: isSelected
+              ? theme.colors.primary + "10"
+              : theme.colors.card,
+            borderColor: isSelected
+              ? theme.colors.primary
+              : theme.colors.border,
           },
         ]}
       >
+        {selectionMode && (
+          <View style={{ marginRight: 12 }}>
+            {isSelected ? (
+              <HugeiconsIcon
+                icon={Tick02Icon}
+                size={24}
+                color={theme.colors.primary}
+              />
+            ) : (
+              <View
+                style={[
+                  styles.checkbox,
+                  { borderColor: theme.colors.textSecondary },
+                ]}
+              />
+            )}
+          </View>
+        )}
+
         <View
           style={[
             styles.iconBox,
@@ -430,29 +653,47 @@ export default function SavedReportsScreen() {
           ]}
         >
           {isOpening ? (
-             <ActivityIndicator size="small" color={isPdf ? "#D91519" : "#107C41"} />
+            <ActivityIndicator
+              size="small"
+              color={isPdf ? "#D91519" : "#107C41"}
+            />
           ) : (
-             <HugeiconsIcon
-                icon={isPdf ? Pdf01Icon : Xls01Icon}
-                size={24}
-                color={isPdf ? "#D91519" : "#107C41"}
-             />
+            // Changed to use custom images from assets
+            <Image
+                source={isPdf 
+                    ? require("../../assets/icons/custom-icons/pdf.png") 
+                    : require("../../assets/icons/custom-icons/xlsx.png")
+                }
+                style={{ width: 24, height: 24 }}
+                resizeMode="contain"
+            />
           )}
         </View>
 
-        <View style={{ flex: 1, gap: 2 }}>
-          <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
-             <Text
-                numberOfLines={1}
-                style={[styles.cardTitle, { color: theme.colors.text, flex: 1, fontWeight: isUnread ? '700' : '600' }]}
-              >
-                {item.title}
-              </Text>
-              {isUnread && (
-                  <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.primary }} />
-              )}
+        <View style={{ flex: 1, gap: 4 }}>
+          <View style={styles.titleRow}>
+            <Text
+              numberOfLines={1}
+              style={[
+                styles.cardTitle,
+                {
+                  color: theme.colors.text,
+                  fontWeight: isUnread ? "800" : "600",
+                },
+              ]}
+            >
+              {item.title}
+            </Text>
+            {isUnread && (
+              <View
+                style={[
+                  styles.unreadDot,
+                  { backgroundColor: theme.colors.primary },
+                ]}
+              />
+            )}
           </View>
-          
+
           <View style={styles.metaRow}>
             <Text
               style={[styles.metaText, { color: theme.colors.textSecondary }]}
@@ -480,17 +721,19 @@ export default function SavedReportsScreen() {
           </View>
         </View>
 
-        <TouchableOpacity
-          onPress={(e) => handleMenu(e, item)}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          style={{ padding: 4 }}
-        >
-          <HugeiconsIcon
-            icon={MoreVerticalCircle01Icon}
-            size={20}
-            color={theme.colors.icon}
-          />
-        </TouchableOpacity>
+        {!selectionMode && (
+          <TouchableOpacity
+            onPress={(e) => handleMenu(e, item)}
+            hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+            style={{ padding: 4 }}
+          >
+            <HugeiconsIcon
+              icon={MoreVerticalCircle01Icon}
+              size={20}
+              color={theme.colors.icon}
+            />
+          </TouchableOpacity>
+        )}
       </TouchableOpacity>
     );
   };
@@ -515,7 +758,11 @@ export default function SavedReportsScreen() {
         duration={floatingAlert.duration}
       />
 
-      <Header title="Saved Reports" />
+      <Header
+        title={renderHeaderTitle()}
+        leftElement={renderLeftElement()}
+        rightElement={renderRightElement()}
+      />
 
       <InputModal
         visible={renameModalVisible}
@@ -550,42 +797,6 @@ export default function SavedReportsScreen() {
           },
         ]}
       />
-
-      <View
-        style={[
-          styles.searchContainer,
-          { borderBottomColor: theme.colors.border },
-        ]}
-      >
-        <View
-          style={[
-            styles.searchBar,
-            {
-              backgroundColor: theme.colors.card,
-              borderColor: theme.colors.border,
-            },
-          ]}
-        >
-          <HugeiconsIcon
-            icon={Search01Icon}
-            size={20}
-            color={theme.colors.textSecondary}
-          />
-          <TextInput
-            value={searchQuery}
-            onChangeText={handleSearch}
-            placeholder="Search reports..."
-            placeholderTextColor={theme.colors.textSecondary}
-            style={{
-              flex: 1,
-              fontSize: 15,
-              color: theme.colors.text,
-              paddingHorizontal: 10,
-              height: "100%",
-            }}
-          />
-        </View>
-      </View>
 
       {loading ? (
         <View style={styles.center}>
@@ -636,36 +847,57 @@ export default function SavedReportsScreen() {
 
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  searchContainer: { padding: 16, paddingBottom: 12, borderBottomWidth: 1 },
-  searchBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    height: 44,
-  },
   card: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 16,
     borderRadius: 16,
-    marginBottom: 10,
+    marginBottom: 12,
     borderWidth: 1,
     gap: 14,
   },
   iconBox: {
-    width: 42,
-    height: 42,
+    width: 44,
+    height: 44,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
-  cardTitle: { fontSize: 15, fontWeight: "600", marginBottom: 2 },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  metaText: { fontSize: 12, fontWeight: "500" },
-  emptyContainer: { alignItems: "center", marginTop: 80, gap: 12 },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  cardTitle: {
+    fontSize: 16,
+    flex: 1,
+  },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  metaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  metaText: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+  },
+  emptyContainer: {
+    alignItems: "center",
+    marginTop: 100,
+    gap: 12,
+  },
   emptyIcon: {
     width: 80,
     height: 80,
@@ -673,6 +905,30 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  emptyText: { fontSize: 18, fontWeight: "700" },
-  emptySub: { fontSize: 14 },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  emptySub: {
+    fontSize: 14,
+  },
+  searchHeaderContainer: {
+    flex: 1,
+    width: "100%",
+    justifyContent: "center", // Vertically center the input
+    height: "100%", // Take up full header height
+  },
+  searchInput: {
+    height: 40, // Fixed height for alignment
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    fontSize: 16,
+    width: "100%",
+    paddingVertical: 0, // Removes default Android top/bottom padding
+  },
+  headerIconButton: {
+    padding: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

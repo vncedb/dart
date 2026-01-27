@@ -1,15 +1,20 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Session } from '@supabase/supabase-js';
-import { usePathname, useRouter, useSegments } from 'expo-router';
+import { useRouter, useSegments } from 'expo-router';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { getDB } from '../lib/db-client';
 import { supabase } from '../lib/supabase';
+
+const generateGuestId = () => {
+  return 'guest_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+};
 
 type AuthContextType = {
   session: Session | null;
   user: any | null;
   isOnboarded: boolean;
-  setIsOnboarded: (value: boolean) => void;
+  completeOnboarding: () => Promise<void>;
+  signOut: () => Promise<void>;
   isLoading: boolean;
 };
 
@@ -17,7 +22,8 @@ const AuthContext = createContext<AuthContextType>({
   session: null,
   user: null,
   isOnboarded: false,
-  setIsOnboarded: () => {},
+  completeOnboarding: async () => {},
+  signOut: async () => {},
   isLoading: true,
 });
 
@@ -26,54 +32,62 @@ export const useAuth = () => useContext(AuthContext);
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<any | null>(null);
-  const [isOnboarded, _setIsOnboarded] = useState(false);
+  const [isOnboarded, setIsOnboarded] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   
   const router = useRouter();
   const segments = useSegments();
-  const pathname = usePathname();
 
-  const setIsOnboarded = useCallback(async (value: boolean) => {
-    _setIsOnboarded(value);
+  const getGuestId = async () => {
+    let guestId = await AsyncStorage.getItem('guest_user_id');
+    if (!guestId) {
+        guestId = generateGuestId();
+        await AsyncStorage.setItem('guest_user_id', guestId);
+    }
+    return guestId;
+  };
+
+  const completeOnboarding = useCallback(async () => {
     try {
-      if (value) {
-        await AsyncStorage.setItem('isOnboarded', 'true');
-      } else {
-        await AsyncStorage.removeItem('isOnboarded');
-      }
+      await AsyncStorage.setItem('isOnboarded', 'true');
+      setIsOnboarded(true);
+      router.replace('/(tabs)/home');
     } catch (error) {
-      console.error('Failed to persist onboarding state:', error);
+      console.error('Failed to complete onboarding:', error);
     }
-  }, []);
+  }, [router]);
 
-  const checkOnboardingStatus = useCallback(async (userId: string) => {
+  const signOut = useCallback(async () => {
+    setIsLoading(true);
     try {
-      const db = await getDB();
+      await supabase.auth.signOut();
       
-      // 1. Check Local DB first (Faster & Offline friendly)
-      const localProfile: any = await db.getFirstAsync('SELECT is_onboarded FROM profiles WHERE id = ?', [userId]);
-      if (localProfile) {
-        await setIsOnboarded(!!localProfile.is_onboarded);
-      }
-
-      // 2. Check Supabase (Source of Truth)
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('is_onboarded')
-        .eq('id', userId)
-        .single();
-        
-      if (!error && data) {
-        const serverStatus = !!data.is_onboarded;
-        await setIsOnboarded(serverStatus);
-        
-        // 3. Update Local DB to match server
-        await db.runAsync('UPDATE profiles SET is_onboarded = ? WHERE id = ?', [serverStatus ? 1 : 0, userId]);
-      } 
-    } catch (e) {
-      console.log('Error checking onboarding (falling back to local):', e);
+      const guestId = await getGuestId();
+      setSession(null);
+      setUser({ id: guestId, is_guest: true, email: 'Guest User' });
+      
+      // Keep them on the same screen (Settings) or go Home, don't kick to Index
+      router.replace('/(tabs)/home'); 
+    } catch (error) {
+      console.error("Sign out failed:", error);
+    } finally {
+      setIsLoading(false);
     }
-  }, [setIsOnboarded]);
+  }, [router]);
+
+  const migrateGuestData = async (guestId: string, realUserId: string) => {
+    console.log(`[Auth] Migrating data from Guest(${guestId}) to User(${realUserId})...`);
+    const db = await getDB();
+    try {
+        await db.runAsync(`UPDATE profiles SET id = ? WHERE id = ?`, [realUserId, guestId]);
+        await db.runAsync(`UPDATE job_positions SET user_id = ? WHERE user_id = ?`, [realUserId, guestId]);
+        await db.runAsync(`UPDATE attendance SET user_id = ? WHERE user_id = ?`, [realUserId, guestId]);
+        await db.runAsync(`UPDATE accomplishments SET user_id = ? WHERE user_id = ?`, [realUserId, guestId]);
+        await db.runAsync(`UPDATE saved_reports SET user_id = ? WHERE user_id = ?`, [realUserId, guestId]);
+    } catch (e) {
+        console.error("[Auth] Migration failed:", e);
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -82,17 +96,19 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         const localOnboarding = await AsyncStorage.getItem('isOnboarded');
         if (mounted && localOnboarding === 'true') {
-          _setIsOnboarded(true);
+          setIsOnboarded(true);
         }
 
         const { data: { session: currentSession } } = await supabase.auth.getSession();
         
         if (mounted) {
-          setSession(currentSession);
-          setUser(currentSession?.user ?? null);
-
           if (currentSession?.user) {
-            checkOnboardingStatus(currentSession.user.id);
+            setSession(currentSession);
+            setUser(currentSession.user);
+          } else {
+            const guestId = await getGuestId();
+            setSession(null);
+            setUser({ id: guestId, is_guest: true, email: 'Guest User' });
           }
         }
       } catch (error) {
@@ -104,18 +120,22 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     initAuth();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (mounted) {
-        setSession(session);
-        setUser(session?.user ?? null);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      if (!mounted) return;
 
-        if (event === 'SIGNED_OUT') {
-          await setIsOnboarded(false);
-          setIsLoading(false);
-        } else if (event === 'SIGNED_IN' && session?.user) {
-          await checkOnboardingStatus(session.user.id);
-          setIsLoading(false);
+      const currentGuestId = await AsyncStorage.getItem('guest_user_id');
+
+      if (event === 'SIGNED_IN' && newSession?.user) {
+        if (currentGuestId) {
+            await migrateGuestData(currentGuestId, newSession.user.id);
         }
+        setSession(newSession);
+        setUser(newSession.user);
+      } 
+      else if (event === 'SIGNED_OUT') {
+        const guestId = await getGuestId();
+        setSession(null);
+        setUser({ id: guestId, is_guest: true, email: 'Guest User' });
       }
     });
 
@@ -123,74 +143,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [setIsOnboarded, checkOnboardingStatus]);
-
-  useEffect(() => {
-    if (!user) return;
-    const channel = supabase
-      .channel(`public:profiles:${user.id}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` }, 
-      async (payload) => {
-          if (payload.new) {
-             const newVal = !!payload.new.is_onboarded;
-             setIsOnboarded(newVal);
-             try {
-                const db = await getDB();
-                await db.runAsync('UPDATE profiles SET is_onboarded = ? WHERE id = ?', [newVal ? 1 : 0, user.id]);
-             } catch(e) { console.error("Realtime update local db error:", e); }
-          }
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [user, setIsOnboarded]);
-
-  // --- NAVIGATION GUARD ---
-  useEffect(() => {
-    if (isLoading) return;
-
-    const inAuthGroup = segments[0] === 'auth';
-    const inTabsGroup = segments[0] === '(tabs)';
-    
-    // "Strict" Onboarding is ONLY the initial setup screens.
-    // We REMOVE 'job' from here because 'job' is used by both new users (setup) and existing users (managing jobs).
-    const inStrictOnboarding = segments[0] === 'onboarding'; 
-    const inJobRoute = segments[0] === 'job';
-
-    const isPasswordResetFlow = pathname.includes('update-password') || pathname.includes('forgot-password');
-    
-    // FIX: Explicitly cast 'segments' to 'string[]' to resolve the TS error
-    const isRootIndex = (segments as string[]).length === 0;
-
-    if (!session) {
-      // Not Logged In
-      // Allow auth routes, password reset, and root
-      // Redirect if user tries to access tabs, job pages, or strict onboarding without being logged in
-      if (inTabsGroup || (inStrictOnboarding && !isPasswordResetFlow) || inJobRoute) {
-        router.replace('/'); 
-      }
-    } else {
-      // Logged In
-      if (isPasswordResetFlow) return;
-
-      if (isOnboarded) {
-        // Fully Setup -> Go Home
-        // Redirect ONLY if trying to access Auth, Introduction, or STRICT Onboarding (welcome/info)
-        // We explicitly ALLOW 'job' and '(tabs)' here.
-        if (inAuthGroup || segments[0] === 'introduction' || inStrictOnboarding || isRootIndex) {
-          router.replace('/(tabs)/home');
-        }
-      } else {
-        // Profile Incomplete -> Go to Onboarding
-        // Allow access to 'onboarding' AND 'job' (to create first job)
-        if (!inStrictOnboarding && !inJobRoute) {
-            router.replace('/onboarding/welcome');
-        }
-      }
-    }
-  }, [session, isOnboarded, segments, isLoading, router, pathname]);
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ session, user, isOnboarded, setIsOnboarded, isLoading }}>
+    <AuthContext.Provider value={{ session, user, isOnboarded, completeOnboarding, signOut, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

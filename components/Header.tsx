@@ -9,7 +9,6 @@ import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useAppTheme } from "../constants/theme";
 import ActionMenu from "./ActionMenu";
 
-// Define ActionItem shape locally (or import if exported)
 export interface HeaderAction {
   label: string;
   icon: any;
@@ -21,17 +20,15 @@ export interface HeaderAction {
 interface HeaderProps {
   title: string | React.ReactNode;
   onBack?: () => void;
+  leftElement?: React.ReactNode;
   rightElement?: React.ReactNode;
-  /**
-   * If provided, renders a "More" icon on the right and handles the ActionMenu
-   * positioned below the header edge.
-   */
   menuActions?: HeaderAction[];
 }
 
 export default function Header({
   title,
   onBack,
+  leftElement,
   rightElement,
   menuActions,
 }: HeaderProps) {
@@ -50,12 +47,8 @@ export default function Header({
   };
 
   const handleMenuPress = () => {
-    // Measure the Header container to determine the anchor point
     if (containerRef.current) {
       containerRef.current.measure((x, y, width, height, pageX, pageY) => {
-        // Anchor Y: pageY + height (Bottom of the header)
-        // Anchor X: pageX + width (Right edge of the header)
-        // We subtract padding (16) to align with content visually
         setMenuAnchor({
           x: pageX + width - 16,
           y: pageY + height + 4,
@@ -75,11 +68,30 @@ export default function Header({
           borderBottomColor: theme.colors.border,
         },
       ]}
-      collapsable={false} // Important for Android measurement
+      collapsable={false}
     >
-      {/* 1. Title Layer */}
-      <View style={styles.titleWrapper} pointerEvents="none">
-        {typeof title === "string" ? (
+      {/* 1. Left Action */}
+      <View style={styles.leftContainer}>
+        {leftElement ? (
+          leftElement
+        ) : (
+          <TouchableOpacity
+            onPress={handleBack}
+            style={styles.iconButton}
+            activeOpacity={0.7}
+          >
+            <HugeiconsIcon
+              icon={ArrowLeft02Icon}
+              size={24}
+              color={theme.colors.icon}
+            />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* 2. Title Layer */}
+      {typeof title === "string" ? (
+        <View style={styles.titleWrapperAbsolute} pointerEvents="none">
           <Text
             style={[styles.titleText, { color: theme.colors.text }]}
             numberOfLines={1}
@@ -87,27 +99,16 @@ export default function Header({
           >
             {title}
           </Text>
-        ) : (
-          title
-        )}
-      </View>
-
-      {/* 2. Left Action */}
-      <View style={styles.leftContainer}>
-        <TouchableOpacity
-          onPress={handleBack}
-          style={styles.iconButton}
-          activeOpacity={0.7}
-        >
-          <HugeiconsIcon icon={ArrowLeft02Icon} size={24} color={theme.colors.icon} />
-        </TouchableOpacity>
-      </View>
+        </View>
+      ) : (
+        // Flex wrapper for Search Input to ensure it centers perfectly
+        <View style={styles.titleWrapperFlex}>{title}</View>
+      )}
 
       {/* 3. Right Action */}
       <View style={styles.rightContainer}>
         {rightElement}
 
-        {/* Integrated Action Menu Trigger */}
         {menuActions && (
           <TouchableOpacity
             onPress={handleMenuPress}
@@ -123,7 +124,6 @@ export default function Header({
         )}
       </View>
 
-      {/* Integrated Action Menu Modal */}
       {menuActions && (
         <ActionMenu
           visible={menuVisible}
@@ -140,39 +140,50 @@ const styles = StyleSheet.create({
   container: {
     height: 60,
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "center", // This aligns left/right icons vertically
     justifyContent: "space-between",
     paddingHorizontal: 16,
     borderBottomWidth: 1,
     position: "relative",
-    zIndex: 10, // Ensure header sits above content for menu logic
+    zIndex: 10,
   },
-  titleWrapper: {
+  titleWrapperAbsolute: {
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
+    zIndex: -1,
+    paddingHorizontal: 60,
+  },
+  titleWrapperFlex: {
+    flex: 1,
+    height: "100%", // Take full height of header
+    justifyContent: "center", // Vertical Center
+    paddingHorizontal: 8,
   },
   titleText: {
     fontSize: 18,
     fontWeight: "700",
     textAlign: "center",
-    maxWidth: "60%",
   },
   leftContainer: {
     alignItems: "flex-start",
+    justifyContent: "center",
     zIndex: 20,
+    minWidth: 40,
+    height: "100%", // Full height to ensure alignment
   },
   rightContainer: {
-    flexDirection: "row", // Support multiple right elements
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
     zIndex: 20,
     minWidth: 40,
+    height: "100%", // Full height to ensure alignment
   },
   iconButton: {
     padding: 8,
     borderRadius: 9999,
-    // Negative margins help hit-slop feel natural without visual spacing issues
-    // marginLeft: -8, // Removed negative margin for right container to avoid overlap
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

@@ -37,7 +37,7 @@ export const initDatabase = async () => {
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
       title TEXT NOT NULL,
-      file_path TEXT,
+      file_path TEXT NOT NULL,
       file_type TEXT NOT NULL,
       file_size INTEGER DEFAULT 0,
       remote_url TEXT,
@@ -252,15 +252,31 @@ export const deleteReportLocal = async (id: string) => {
   await db.runAsync("DELETE FROM saved_reports WHERE id = ?", [id]);
 };
 
-export const renameReportLocal = async (id: string, newTitle: string) => {
+// UPDATED: Now supports optional newPath to update file_path column
+export const renameReportLocal = async (id: string, newTitle: string, newPath?: string) => {
   const db = await getDB();
-  await db.runAsync(
-    "UPDATE saved_reports SET title = ?, updated_at = ?, is_synced = 0 WHERE id = ?",
-    [newTitle, new Date().toISOString(), id],
-  );
+  if (newPath) {
+    await db.runAsync(
+      "UPDATE saved_reports SET title = ?, file_path = ?, updated_at = ?, is_synced = 0 WHERE id = ?",
+      [newTitle, newPath, new Date().toISOString(), id],
+    );
+  } else {
+    await db.runAsync(
+      "UPDATE saved_reports SET title = ?, updated_at = ?, is_synced = 0 WHERE id = ?",
+      [newTitle, new Date().toISOString(), id],
+    );
+  }
 };
 
-// Mark all as read (e.g. clear all button)
+export const checkReportTitleExists = async (title: string, fileType: string, userId: string) => {
+  const db = await getDB();
+  const res: any = await db.getFirstAsync(
+    "SELECT COUNT(*) as count FROM saved_reports WHERE user_id = ? AND title = ? AND file_type = ?",
+    [userId, title, fileType]
+  );
+  return (res?.count || 0) > 0;
+};
+
 export const markReportsAsRead = async (userId: string) => {
   const db = await getDB();
   await db.runAsync(
@@ -269,7 +285,6 @@ export const markReportsAsRead = async (userId: string) => {
   );
 };
 
-// Mark specific report as read
 export const markReportRead = async (id: string) => {
   const db = await getDB();
   await db.runAsync("UPDATE saved_reports SET is_read = 1 WHERE id = ?", [id]);
@@ -282,12 +297,4 @@ export const getUnreadReportsCount = async (userId: string) => {
     [userId]
   );
   return res?.count || 0;
-};
-
-export const updateReportPath = async (id: string, filePath: string) => {
-  const db = await getDB();
-  await db.runAsync(
-    "UPDATE saved_reports SET file_path = ? WHERE id = ?",
-    [filePath, id]
-  );
 };

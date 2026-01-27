@@ -1,6 +1,5 @@
-import { ArrowRight01Icon, Moon02Icon, Sun03Icon } from '@hugeicons/core-free-icons';
+import { ArrowRight01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -12,32 +11,31 @@ import { useAuth } from '../context/AuthContext';
 
 export default function LandingScreen() {
   const router = useRouter();
-  const { colorScheme, toggleColorScheme } = useColorScheme();
+  const { colorScheme } = useColorScheme();
   const { isLoading: isAuthLoading } = useAuth();
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
   
-  // Track which button is loading: 'signup' | 'login' | null
-  const [loadingBtn, setLoadingBtn] = useState<'signup' | 'login' | null>(null);
+  // Track specific button loading state
+  const [loadingBtn, setLoadingBtn] = useState<'guest' | 'login' | 'signup' | null>(null);
 
-  // Reset loading state when we return to this screen
   useFocusEffect(
     useCallback(() => {
       setLoadingBtn(null);
     }, [])
   );
   
-  const handleToggleTheme = async () => {
-    toggleColorScheme();
-    const newTheme = isDark ? 'light' : 'dark';
-    await AsyncStorage.setItem('user-theme', newTheme);
+  const handleGuest = () => {
+      setLoadingBtn('guest');
+      setTimeout(() => {
+          router.push('/onboarding/welcome');
+      }, 50);
   };
 
-  const handleNav = (route: string, type: 'signup' | 'login') => {
+  const handleAuth = (type: 'login' | 'signup') => {
       setLoadingBtn(type);
-      // Small delay to allow the UI to update the spinner before freezing for navigation
       setTimeout(() => {
-          router.push(route as any);
+          router.push(`/auth?mode=${type}`);
       }, 50);
   };
 
@@ -49,83 +47,97 @@ export default function LandingScreen() {
       className="flex-1"
       blurRadius={3}
     >
-      <View className={`absolute inset-0 ${isDark ? 'bg-slate-900/80' : 'bg-slate-50/90'}`} />
+      <View className={`absolute inset-0 ${isDark ? 'bg-slate-900/85' : 'bg-slate-50/90'}`} />
       
       <StatusBar style={isDark ? "light" : "dark"} />
       
       <View 
         className="justify-between flex-1 px-6"
         style={{ 
-            paddingTop: insets.top + 32, 
-            paddingBottom: insets.bottom + 32 
+            paddingTop: insets.top + 24, 
+            paddingBottom: insets.bottom + 20 
         }}
       >
         
-        {/* Top Bar: Theme Toggle */}
-        <View className="flex-row justify-end">
-            <TouchableOpacity 
-                onPress={handleToggleTheme}
-                className={`items-center justify-center w-12 h-12 border rounded-full ${isDark ? 'bg-white/10 border-white/20' : 'bg-slate-200/50 border-slate-300'}`}
-            >
-                <HugeiconsIcon 
-                    icon={isDark ? Sun03Icon : Moon02Icon} 
-                    size={24} 
-                    color={isDark ? "white" : "#334155"} 
-                />
-            </TouchableOpacity>
-        </View>
+        {/* Top Spacer to push content down since we removed the toggle */}
+        <View className="h-10" />
 
-        {/* Center Content: Bigger Logo, No Box */}
-        <View className="items-center">
-            <View className="mb-6">
+        {/* Center Content */}
+        <View className="items-center -mt-10">
+            <View className="mb-6 shadow-2xl shadow-indigo-500/20">
                 <Image 
                     source={
                         isDark 
                         ? require('../assets/images/dart-logo-transparent-light.png') 
                         : require('../assets/images/dart-logo-transparent-dark.png')
                     }
-                    style={{ width: 180, height: 180 }} 
+                    style={{ width: 160, height: 160 }} 
                     resizeMode="contain" 
                 />
             </View>
-            <Text className={`text-lg font-medium text-center max-w-[90%] ${isDark ? 'text-slate-300' : 'text-slate-500'}`}>
-                Daily Accomplishment Report Tools
+            <Text className={`text-xl font-bold text-center tracking-tight mb-2 ${isDark ? 'text-white' : 'text-slate-800'}`}>
+                Welcome to DART
+            </Text>
+            <Text className={`text-base font-medium text-center max-w-[85%] leading-6 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                Daily Accomplishment Report Tools.
+                Manage your work, offline and secure.
             </Text>
         </View>
 
         {/* Bottom Actions */}
-        <View className="w-full gap-4 mb-4">
-            {/* Get Started (Sign Up) */}
+        <View className="w-full gap-3">
+            
+            {/* Primary: Continue as Guest */}
             <TouchableOpacity 
-                onPress={() => handleNav('/auth?mode=signup', 'signup')}
+                onPress={handleGuest}
                 disabled={loadingBtn !== null}
-                className="flex-row items-center justify-center w-full h-16 gap-2 bg-indigo-600 shadow-lg shadow-indigo-500/40 rounded-2xl"
+                className="flex-row items-center justify-center w-full gap-3 bg-indigo-600 shadow-lg h-14 shadow-indigo-500/30 rounded-xl"
             >
-                {loadingBtn === 'signup' ? (
+                {loadingBtn === 'guest' ? (
                     <ActivityIndicator color="white" />
                 ) : (
                     <>
-                        <Text className="font-sans text-xl font-bold text-white">Get Started</Text>
-                        <HugeiconsIcon icon={ArrowRight01Icon} color="white" size={24} strokeWidth={2.5} />
+                        <Text className="font-sans text-lg font-bold text-white">Continue as Guest</Text>
+                        <HugeiconsIcon icon={ArrowRight01Icon} color="white" size={20} strokeWidth={2.5} />
                     </>
                 )}
             </TouchableOpacity>
 
-            {/* I have an account (Login) */}
-            <TouchableOpacity 
-                onPress={() => handleNav('/auth?mode=login', 'login')}
-                disabled={loadingBtn !== null}
-                className={`flex-row items-center justify-center w-full h-16 border rounded-2xl ${isDark ? 'bg-white/10 border-white/20' : 'bg-white border-slate-300'}`}
-            >
-                {loadingBtn === 'login' ? (
-                    <ActivityIndicator color={isDark ? "white" : "#334155"} />
-                ) : (
-                    <Text className={`font-sans text-lg font-bold ${isDark ? 'text-white' : 'text-slate-700'}`}>I have an account</Text>
-                )}
-            </TouchableOpacity>
+            <View className="flex-row items-center justify-center gap-4 my-2">
+                <View className={`h-[1px] flex-1 ${isDark ? 'bg-slate-700' : 'bg-slate-300'}`} />
+                <Text className={`text-xs font-semibold uppercase tracking-wider ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>OR</Text>
+                <View className={`h-[1px] flex-1 ${isDark ? 'bg-slate-700' : 'bg-slate-300'}`} />
+            </View>
 
-            <Text className={`mt-4 text-xs font-medium text-center ${isDark ? 'text-slate-400 opacity-60' : 'text-slate-400'}`}>
-                Developed by Project Vdb
+            {/* Secondary: Sign In & Sign Up */}
+            <View className="flex-row gap-3">
+                <TouchableOpacity 
+                    onPress={() => handleAuth('login')}
+                    disabled={loadingBtn !== null}
+                    className={`flex-1 flex-row items-center justify-center h-14 border rounded-xl ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200'}`}
+                >
+                    {loadingBtn === 'login' ? (
+                        <ActivityIndicator color={isDark ? "white" : "#334155"} />
+                    ) : (
+                        <Text className={`font-sans text-base font-bold ${isDark ? 'text-white' : 'text-slate-700'}`}>Sign In</Text>
+                    )}
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                    onPress={() => handleAuth('signup')}
+                    disabled={loadingBtn !== null}
+                    className={`flex-1 flex-row items-center justify-center h-14 border rounded-xl ${isDark ? 'bg-white/5 border-white/10' : 'bg-white border-slate-200'}`}
+                >
+                    {loadingBtn === 'signup' ? (
+                        <ActivityIndicator color={isDark ? "white" : "#334155"} />
+                    ) : (
+                        <Text className={`font-sans text-base font-bold ${isDark ? 'text-white' : 'text-slate-700'}`}>Create Account</Text>
+                    )}
+                </TouchableOpacity>
+            </View>
+
+            <Text className={`mt-4 text-[10px] font-medium text-center uppercase tracking-widest ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>
+                © Project Vdb
             </Text>
         </View>
 

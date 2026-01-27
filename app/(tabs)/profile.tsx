@@ -4,6 +4,7 @@ import {
     Calendar03Icon,
     Camera01Icon,
     Clock01Icon,
+    CloudUploadIcon,
     DollarCircleIcon,
     Layers01Icon,
     Mail01Icon,
@@ -14,14 +15,20 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import NetInfo from '@react-native-community/netinfo';
-import * as FileSystem from 'expo-file-system';
-import { downloadAsync, getInfoAsync, makeDirectoryAsync } from 'expo-file-system/legacy';
+// UPDATED: Use named imports to fix TS errors
+import {
+    cacheDirectory,
+    documentDirectory,
+    downloadAsync,
+    getInfoAsync,
+    makeDirectoryAsync
+} from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
-    Dimensions,
+    // Dimensions, // Removed unused import
     Image,
     Platform,
     RefreshControl,
@@ -37,14 +44,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import EditAvatarModal from '../../components/EditAvatarModal';
 import EditDisplayModal, { AVAILABLE_JOB_FIELDS } from '../../components/EditDisplayModal';
 import LoadingOverlay from '../../components/LoadingOverlay';
-import ModernAlert from '../../components/ModernAlert'; // Imported ModernAlert
+import ModernAlert from '../../components/ModernAlert';
 import { useAppTheme } from '../../constants/theme';
+import { useAuth } from '../../context/AuthContext';
 import { useSync } from '../../context/SyncContext';
 import { queueSyncItem, saveJobLocal, saveProfileLocal } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
-
-const { height } = Dimensions.get('window');
 
 // --- Shared Shadow Style ---
 const shadowStyle = Platform.select({
@@ -155,10 +161,31 @@ const EmptyJobCard = ({ theme, router, hasJobs }: any) => (
     </View>
 );
 
+const GuestSyncCard = ({ theme, router }: any) => (
+    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, marginBottom: 20 }]}>
+        <View style={{ padding: 20, alignItems: 'center' }}>
+            <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: theme.colors.primary + '15', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                <HugeiconsIcon icon={CloudUploadIcon} size={28} color={theme.colors.primary} />
+            </View>
+            <Text style={[styles.jobTitle, { color: theme.colors.text, textAlign: 'center' }]}>Back up your data</Text>
+            <Text style={{ textAlign: 'center', color: theme.colors.textSecondary, marginTop: 4, marginBottom: 16 }}>
+                Create an account to sync your reports across devices and keep them safe.
+            </Text>
+            <TouchableOpacity 
+                onPress={() => router.push('/auth')}
+                style={[styles.primaryButton, { backgroundColor: theme.colors.primary, width: '100%' }]}
+            >
+                <Text style={[styles.primaryButtonText, { textAlign: 'center' }]}>Sign In / Create Account</Text>
+            </TouchableOpacity>
+        </View>
+    </View>
+);
+
 export default function ProfileScreen() {
     const router = useRouter();
     const theme = useAppTheme();
     const { triggerSync } = useSync();
+    const { user } = useAuth(); 
 
     const [refreshing, setRefreshing] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
@@ -173,7 +200,6 @@ export default function ProfileScreen() {
     const [avatarModalVisible, setAvatarModalVisible] = useState(false);
     const [visibleDetailKeys, setVisibleDetailKeys] = useState<string[]>(['employment_status', 'shift', 'rate', 'rate_type', 'payroll', 'breaks']);
     
-    // Add Alert Config
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
     useEffect(() => {
@@ -184,10 +210,11 @@ export default function ProfileScreen() {
 
     const loadData = useCallback(async (isRefresh = false) => {
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session?.user) { setIsLoading(false); return; }
-            const userId = session.user.id;
-            setEmail(session.user.email || '');
+            if (!user) { setIsLoading(false); return; }
+            const userId = user.id;
+            const isGuest = !!user.is_guest;
+            setEmail(user.email || 'Guest User');
+
             const db = await getDB();
 
             const jobsData = await db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ?', [userId]);
@@ -207,7 +234,7 @@ export default function ProfileScreen() {
                         try {
                             lj.work_schedule = typeof lj.work_schedule === 'string' ? JSON.parse(lj.work_schedule) : lj.work_schedule;
                             lj.break_schedule = typeof lj.break_schedule === 'string' ? JSON.parse(lj.break_schedule) : lj.break_schedule;
-                        } catch (e) {}
+                        } catch { /* ignore */ }
                         tempJob = lj;
                     }
                 }
@@ -216,11 +243,17 @@ export default function ProfileScreen() {
             if (tempProfile) {
                 setViewData({ profile: tempProfile, job: tempJob });
             } else {
-                setIsLoading(true); 
+                if (isGuest && !localProfile) {
+                    const guestProfile = { id: userId, first_name: 'Guest', last_name: 'User', is_onboarded: 1 };
+                    await saveProfileLocal(guestProfile);
+                    setViewData({ profile: guestProfile, job: null });
+                } else {
+                    setIsLoading(true);
+                }
             }
 
             const state = await NetInfo.fetch();
-            if (state.isConnected) {
+            if (!isGuest && state.isConnected) {
                 const { data: remoteProfile } = await supabase.from('profiles').select('*').eq('id', userId).single();
                 if (remoteProfile) {
                     if (remoteProfile.avatar_url) {
@@ -228,10 +261,13 @@ export default function ProfileScreen() {
                             const rawFileName = remoteProfile.avatar_url.split('/').pop();
                             const cleanFileName = rawFileName ? rawFileName.split('?')[0].replace(/[^a-zA-Z0-9._-]/g, '_') : 'avatar.jpg';
                             const fileName = `${userId}_${cleanFileName}`;
-                            const rootDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
+                            
+                            // UPDATED: Using named import directory constants
+                            const rootDir = documentDirectory || cacheDirectory;
                             
                             if (rootDir) {
                                 const avatarDir = `${rootDir}avatars/`;
+                                // UPDATED: Using named import functions directly
                                 const dirInfo = await getInfoAsync(avatarDir);
                                 if (!dirInfo.exists) await makeDirectoryAsync(avatarDir, { intermediates: true });
 
@@ -241,7 +277,7 @@ export default function ProfileScreen() {
                                 if (!fileInfo.exists) await downloadAsync(remoteProfile.avatar_url, localUri);
                                 remoteProfile.local_avatar_path = localUri;
                             }
-                        } catch (err) {
+                        } catch {
                             if (tempProfile && (tempProfile as any).local_avatar_path) {
                                  remoteProfile.local_avatar_path = (tempProfile as any).local_avatar_path;
                             }
@@ -258,16 +294,21 @@ export default function ProfileScreen() {
                     setViewData({ profile: remoteProfile, job: remoteJob || tempJob });
                 }
             }
-        } catch (e) { console.log("Error loading profile:", e); } 
-        finally { 
+        } catch (e) { 
+            console.log("Error loading profile:", e); 
+        } finally { 
             setRefreshing(false); 
             setIsLoading(false); 
         }
-    }, []);
+    }, [user]);
 
     useFocusEffect(useCallback(() => { loadData(false); }, [loadData]));
 
-    const onRefresh = async () => { setRefreshing(true); await triggerSync(); await loadData(true); };
+    const onRefresh = async () => { 
+        setRefreshing(true); 
+        if (user && !user.is_guest) await triggerSync(); 
+        await loadData(true); 
+    };
 
     const deleteOldAvatar = async (url: string) => {
         if (!url) return;
@@ -283,79 +324,51 @@ export default function ProfileScreen() {
     const uploadAvatar = async (uri: string, userId: string) => {
         const state = await NetInfo.fetch();
         if (!state.isConnected) throw new Error("Offline");
-
-        // Timeout Promise (30 Seconds)
-        const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error("Request timed out")), 30000);
-        });
-
-        // Actual Upload Task
+        const timeoutPromise = new Promise((_, reject) => { setTimeout(() => reject(new Error("Request timed out")), 30000); });
         const uploadTask = async () => {
             const response = await fetch(uri);
             const arrayBuffer = await response.arrayBuffer();
             const ext = uri.substring(uri.lastIndexOf('.') + 1);
             const fileName = `${userId}/${Date.now()}.${ext}`;
-
             const { error } = await supabase.storage.from('avatars').upload(fileName, arrayBuffer, { contentType: `image/${ext}`, upsert: true });
             if (error) throw error;
-
             const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
             return `${publicUrl}?t=${new Date().getTime()}`;
         };
-
-        // Race between upload and timeout
         return await Promise.race([uploadTask(), timeoutPromise]) as string;
     };
 
     const handleUpdateProfile = async (updates: any) => {
         if (!viewData.profile) return;
-        const oldAvatarUrl = viewData.profile.avatar_url;
-
+        
         setIsUpdating(true);
         setLoadingMessage('Saving Profile...');
 
         try {
-            const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
 
             let finalUpdates = { ...updates };
             
-            if (updates.avatar_url && updates.avatar_url.startsWith('file://')) {
+            if (!user.is_guest && updates.avatar_url && updates.avatar_url.startsWith('file://')) {
                  setLoadingMessage('Uploading Image...');
                  try {
                      const publicUrl = await uploadAvatar(updates.avatar_url, user.id);
                      finalUpdates.avatar_url = publicUrl;
                      finalUpdates.local_avatar_path = updates.avatar_url; 
-                     if (oldAvatarUrl && oldAvatarUrl !== publicUrl) deleteOldAvatar(oldAvatarUrl);
-                 } catch (e: any) {
+                     if (viewData.profile.avatar_url && viewData.profile.avatar_url !== publicUrl) deleteOldAvatar(viewData.profile.avatar_url);
+                 } catch (e: any) { // Type check 'e' properly or suppress if known 'any'
                      setIsUpdating(false);
-                     
-                     // Determine user-friendly message
                      let title = "Upload Failed";
                      let message = "Could not upload image.";
-                     
-                     if (e.message === 'Offline') {
-                         message = "You are offline. Please check your internet connection.";
-                     } else if (e.message === 'Request timed out') {
-                         title = "Upload Timeout";
-                         message = "The upload took too long. Please check your internet connection and try again.";
-                     }
-
-                     // Use ModernAlert
-                     setAlertConfig({
-                        visible: true,
-                        type: 'error',
-                        title: title,
-                        message: message,
-                        confirmText: 'OK',
-                        onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false }))
-                     });
+                     // Assuming 'e' is Error-like
+                     if (e.message === 'Offline') message = "You are offline.";
+                     else if (e.message === 'Request timed out') title = "Upload Timeout";
+                     setAlertConfig({ visible: true, type: 'error', title, message, confirmText: 'OK', onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) });
                      return; 
                  }
-            } else if (updates.avatar_url === null) {
-                finalUpdates.avatar_url = null;
-                finalUpdates.local_avatar_path = null;
-                if (oldAvatarUrl) deleteOldAvatar(oldAvatarUrl);
+            } else if (updates.avatar_url && updates.avatar_url.startsWith('file://') && user.is_guest) {
+                finalUpdates.local_avatar_path = updates.avatar_url;
+                finalUpdates.avatar_url = null; 
             }
 
             setLoadingMessage('Saving Data...');
@@ -363,20 +376,15 @@ export default function ProfileScreen() {
             setViewData(prev => ({ ...prev, profile: updatedProfile }));
             
             await saveProfileLocal(updatedProfile);
-            const { local_avatar_path, ...syncData } = finalUpdates;
-            await queueSyncItem('profiles', user.id, 'UPDATE', syncData);
             
-            triggerSync();
-        } catch (e: any) { 
+            if (!user.is_guest) {
+                const { local_avatar_path, ...syncData } = finalUpdates;
+                await queueSyncItem('profiles', user.id, 'UPDATE', syncData);
+                triggerSync();
+            }
+        } catch (e) { 
             console.log("Update Error:", e);
-            setAlertConfig({
-                visible: true,
-                type: 'error',
-                title: 'Error',
-                message: 'Failed to save changes.',
-                confirmText: 'OK',
-                onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false }))
-            });
+            setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Failed to save changes.', confirmText: 'OK', onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) });
         } finally { 
             setIsUpdating(false); 
             setAvatarModalVisible(false);
@@ -394,7 +402,7 @@ export default function ProfileScreen() {
     const avatarSource = userProfile?.local_avatar_path ? { uri: userProfile.local_avatar_path } : (userProfile?.avatar_url ? { uri: userProfile.avatar_url } : null);
 
     const displayName = (() => {
-        if(!userProfile) return 'User';
+        if(!userProfile) return 'Guest User';
         const titlePart = userProfile.title ? `${userProfile.title.trim()} ` : '';
         const middleInitial = userProfile.middle_name && userProfile.middle_name.trim().length > 0 ? ` ${userProfile.middle_name.trim().charAt(0).toUpperCase()}.` : '';
         const namePart = `${userProfile.first_name || ''}${middleInitial} ${userProfile.last_name || ''}`.trim() || userProfile.full_name || 'User';
@@ -402,12 +410,12 @@ export default function ProfileScreen() {
     })();
 
     const displayJobTitle = userJob ? userJob.title : 'No Job Selected';
+    const isGuest = user?.is_guest;
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
             <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} translucent backgroundColor="transparent" />
             
-            {/* Added ModernAlert Component */}
             <ModernAlert {...alertConfig} />
             
             <EditDisplayModal visible={modalVisible} onClose={() => setModalVisible(false)} selectedKeys={visibleDetailKeys} onSave={(newKeys) => setVisibleDetailKeys(newKeys)} />
@@ -425,7 +433,14 @@ export default function ProfileScreen() {
                 <View style={styles.loadingContainer}><ActivityIndicator size="large" color={theme.colors.primary} /></View>
             ) : (
                 <ScrollView contentContainerStyle={styles.scrollContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} />} showsVerticalScrollIndicator={false}>
-                    <View style={styles.profileSection}>
+                    
+                    {isGuest && (
+                        <View style={{ paddingHorizontal: 24, marginTop: 24 }}>
+                            <GuestSyncCard theme={theme} router={router} />
+                        </View>
+                    )}
+
+                    <View style={[styles.profileSection, { paddingTop: isGuest ? 0 : 32 }]}>
                         <TouchableOpacity onPress={() => setAvatarModalVisible(true)} activeOpacity={0.8}>
                             <View style={styles.avatarMainContainer}>
                                 <View style={[styles.avatarWrapper, { borderColor: theme.colors.primary, backgroundColor: theme.colors.card }]}>

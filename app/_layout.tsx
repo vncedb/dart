@@ -12,7 +12,7 @@ import {
   ThemeProvider,
 } from "@react-navigation/native";
 import * as Notifications from 'expo-notifications';
-import { Stack, useRouter } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useColorScheme } from "nativewind";
 import { useEffect, useRef, useState } from "react";
@@ -24,6 +24,7 @@ import BiometricLockScreen from "../components/BiometricLockScreen";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { SyncProvider } from "../context/SyncContext";
 import "../global.css";
+import { initDatabase } from "../lib/database";
 import { ReportService } from "../services/ReportService";
 
 // Ignore logs
@@ -48,13 +49,15 @@ Notifications.setNotificationHandler({
 });
 
 function RootLayoutNav() {
-  const { isLoading: isAuthLoading, session, user } = useAuth();
+  const { isLoading: isAuthLoading, session, user, isOnboarded } = useAuth();
   const { colorScheme, setColorScheme } = useColorScheme();
   const router = useRouter();
+  const segments = useSegments();
   
+  // State to track if all async initializations are done
+  const [isAppReady, setIsAppReady] = useState(false);
   const [isBiometricAuthorized, setIsBiometricAuthorized] = useState(false);
-  const [isBiometricCheckDone, setIsBiometricCheckDone] = useState(false);
-  const [isReady, setIsReady] = useState(false);
+  const [biometricCheckComplete, setBiometricCheckComplete] = useState(false);
   
   const responseListener = useRef<Notifications.Subscription | null>(null);
 
@@ -65,14 +68,49 @@ function RootLayoutNav() {
     Nunito_700Bold,
   });
 
-  // 1. Load Theme
+  // --- 1. INITIALIZATION SEQUENCE (Theme, DB, Bio) ---
   useEffect(() => {
-    AsyncStorage.getItem("user-theme").then((theme) => {
-      setColorScheme(theme === "dark" ? "dark" : "light");
-    });
-  }, [setColorScheme]);
+    const prepareApp = async () => {
+      try {
+        // A. Initialize Database
+        await initDatabase();
 
-  // 2. Setup Notifications (Permissions, Channels & Categories)
+        // B. Load Theme Preference (Matching settings.tsx logic)
+        const storedSettings = await AsyncStorage.getItem("appSettings");
+        let biometricEnabled = false;
+
+        if (storedSettings) {
+          const parsed = JSON.parse(storedSettings);
+          
+          // Apply Theme immediately
+          if (parsed.themePreference) {
+             setColorScheme(parsed.themePreference === 'system' ? 'system' : parsed.themePreference);
+          }
+          
+          biometricEnabled = !!parsed.biometricEnabled;
+        }
+
+        // C. Check Biometrics requirement
+        if (biometricEnabled && session) {
+            setIsBiometricAuthorized(false);
+        } else {
+            setIsBiometricAuthorized(true);
+        }
+        setBiometricCheckComplete(true);
+
+      } catch (e) {
+        console.warn("Initialization Error:", e);
+        setIsBiometricAuthorized(true);
+        setBiometricCheckComplete(true);
+      } finally {
+        setIsAppReady(true);
+      }
+    };
+
+    prepareApp();
+  }, [session]);
+
+  // --- 2. NOTIFICATIONS SETUP ---
   useEffect(() => {
     const setupNotifications = async () => {
       if (Platform.OS === 'android') {
@@ -84,7 +122,6 @@ function RootLayoutNav() {
         });
       }
 
-      // --- DEFINE ACTION BUTTONS ---
       await Notifications.setNotificationCategoryAsync("active_job", [
         {
           identifier: "clock_out",
@@ -97,37 +134,19 @@ function RootLayoutNav() {
           options: { opensAppToForeground: true },
         },
       ]);
-
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
-      
-      if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
-      }
-      
-      if (finalStatus !== 'granted') {
-        console.log('Notification permissions not granted');
-      }
     };
 
     setupNotifications();
 
-    // Handle user interaction with notifications
     responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data;
       const actionId = response.actionIdentifier;
 
-      // Handle Deep Links
       if (data && data.action === 'open_saved_reports') {
         router.push('/reports/saved-reports');
       }
 
-      // Handle Action Buttons
       if (actionId === 'clock_out' || actionId === 'view_job' || data?.type === 'ongoing_job') {
-        // Navigate the user to the Home screen (timer view)
-        // Since we can't reliably execute background logic here without ejected Expo or background tasks,
-        // we bring the user to the Home screen to finish the action.
         router.push('/(tabs)/home');
       }
     });
@@ -139,50 +158,50 @@ function RootLayoutNav() {
     };
   }, [router]);
 
-  // 3. Check Biometrics & Run Auto-Tasks
+  // --- 3. AUTO REPORTS ---
   useEffect(() => {
-    const checkBioAndTasks = async () => {
-      try {
-        const settingsJson = await AsyncStorage.getItem("appSettings");
-        if (settingsJson) {
-          const settings = JSON.parse(settingsJson);
-          if (settings.biometricEnabled === true && session) {
-            setIsBiometricAuthorized(false);
-          } else {
-            setIsBiometricAuthorized(true);
-          }
-        } else {
-          setIsBiometricAuthorized(true);
-        }
+    if (!isAuthLoading && user?.id) {
+       ReportService.checkAndGenerateAutoReports(user.id);
+    }
+  }, [isAuthLoading, user]);
 
-        if (user?.id) {
-            ReportService.checkAndGenerateAutoReports(user.id);
-        }
+  // --- 4. NAVIGATION & SPLASH SCREEN HANDLING ---
+  useEffect(() => {
+    // Wait until EVERYTHING is loaded
+    if (!fontsLoaded || isAuthLoading || !isAppReady || !biometricCheckComplete) {
+      return;
+    }
 
-      } catch (_) {
-        setIsBiometricAuthorized(true);
-      } finally {
-        setIsBiometricCheckDone(true);
+    const performNavigationAndHideSplash = async () => {
+      // Logic: If user is onboarded, FORCE redirect to Home
+      // This logic runs once when the app is ready
+      const inAuthGroup = segments[0] === '(auth)';
+      const isRoot = segments.length === 0;
+
+      if (isOnboarded) {
+         if (isRoot || inAuthGroup) {
+             router.replace('/(tabs)/home');
+         }
+      } else if (!isOnboarded && isRoot) {
+         // Optional: Direct to onboarding if needed, otherwise Index handles it
+         // router.replace('/onboarding/welcome');
       }
+
+      // Hide Splash Screen only after decisions are made
+      await SplashScreen.hideAsync();
     };
 
-    if (!isAuthLoading) {
-        checkBioAndTasks();
-    }
-  }, [isAuthLoading, session, user]);
+    performNavigationAndHideSplash();
+  }, [fontsLoaded, isAuthLoading, isAppReady, biometricCheckComplete, isOnboarded]);
 
-  // 4. Determine Readiness & Hide Splash
-  useEffect(() => {
-    if (fontsLoaded && !isAuthLoading && isBiometricCheckDone) {
-        setIsReady(true);
-        SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded, isAuthLoading, isBiometricCheckDone]);
 
-  if (!isReady) {
+  // --- 5. RENDER GUARD ---
+  // Return null keeps the native splash screen up and prevents "Blinking"
+  if (!fontsLoaded || isAuthLoading || !isAppReady || !biometricCheckComplete) {
     return null; 
   }
 
+  // --- 6. BIOMETRIC LOCK UI ---
   if (!isBiometricAuthorized) {
     return (
       <BiometricLockScreen 

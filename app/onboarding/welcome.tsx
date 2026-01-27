@@ -2,7 +2,8 @@ import { ArrowRight01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import * as MediaLibrary from 'expo-media-library';
 import * as Notifications from 'expo-notifications';
-import { useRouter } from 'expo-router';
+// Removed unused router import if not used, but completeOnboarding might use it internally in context.
+// In this component, we don't need router if we call completeOnboarding which handles redirect.
 import { useColorScheme } from 'nativewind';
 import React, { useRef, useState } from 'react';
 import {
@@ -23,7 +24,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import PrivacyModal from '../../components/PrivacyModal'; // Using the component
+import PrivacyModal from '../../components/PrivacyModal';
+import { useAuth } from '../../context/AuthContext';
 
 const { width, height } = Dimensions.get('window');
 
@@ -39,7 +41,7 @@ const SLIDES = [
     id: '2',
     title: 'Stay Secure',
     subtitle: 'Private & Encrypted',
-    description: 'Your data is yours alone. We utilize industry-standard encryption to keep your reports safe.',
+    description: 'Your data is yours alone. Work offline securely and sync only when you want to.',
     image: require('../../assets/images/intro/security.png'),
   },
   {
@@ -51,8 +53,20 @@ const SLIDES = [
   }
 ];
 
+// Extracted Dot component to fix Hook rule violation
+const Dot = ({ index, currentIndex, isDark }: { index: number, currentIndex: number, isDark: boolean }) => {
+    const dotStyle = useAnimatedStyle(() => {
+        const active = index === currentIndex;
+        return {
+            width: withSpring(active ? 24 : 8),
+            backgroundColor: withSpring(active ? '#6366f1' : (isDark ? '#334155' : '#e2e8f0')),
+        };
+    });
+    return <Animated.View style={[dotStyle, { height: 8, borderRadius: 4 }]} />;
+};
+
 export default function WelcomeScreen() {
-  const router = useRouter();
+  const { completeOnboarding } = useAuth();
   const scrollX = useSharedValue(0);
   const flatListRef = useRef<Animated.FlatList<any>>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -70,7 +84,6 @@ export default function WelcomeScreen() {
     try {
       await MediaLibrary.requestPermissionsAsync();
       await Notifications.requestPermissionsAsync();
-      // Show Privacy Modal after permissions (or attempt)
       setShowPrivacy(true);
     } catch {
       setShowPrivacy(true); 
@@ -86,12 +99,9 @@ export default function WelcomeScreen() {
     }
   };
 
-  const handlePrivacyAgree = () => {
+  const handlePrivacyAgree = async () => {
     setShowPrivacy(false);
-    // Navigate after modal closes
-    setTimeout(() => {
-        router.replace('/onboarding/info');
-    }, 300);
+    await completeOnboarding();
   };
 
   const RenderItem = ({ item, index }: any) => {
@@ -105,7 +115,6 @@ export default function WelcomeScreen() {
 
     return (
       <View style={{ width, alignItems: 'center', paddingTop: 60 }}>
-        {/* Parallax Image Card */}
         <Animated.View 
             style={[animatedStyle, { 
                 width: width * 0.85, 
@@ -116,10 +125,6 @@ export default function WelcomeScreen() {
                 borderWidth: 1,
                 borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)',
                 elevation: 10,
-                shadowColor: isDark ? '#6366f1' : '#000',
-                shadowOffset: { width: 0, height: 20 },
-                shadowOpacity: 0.15,
-                shadowRadius: 30,
                 alignItems: 'center',
                 justifyContent: 'center',
                 padding: 20
@@ -128,7 +133,6 @@ export default function WelcomeScreen() {
              <Image source={item.image} style={{ width: '100%', height: '100%' }} resizeMode="contain" />
         </Animated.View>
 
-        {/* Text Content */}
         <View className="items-center px-8 mt-10">
             <Text className="mb-2 text-xs font-bold tracking-widest text-indigo-500 uppercase">
                 {item.subtitle}
@@ -147,14 +151,7 @@ export default function WelcomeScreen() {
   return (
     <View className="flex-1 bg-white dark:bg-slate-950">
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-      
-      {/* Replaced inline sheet with the component */}
-      <PrivacyModal 
-        visible={showPrivacy} 
-        onAgree={handlePrivacyAgree} 
-        onDismiss={() => setShowPrivacy(false)}
-        isDark={isDark} 
-      />
+      <PrivacyModal visible={showPrivacy} onAgree={handlePrivacyAgree} onDismiss={() => setShowPrivacy(false)} isDark={isDark} />
       
       <Animated.FlatList
         ref={flatListRef}
@@ -170,27 +167,14 @@ export default function WelcomeScreen() {
         contentContainerStyle={{ paddingBottom: 100 }}
       />
 
-      {/* Bottom Controls */}
-      <View 
-        className="absolute bottom-0 w-full px-8 pb-10"
-        style={{ paddingBottom: insets.bottom + 20 }}
-      >
+      <View className="absolute bottom-0 w-full px-8 pb-10" style={{ paddingBottom: insets.bottom + 20 }}>
         <View className="flex-row items-center justify-between">
-            {/* Pagination Indicators */}
             <View className="flex-row gap-2">
-                {SLIDES.map((_, i) => {
-                    const dotStyle = useAnimatedStyle(() => {
-                        const active = i === currentIndex;
-                        return {
-                            width: withSpring(active ? 24 : 8),
-                            backgroundColor: withSpring(active ? '#6366f1' : (isDark ? '#334155' : '#e2e8f0')),
-                        };
-                    });
-                    return <Animated.View key={i} style={[dotStyle, { height: 8, borderRadius: 4 }]} />;
-                })}
+                {SLIDES.map((_, i) => (
+                    <Dot key={i} index={i} currentIndex={currentIndex} isDark={isDark} />
+                ))}
             </View>
 
-            {/* Next Button */}
             <TouchableOpacity 
                 onPress={handleNext}
                 className="items-center justify-center w-16 h-16 bg-indigo-600 rounded-full shadow-lg shadow-indigo-500/40"
