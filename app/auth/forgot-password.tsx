@@ -95,7 +95,7 @@ export default function ForgotPassword() {
     };
 
     return (
-        <View className="flex-1 bg-white dark:bg-slate-900" style={{ paddingTop: insets.top }}>
+        <View className="flex-1 bg-white dark:bg-slate-900">
             <ModernAlert {...alertConfig} />
             <OtpVerificationModal 
                 visible={showOtp} 
@@ -105,6 +105,7 @@ export default function ForgotPassword() {
                     const { error } = await supabase.auth.verifyOtp({ email, token: code, type: 'recovery' });
                     if (error) return false;
                     setShowOtp(false);
+                    // Pass the 'from: login' param so UpdatePassword knows where to go after
                     router.replace({ pathname: '/auth/update-password', params: { from: 'login' } });
                     return true;
                 }}
@@ -120,17 +121,22 @@ export default function ForgotPassword() {
             </View>
 
             <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setShowTooltip(false); }}>
-                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="justify-center flex-1 px-8">
+                <KeyboardAvoidingView 
+                    behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+                    className="flex-1 px-8"
+                    // UPDATED: Added padding top to push content below header + gap (approx 100px total from top)
+                    style={{ paddingTop: insets.top + 100 }}
+                >
                     
-                    {/* CONTAINER - Replaced centered View with top-aligned structure */}
-                    <View className="w-full mt-30">
+                    {/* CONTAINER */}
+                    <View className="w-full">
                         
-                        {/* TITLE - Matched with Auth.tsx */}
+                        {/* TITLE */}
                         <View className="mb-8">
-                            <Text className={`text-3xl font-bold text-center ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                            <Text className={`text-3xl font-bold text-left ${isDark ? 'text-white' : 'text-slate-900'}`}>
                                 Forgot Password
                             </Text>
-                            <Text className={`mt-2 text-center ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                            <Text className={`mt-2 text-left ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                                 Enter your email to receive a verification code.
                             </Text>
                         </View>

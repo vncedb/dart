@@ -230,8 +230,6 @@ function RootLayoutNav() {
           
           {/* Screens removed from flow but kept for safety/references if files exist */}
           <Stack.Screen name="introduction" options={{ animation: "fade" }} />
-          <Stack.Screen name="onboarding/welcome" options={{ animation: "fade" }} />
-          <Stack.Screen name="onboarding/info" options={{ animation: "slide_from_right" }} />
         </Stack>
       </View>
     </ThemeProvider>
