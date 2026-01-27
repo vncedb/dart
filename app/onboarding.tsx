@@ -7,20 +7,13 @@ import React, { useRef, useState } from 'react';
 import {
     Dimensions,
     Image,
-    Keyboard,
-    KeyboardAvoidingView,
-    Platform,
     StatusBar,
     Text,
-    TextInput,
     TouchableOpacity,
-    TouchableWithoutFeedback,
     View
 } from 'react-native';
 import Animated, {
     Extrapolation,
-    FadeInRight,
-    FadeOutLeft,
     interpolate,
     useAnimatedScrollHandler,
     useAnimatedStyle,
@@ -31,7 +24,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import PrivacyModal from '../components/PrivacyModal';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../lib/supabase';
 
 const { width, height } = Dimensions.get('window');
 
@@ -60,7 +52,6 @@ const SLIDES = [
   }
 ];
 
-// --- COMPONENT: PAGINATION DOT ---
 const Dot = ({ index, currentIndex, isDark }: { index: number, currentIndex: number, isDark: boolean }) => {
     const dotStyle = useAnimatedStyle(() => {
         const active = index === currentIndex;
@@ -73,25 +64,16 @@ const Dot = ({ index, currentIndex, isDark }: { index: number, currentIndex: num
 };
 
 export default function OnboardingScreen() {
-  const { completeOnboarding, user } = useAuth();
+  const { completeOnboarding } = useAuth();
   const insets = useSafeAreaInsets();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
 
-  // State: 'welcome' (slides) OR 'info' (form)
-  const [viewState, setViewState] = useState<'welcome' | 'info'>('welcome');
   const [showPrivacy, setShowPrivacy] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-
-  // Slideshow Logic
+  
   const scrollX = useSharedValue(0);
   const flatListRef = useRef<Animated.FlatList<any>>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
-
-  // Form Logic
-  const [name, setName] = useState('');
-  const [jobTitle, setJobTitle] = useState('');
-  const [department, setDepartment] = useState('');
 
   const onScroll = useAnimatedScrollHandler((event) => {
     scrollX.value = event.contentOffset.x;
@@ -101,6 +83,7 @@ export default function OnboardingScreen() {
     try {
       await MediaLibrary.requestPermissionsAsync();
       await Notifications.requestPermissionsAsync();
+      // After permissions, show privacy
       setShowPrivacy(true);
     } catch {
       setShowPrivacy(true); 
@@ -112,53 +95,17 @@ export default function OnboardingScreen() {
       flatListRef.current?.scrollToIndex({ index: currentIndex + 1 });
       setCurrentIndex(currentIndex + 1);
     } else {
+      // Last slide -> Request Permissions
       requestPermissions();
     }
   };
 
   const handlePrivacyAgree = async () => {
     setShowPrivacy(false);
-    
-    // BRANCHING LOGIC:
-    // If Guest -> Complete immediately
-    // If User -> Show Info Form
-    if (user?.is_guest) {
-        await completeOnboarding();
-    } else {
-        setViewState('info');
-    }
+    // Finish Onboarding immediately
+    await completeOnboarding();
   };
 
-  const handleSaveInfo = async () => {
-    if (!name || !jobTitle) return; // Basic validation
-    setIsLoading(true);
-    try {
-      if (user?.id) {
-        await supabase.from('profiles').upsert({
-            id: user.id,
-            full_name: name,
-            email: user.email,
-            updated_at: new Date(),
-        });
-
-        await supabase.from('job_positions').upsert({
-            user_id: user.id,
-            title: jobTitle,
-            department: department || 'General',
-            is_active: true
-        });
-      }
-      await completeOnboarding();
-    } catch (error) {
-        console.error("Error saving profile:", error);
-        // Fallback: complete anyway to not block user
-        await completeOnboarding();
-    } finally {
-        setIsLoading(false);
-    }
-  };
-
-  // --- RENDER ITEM FOR SLIDESHOW ---
   const RenderItem = ({ item, index }: any) => {
     const animatedStyle = useAnimatedStyle(() => {
       const inputRange = [(index - 1) * width, index * width, (index + 1) * width];
@@ -203,120 +150,48 @@ export default function OnboardingScreen() {
     );
   };
 
-  // --- VIEW: SLIDESHOW ---
-  if (viewState === 'welcome') {
-      return (
-        <View className="flex-1 bg-white dark:bg-slate-950">
-          <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-          <PrivacyModal visible={showPrivacy} onAgree={handlePrivacyAgree} onDismiss={() => setShowPrivacy(false)} isDark={isDark} />
-          
-          <Animated.FlatList
-            ref={flatListRef}
-            data={SLIDES}
-            renderItem={({ item, index }) => <RenderItem item={item} index={index} />}
-            keyExtractor={(item) => item.id}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            onScroll={onScroll}
-            scrollEventThrottle={16}
-            onMomentumScrollEnd={(e) => setCurrentIndex(Math.round(e.nativeEvent.contentOffset.x / width))}
-            contentContainerStyle={{ paddingBottom: 100 }}
-          />
-
-          <View className="absolute bottom-0 w-full px-8 pb-10" style={{ paddingBottom: insets.bottom + 20 }}>
-            <View className="flex-row items-center justify-between">
-                <View className="flex-row gap-2">
-                    {SLIDES.map((_, i) => (
-                        <Dot key={i} index={i} currentIndex={currentIndex} isDark={isDark} />
-                    ))}
-                </View>
-
-                <TouchableOpacity 
-                    onPress={handleNextSlide}
-                    className="items-center justify-center w-16 h-16 bg-indigo-600 rounded-full shadow-lg shadow-indigo-500/40"
-                >
-                    <HugeiconsIcon icon={ArrowRight01Icon} size={24} color="white" strokeWidth={2.5} />
-                </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      );
-  }
-
-  // --- VIEW: INFO FORM ---
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <Animated.View 
-            entering={FadeInRight} 
-            exiting={FadeOutLeft} 
-            className="flex-1 bg-white dark:bg-slate-950"
-        >
-            <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-            
-            <View style={{ paddingTop: insets.top + 20, paddingHorizontal: 32 }}>
-                <View className="mb-8">
-                    <Text className={`text-4xl font-black mb-3 ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                        About You
-                    </Text>
-                    <Text className={`text-base font-medium leading-6 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                        Let's personalize your experience. These details will appear on your generated reports.
-                    </Text>
-                </View>
+    <View className="flex-1 bg-white dark:bg-slate-950">
+        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
+        <PrivacyModal visible={showPrivacy} onAgree={handlePrivacyAgree} onDismiss={() => setShowPrivacy(false)} isDark={isDark} />
+        
+        <Animated.FlatList
+        ref={flatListRef}
+        data={SLIDES}
+        renderItem={({ item, index }) => <RenderItem item={item} index={index} />}
+        keyExtractor={(item) => item.id}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        onMomentumScrollEnd={(e) => setCurrentIndex(Math.round(e.nativeEvent.contentOffset.x / width))}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        />
 
-                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="gap-6">
-                    <View>
-                        <Text className={`mb-2 font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Full Name</Text>
-                        <TextInput 
-                            value={name}
-                            onChangeText={setName}
-                            placeholder="e.g. Juan Dela Cruz"
-                            placeholderTextColor={isDark ? '#64748b' : '#94a3b8'}
-                            className={`w-full h-14 border rounded-2xl px-4 font-medium text-lg ${isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
-                        />
-                    </View>
-
-                    <View>
-                        <Text className={`mb-2 font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Job Title</Text>
-                        <TextInput 
-                            value={jobTitle}
-                            onChangeText={setJobTitle}
-                            placeholder="e.g. Software Engineer"
-                            placeholderTextColor={isDark ? '#64748b' : '#94a3b8'}
-                            className={`w-full h-14 border rounded-2xl px-4 font-medium text-lg ${isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
-                        />
-                    </View>
-
-                    <View>
-                        <Text className={`mb-2 font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>Department (Optional)</Text>
-                        <TextInput 
-                            value={department}
-                            onChangeText={setDepartment}
-                            placeholder="e.g. IT Department"
-                            placeholderTextColor={isDark ? '#64748b' : '#94a3b8'}
-                            className={`w-full h-14 border rounded-2xl px-4 font-medium text-lg ${isDark ? 'bg-slate-900 border-slate-800 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
-                        />
-                    </View>
-                </KeyboardAvoidingView>
+        <View className="absolute bottom-0 w-full px-8 pb-10" style={{ paddingBottom: insets.bottom + 20 }}>
+        <View className="flex-row items-center justify-between">
+            <View className="flex-row gap-2">
+                {SLIDES.map((_, i) => (
+                    <Dot key={i} index={i} currentIndex={currentIndex} isDark={isDark} />
+                ))}
             </View>
 
-            <View className="absolute bottom-0 w-full px-8" style={{ paddingBottom: insets.bottom + 20 }}>
-                <TouchableOpacity 
-                    onPress={handleSaveInfo}
-                    disabled={!name || !jobTitle || isLoading}
-                    className={`w-full h-16 rounded-2xl flex-row items-center justify-center gap-3 shadow-lg ${(!name || !jobTitle) ? 'bg-slate-300 dark:bg-slate-800 opacity-50' : 'bg-indigo-600 shadow-indigo-500/30'}`}
-                >
-                    {isLoading ? (
-                        <Text className="text-lg font-bold text-white">Saving...</Text>
-                    ) : (
-                        <>
-                            <Text className="text-xl font-bold tracking-wide text-white">Complete Setup</Text>
-                            <HugeiconsIcon icon={Tick02Icon} size={24} color="white" strokeWidth={3} />
-                        </>
-                    )}
-                </TouchableOpacity>
-            </View>
-        </Animated.View>
-    </TouchableWithoutFeedback>
+            <TouchableOpacity 
+                onPress={handleNextSlide}
+                className={`flex-row items-center justify-center h-16 px-6 rounded-2xl shadow-lg shadow-indigo-500/40 bg-indigo-600`}
+            >
+                {currentIndex === SLIDES.length - 1 ? (
+                    <>
+                        <Text className="mr-2 text-lg font-bold text-white">Get Started</Text>
+                        <HugeiconsIcon icon={Tick02Icon} size={24} color="white" strokeWidth={2.5} />
+                    </>
+                ) : (
+                    <HugeiconsIcon icon={ArrowRight01Icon} size={24} color="white" strokeWidth={2.5} />
+                )}
+            </TouchableOpacity>
+        </View>
+        </View>
+    </View>
   );
 }

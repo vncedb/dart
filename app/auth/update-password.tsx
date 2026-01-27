@@ -130,7 +130,6 @@ export default function UpdatePasswordScreen() {
         <View className="flex-1 bg-white dark:bg-slate-900" style={{ paddingTop: insets.top }}>
             <ModernAlert {...alertConfig} dismissText={alertConfig.type === 'success' ? (fromSource === 'settings' ? "Done" : "Back to Login") : "Okay"} />
 
-            {/* HEADER - Matches Auth.tsx EXACTLY */}
             {!isSignupFlow && (
                  <View className="absolute left-0 right-0 z-50 flex-row items-center justify-between px-6" style={{ top: insets.top + 16 }}>
                     <TouchableOpacity onPress={handleBack} className={`items-center justify-center w-10 h-10 rounded-full ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
@@ -142,15 +141,16 @@ export default function UpdatePasswordScreen() {
 
             <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setActiveTooltip(null); }}>
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="justify-center flex-1 px-8">
-                    {/* CONTAINER MATCHING AUTH */}
-                    <View className="justify-center w-full" style={{ height: 600, justifyContent: 'center' }}>
+                    
+                    {/* CONTAINER - Top aligned */}
+                    <View className="w-full mt-24">
                         
-                        {/* TITLE */}
+                        {/* TITLE - Matched fonts */}
                         <View className="mb-8">
                             <Text className={`text-3xl font-bold text-center ${isDark ? 'text-white' : 'text-slate-900'}`}>
                                 {isSignupFlow ? "Set Password" : "New Password"}
                             </Text>
-                            <Text className={`mt-2 text-center text-lg ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                            <Text className={`mt-2 text-center ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                                 Create a strong password to secure your account.
                             </Text>
                         </View>

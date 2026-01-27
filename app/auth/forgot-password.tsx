@@ -111,7 +111,7 @@ export default function ForgotPassword() {
                 onResend={async () => { await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } }); }}
             />
 
-            {/* HEADER - Matches Auth.tsx EXACTLY */}
+            {/* HEADER */}
             <View className="absolute left-0 right-0 z-50 flex-row items-center justify-between px-6" style={{ top: insets.top + 16 }}>
                 <TouchableOpacity onPress={() => router.back()} className={`items-center justify-center w-10 h-10 rounded-full ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
                     <HugeiconsIcon icon={ArrowLeft02Icon} size={20} color={isDark ? '#94a3b8' : '#64748b'} />
@@ -121,15 +121,16 @@ export default function ForgotPassword() {
 
             <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setShowTooltip(false); }}>
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="justify-center flex-1 px-8">
-                    {/* CONTAINER MATCHING AUTH */}
-                    <View className="justify-center w-full" style={{ height: 600, justifyContent: 'center' }}>
+                    
+                    {/* CONTAINER - Replaced centered View with top-aligned structure */}
+                    <View className="w-full mt-30">
                         
-                        {/* TITLE - Matches Auth.tsx */}
+                        {/* TITLE - Matched with Auth.tsx */}
                         <View className="mb-8">
                             <Text className={`text-3xl font-bold text-center ${isDark ? 'text-white' : 'text-slate-900'}`}>
                                 Forgot Password
                             </Text>
-                            <Text className={`mt-2 text-center text-lg ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                            <Text className={`mt-2 text-center ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
                                 Enter your email to receive a verification code.
                             </Text>
                         </View>

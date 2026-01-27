@@ -46,7 +46,7 @@ Notifications.setNotificationHandler({
 });
 
 function RootLayoutNav() {
-  const { isLoading: isAuthLoading, session, user, isOnboarded } = useAuth();
+  const { isLoading: isAuthLoading, user, isOnboarded } = useAuth();
   const { colorScheme, setColorScheme } = useColorScheme();
   const router = useRouter();
   const segments = useSegments();
@@ -79,7 +79,7 @@ function RootLayoutNav() {
           biometricEnabled = !!parsed.biometricEnabled;
         }
 
-        // BIOMETRIC CHECK: Applies to ANY logged in user (Guest or Real)
+        // BIOMETRIC CHECK: Only run if user is logged in
         if (biometricEnabled && user) {
             setIsBiometricAuthorized(false);
         } else {
@@ -164,29 +164,32 @@ function RootLayoutNav() {
       const inAuthGroup = segments[0] === '(auth)';
       const isRoot = segments.length === 0;
 
-      // 1. If User Exists (Guest or Real)
       if (user) {
+          // User is authenticated
           if (!isOnboarded) {
-              // 4.3: User exists but not onboarded -> Onboarding
-              router.replace('/onboarding/welcome');
+              // Redirect to Simplified Onboarding (app/onboarding.tsx)
+              router.replace('/onboarding');
           } else {
-              // 4.1 & 4.2: User exists & onboarded -> Home
-              // (Note: Biometric Lock is handled by the Render Guard below)
+              // User is onboarded -> Go Home
+              // Only redirect if currently on Auth or Index screens
               if (isRoot || inAuthGroup) {
                   router.replace('/(tabs)/home');
               }
           }
       } 
-      // 2. If No User (Signed Out or Fresh Install)
       else {
-          // Stay on Index or Auth (do nothing, let the pages render)
+          // User is NOT authenticated
+          // If trying to access protected tabs, kick back to Index
+          if (segments[0] === '(tabs)') {
+              router.replace('/');
+          }
       }
 
       await SplashScreen.hideAsync();
     };
 
     performNavigationAndHideSplash();
-  }, [fontsLoaded, isAuthLoading, isAppReady, biometricCheckComplete, isOnboarded, user]);
+  }, [fontsLoaded, isAuthLoading, isAppReady, biometricCheckComplete, isOnboarded, user, segments]);
 
 
   // --- RENDER GUARD ---
@@ -195,7 +198,6 @@ function RootLayoutNav() {
   }
 
   // --- BIOMETRIC LOCK UI ---
-  // Renders strictly if unauthorized, blocking all other content
   if (!isBiometricAuthorized) {
     return (
       <BiometricLockScreen 
@@ -210,10 +212,10 @@ function RootLayoutNav() {
         <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
           <Stack.Screen name="index" />
           <Stack.Screen name="auth" />
-          <Stack.Screen name="introduction" options={{ animation: "fade" }} />
-          <Stack.Screen name="onboarding/welcome" options={{ animation: "fade", gestureEnabled: false }} />
-          <Stack.Screen name="onboarding/info" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="onboarding" options={{ animation: "fade", gestureEnabled: false }} />
           <Stack.Screen name="(tabs)" options={{ gestureEnabled: false, animation: "fade" }} />
+          
+          {/* Other settings & features */}
           <Stack.Screen name="settings" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/account-security" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/notifications" options={{ animation: "slide_from_right" }} />
@@ -225,6 +227,11 @@ function RootLayoutNav() {
           <Stack.Screen name="reports/saved-reports" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="reports/generate" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="reports/preview" options={{ animation: "slide_from_right" }} />
+          
+          {/* Screens removed from flow but kept for safety/references if files exist */}
+          <Stack.Screen name="introduction" options={{ animation: "fade" }} />
+          <Stack.Screen name="onboarding/welcome" options={{ animation: "fade" }} />
+          <Stack.Screen name="onboarding/info" options={{ animation: "slide_from_right" }} />
         </Stack>
       </View>
     </ThemeProvider>
