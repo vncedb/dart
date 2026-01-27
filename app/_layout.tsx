@@ -27,17 +27,14 @@ import "../global.css";
 import { initDatabase } from "../lib/database";
 import { ReportService } from "../services/ReportService";
 
-// Ignore logs
 LogBox.ignoreLogs([
   "SafeAreaView has been deprecated",
   "shouldShowAlert is deprecated",
   "Warning: SafeAreaView",
 ]);
 
-// Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
 
-// Configure Notifications Handler
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -54,7 +51,6 @@ function RootLayoutNav() {
   const router = useRouter();
   const segments = useSegments();
   
-  // State to track if all async initializations are done
   const [isAppReady, setIsAppReady] = useState(false);
   const [isBiometricAuthorized, setIsBiometricAuthorized] = useState(false);
   const [biometricCheckComplete, setBiometricCheckComplete] = useState(false);
@@ -68,30 +64,23 @@ function RootLayoutNav() {
     Nunito_700Bold,
   });
 
-  // --- 1. INITIALIZATION SEQUENCE (Theme, DB, Bio) ---
   useEffect(() => {
     const prepareApp = async () => {
       try {
-        // A. Initialize Database
         await initDatabase();
-
-        // B. Load Theme Preference (Matching settings.tsx logic)
         const storedSettings = await AsyncStorage.getItem("appSettings");
         let biometricEnabled = false;
 
         if (storedSettings) {
           const parsed = JSON.parse(storedSettings);
-          
-          // Apply Theme immediately
           if (parsed.themePreference) {
              setColorScheme(parsed.themePreference === 'system' ? 'system' : parsed.themePreference);
           }
-          
           biometricEnabled = !!parsed.biometricEnabled;
         }
 
-        // C. Check Biometrics requirement
-        if (biometricEnabled && session) {
+        // BIOMETRIC CHECK: Applies to ANY logged in user (Guest or Real)
+        if (biometricEnabled && user) {
             setIsBiometricAuthorized(false);
         } else {
             setIsBiometricAuthorized(true);
@@ -107,10 +96,11 @@ function RootLayoutNav() {
       }
     };
 
-    prepareApp();
-  }, [session]);
+    if (!isAuthLoading) {
+        prepareApp();
+    }
+  }, [isAuthLoading, user]);
 
-  // --- 2. NOTIFICATIONS SETUP ---
   useEffect(() => {
     const setupNotifications = async () => {
       if (Platform.OS === 'android') {
@@ -158,50 +148,54 @@ function RootLayoutNav() {
     };
   }, [router]);
 
-  // --- 3. AUTO REPORTS ---
   useEffect(() => {
     if (!isAuthLoading && user?.id) {
        ReportService.checkAndGenerateAutoReports(user.id);
     }
   }, [isAuthLoading, user]);
 
-  // --- 4. NAVIGATION & SPLASH SCREEN HANDLING ---
+  // --- NAVIGATION GUARD ---
   useEffect(() => {
-    // Wait until EVERYTHING is loaded
     if (!fontsLoaded || isAuthLoading || !isAppReady || !biometricCheckComplete) {
       return;
     }
 
     const performNavigationAndHideSplash = async () => {
-      // Logic: If user is onboarded, FORCE redirect to Home
-      // This logic runs once when the app is ready
       const inAuthGroup = segments[0] === '(auth)';
       const isRoot = segments.length === 0;
 
-      if (isOnboarded) {
-         if (isRoot || inAuthGroup) {
-             router.replace('/(tabs)/home');
-         }
-      } else if (!isOnboarded && isRoot) {
-         // Optional: Direct to onboarding if needed, otherwise Index handles it
-         // router.replace('/onboarding/welcome');
+      // 1. If User Exists (Guest or Real)
+      if (user) {
+          if (!isOnboarded) {
+              // 4.3: User exists but not onboarded -> Onboarding
+              router.replace('/onboarding/welcome');
+          } else {
+              // 4.1 & 4.2: User exists & onboarded -> Home
+              // (Note: Biometric Lock is handled by the Render Guard below)
+              if (isRoot || inAuthGroup) {
+                  router.replace('/(tabs)/home');
+              }
+          }
+      } 
+      // 2. If No User (Signed Out or Fresh Install)
+      else {
+          // Stay on Index or Auth (do nothing, let the pages render)
       }
 
-      // Hide Splash Screen only after decisions are made
       await SplashScreen.hideAsync();
     };
 
     performNavigationAndHideSplash();
-  }, [fontsLoaded, isAuthLoading, isAppReady, biometricCheckComplete, isOnboarded]);
+  }, [fontsLoaded, isAuthLoading, isAppReady, biometricCheckComplete, isOnboarded, user]);
 
 
-  // --- 5. RENDER GUARD ---
-  // Return null keeps the native splash screen up and prevents "Blinking"
+  // --- RENDER GUARD ---
   if (!fontsLoaded || isAuthLoading || !isAppReady || !biometricCheckComplete) {
     return null; 
   }
 
-  // --- 6. BIOMETRIC LOCK UI ---
+  // --- BIOMETRIC LOCK UI ---
+  // Renders strictly if unauthorized, blocking all other content
   if (!isBiometricAuthorized) {
     return (
       <BiometricLockScreen 
@@ -216,10 +210,10 @@ function RootLayoutNav() {
         <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
           <Stack.Screen name="index" />
           <Stack.Screen name="auth" />
-          <Stack.Screen name="introduction" options={{ animation: "slide_from_right" }} />
-          <Stack.Screen name="onboarding/welcome" options={{ animation: "slide_from_right", gestureEnabled: false }} />
+          <Stack.Screen name="introduction" options={{ animation: "fade" }} />
+          <Stack.Screen name="onboarding/welcome" options={{ animation: "fade", gestureEnabled: false }} />
           <Stack.Screen name="onboarding/info" options={{ animation: "slide_from_right" }} />
-          <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
+          <Stack.Screen name="(tabs)" options={{ gestureEnabled: false, animation: "fade" }} />
           <Stack.Screen name="settings" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/account-security" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/notifications" options={{ animation: "slide_from_right" }} />

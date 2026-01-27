@@ -15,6 +15,7 @@ type AuthContextType = {
   isOnboarded: boolean;
   completeOnboarding: () => Promise<void>;
   signOut: () => Promise<void>;
+  guestLogin: () => Promise<void>;
   isLoading: boolean;
 };
 
@@ -24,6 +25,7 @@ const AuthContext = createContext<AuthContextType>({
   isOnboarded: false,
   completeOnboarding: async () => {},
   signOut: async () => {},
+  guestLogin: async () => {},
   isLoading: true,
 });
 
@@ -38,6 +40,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const router = useRouter();
   const segments = useSegments();
 
+  // Helper: Get or Create Guest ID
   const getGuestId = async () => {
     let guestId = await AsyncStorage.getItem('guest_user_id');
     if (!guestId) {
@@ -57,17 +60,40 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   }, [router]);
 
+  // NEW: Explicit Guest Login
+  const guestLogin = useCallback(async () => {
+    setIsLoading(true);
+    try {
+        const guestId = await getGuestId();
+        const guestUser = { id: guestId, is_guest: true, email: 'Guest User' };
+        
+        setUser(guestUser);
+        setSession(null);
+        
+        // Check if this specific guest is already onboarded
+        const localOnboarding = await AsyncStorage.getItem('isOnboarded');
+        if (localOnboarding === 'true') {
+            setIsOnboarded(true);
+        } else {
+            setIsOnboarded(false);
+        }
+    } catch (e) {
+        console.error("Guest login failed", e);
+    } finally {
+        setIsLoading(false);
+    }
+  }, []);
+
   const signOut = useCallback(async () => {
     setIsLoading(true);
     try {
       await supabase.auth.signOut();
       
-      const guestId = await getGuestId();
+      // Clear State to force user back to Index/Auth flow
       setSession(null);
-      setUser({ id: guestId, is_guest: true, email: 'Guest User' });
+      setUser(null);
       
-      // Keep them on the same screen (Settings) or go Home, don't kick to Index
-      router.replace('/(tabs)/home'); 
+      router.replace('/auth'); 
     } catch (error) {
       console.error("Sign out failed:", error);
     } finally {
@@ -84,6 +110,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         await db.runAsync(`UPDATE attendance SET user_id = ? WHERE user_id = ?`, [realUserId, guestId]);
         await db.runAsync(`UPDATE accomplishments SET user_id = ? WHERE user_id = ?`, [realUserId, guestId]);
         await db.runAsync(`UPDATE saved_reports SET user_id = ? WHERE user_id = ?`, [realUserId, guestId]);
+        
+        // Clear the used guest ID so next time they start fresh if they log out
+        await AsyncStorage.removeItem('guest_user_id');
     } catch (e) {
         console.error("[Auth] Migration failed:", e);
     }
@@ -94,6 +123,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const initAuth = async () => {
       try {
+        // Load onboarding state
         const localOnboarding = await AsyncStorage.getItem('isOnboarded');
         if (mounted && localOnboarding === 'true') {
           setIsOnboarded(true);
@@ -106,9 +136,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
             setSession(currentSession);
             setUser(currentSession.user);
           } else {
-            const guestId = await getGuestId();
+            // DO NOT auto-login as guest. Leave user null so Index screen shows.
             setSession(null);
-            setUser({ id: guestId, is_guest: true, email: 'Guest User' });
+            setUser(null);
           }
         }
       } catch (error) {
@@ -123,19 +153,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       if (!mounted) return;
 
-      const currentGuestId = await AsyncStorage.getItem('guest_user_id');
-
       if (event === 'SIGNED_IN' && newSession?.user) {
+        const currentGuestId = await AsyncStorage.getItem('guest_user_id');
         if (currentGuestId) {
             await migrateGuestData(currentGuestId, newSession.user.id);
         }
         setSession(newSession);
         setUser(newSession.user);
+        
+        // Assume verified users are onboarded or check DB (simplified here to storage)
+        // You might want to fetch 'is_onboarded' from 'profiles' table here
       } 
       else if (event === 'SIGNED_OUT') {
-        const guestId = await getGuestId();
         setSession(null);
-        setUser({ id: guestId, is_guest: true, email: 'Guest User' });
+        setUser(null);
       }
     });
 
@@ -146,7 +177,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ session, user, isOnboarded, completeOnboarding, signOut, isLoading }}>
+    <AuthContext.Provider value={{ session, user, isOnboarded, completeOnboarding, signOut, guestLogin, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

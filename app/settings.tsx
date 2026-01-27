@@ -61,11 +61,10 @@ export default function SettingsScreen() {
   const isGuest = user?.is_guest;
   const isMounted = useRef(true);
 
-  // Load just the Toggle states on mount
-  // Theme state is now handled globally, we just sync the UI here
+  // Load Settings
   useEffect(() => {
     isMounted.current = true;
-    const loadToggles = async () => {
+    const loadSettings = async () => {
         try {
           const storedSettings = await AsyncStorage.getItem('appSettings');
           if (storedSettings && isMounted.current) {
@@ -78,7 +77,7 @@ export default function SettingsScreen() {
           console.error("Failed to load settings", e);
         }
     };
-    loadToggles();
+    loadSettings();
     return () => { isMounted.current = false; };
   }, []);
 
@@ -96,16 +95,10 @@ export default function SettingsScreen() {
   // --- ACTIONS ---
 
   const handleThemeChange = (newTheme: ThemeOption) => {
-    // 1. Update UI immediately
     setThemePreference(newTheme);
     setThemeModalVisible(false);
-    
-    // 2. Persist
     saveSetting('themePreference', newTheme);
-    
-    // 3. Apply
     if (setColorScheme) {
-        // NativeWind handles the transition
         setColorScheme(newTheme);
     }
   };
@@ -137,27 +130,21 @@ export default function SettingsScreen() {
         setIsLoading(true);
         setLoadingMessage('Cleaning up...');
         try {
-            // Safe Access for TypeScript
             const fs = FileSystem as any;
-            const cacheDir = fs.cacheDirectory;
-            
-            if (cacheDir) {
-                await fs.deleteAsync(cacheDir, { idempotent: true });
+            if (fs.cacheDirectory) {
+                await fs.deleteAsync(fs.cacheDirectory, { idempotent: true });
             }
-            
-            if (isMounted.current) {
-                setTimeout(() => {
-                    if (!isMounted.current) return;
-                    setIsLoading(false);
-                    setAlertConfig({
-                        visible: true,
-                        type: 'success',
-                        title: 'Success',
-                        message: 'Cache cleared successfully.',
-                        onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
-                    });
-                }, 1000);
-            }
+            setTimeout(() => {
+                if (!isMounted.current) return;
+                setIsLoading(false);
+                setAlertConfig({
+                    visible: true,
+                    type: 'success',
+                    title: 'Success',
+                    message: 'Cache cleared successfully.',
+                    onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
+                });
+            }, 1000);
         } catch (e) {
             console.error(e);
             if (isMounted.current) setIsLoading(false);
@@ -228,7 +215,6 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
-      {/* Dynamic Status Bar based on current scheme */}
       <StatusBar barStyle={colorScheme === 'dark' ? "light-content" : "dark-content"} />
       <ModernAlert {...alertConfig} />
       <LoadingOverlay visible={isLoading} message={loadingMessage} />
@@ -258,11 +244,7 @@ export default function SettingsScreen() {
         ) : (
             <View style={[styles.profileCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                 <View style={[styles.avatarCircle, { backgroundColor: theme.colors.primary + '20' }]}>
-                    {user?.user_metadata?.avatar_url ? (
-                        <HugeiconsIcon icon={UserCircleIcon} size={28} color={theme.colors.primary} />
-                    ) : (
-                        <HugeiconsIcon icon={UserCircleIcon} size={28} color={theme.colors.primary} />
-                    )}
+                    <HugeiconsIcon icon={UserCircleIcon} size={28} color={theme.colors.primary} />
                 </View>
                 <View style={{ flex: 1 }}>
                     <Text style={[styles.profileName, { color: theme.colors.text }]}>
