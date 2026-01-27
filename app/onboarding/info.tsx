@@ -11,7 +11,7 @@ import NetInfo from '@react-native-community/netinfo';
 import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from 'expo-router';
 import { useColorScheme } from 'nativewind';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     BackHandler,
@@ -19,7 +19,7 @@ import {
     Keyboard,
     KeyboardAvoidingView,
     Platform,
-    Pressable, // <--- Added missing import
+    Pressable,
     Text,
     TextInput,
     TouchableOpacity,
@@ -36,16 +36,8 @@ import { supabase } from '../../lib/supabase';
 
 const TIMEOUT_LIMIT = 30000; // 30 Seconds
 
-// --- TOOLTIP FROM AUTH.TSX ---
+// --- TOOLTIP COMPONENT ---
 const AnimatedTooltip = ({ message, isDark }: { message: string, isDark: boolean }) => {
-    const fadeAnim = useRef(new Animated.Value(0)).current; // Using RN Animated for this simple case or Reanimated
-    // Since we are using Reanimated generally, let's stick to the one used in Auth.tsx. 
-    // If Auth.tsx used RN Animated, we can adapt. 
-    // Based on previous context, Auth.tsx used RN Animated for Tooltip.
-    // Let's use Reanimated consistent with this file imports if possible, or RN Animated.
-    // For consistency with the provided imports (RNAnimated removed in this file version, using Reanimated),
-    // let's use Reanimated.
-    
     const sv = useSharedValue(0);
     const translateY = useSharedValue(15);
 
@@ -83,7 +75,9 @@ export default function InfoScreen() {
   const router = useRouter();
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
-  const { setIsOnboarded } = useAuth(); 
+  
+  // FIX: Use completeOnboarding from AuthContext (not setIsOnboarded)
+  const { completeOnboarding } = useAuth(); 
 
   const [firstName, setFirstName] = useState('');
   const [middleName, setMiddleName] = useState('');
@@ -190,9 +184,9 @@ export default function InfoScreen() {
       const { error } = await supabase.from('profiles').update(profileData).eq('id', user.id);
       if (error) throw error;
 
-      Promise.all([saveProfileLocal(profileData), setIsOnboarded(true)])
-        .catch(e => console.log('Background Sync Error', e));
-
+      // Save to local DB but DO NOT redirect yet
+      await saveProfileLocal(profileData);
+      
       return true;
   };
 
@@ -200,7 +194,6 @@ export default function InfoScreen() {
       Keyboard.dismiss();
       setVisibleTooltip(null);
       
-      // 1. Validation
       const newErrors: typeof errors = {};
       let hasError = false;
       if (!firstName.trim()) { newErrors.firstName = "First name is required."; hasError = true; }
@@ -209,13 +202,11 @@ export default function InfoScreen() {
       setErrors(newErrors);
       
       if (hasError) {
-          // Show tooltip 1-by-1
           if (newErrors.firstName) setVisibleTooltip('firstName');
           else if (newErrors.lastName) setVisibleTooltip('lastName');
           return;
       }
 
-      // 2. Connectivity Check
       const netInfo = await NetInfo.fetch();
       if (!netInfo.isConnected) {
           setAlertConfig({ visible: true, type: 'warning', title: 'Offline', message: 'Internet connection is required.', onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false })) });
@@ -224,14 +215,16 @@ export default function InfoScreen() {
 
       setLoading(true);
 
-      // 3. Race against Timeout
       try {
           const timeoutPromise = new Promise((_, reject) => 
               setTimeout(() => reject(new Error("Timeout")), TIMEOUT_LIMIT)
           );
 
+          // Wait for setup to finish
           await Promise.race([performSetup(), timeoutPromise]);
-          router.replace('/(tabs)/home');
+          
+          // Use completeOnboarding to set flag and redirect to Home
+          await completeOnboarding();
 
       } catch (error: any) {
           setLoading(false);

@@ -5,6 +5,7 @@ import { useColorScheme } from 'nativewind';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
+    Image,
     Keyboard,
     KeyboardAvoidingView,
     Platform,
@@ -16,8 +17,7 @@ import {
     TouchableWithoutFeedback,
     View
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-// FIXED IMPORTS: Use ../../ to reach root folder
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ModernAlert } from '../../components/ModernUI';
 import OtpVerificationModal from '../../components/OtpVerificationModal';
 import { supabase } from '../../lib/supabase';
@@ -56,6 +56,7 @@ const AnimatedTooltip = ({ message, isDark }: { message: string, isDark: boolean
 export default function ForgotPassword() {
     const router = useRouter();
     const { colorScheme } = useColorScheme();
+    const insets = useSafeAreaInsets();
     const isDark = colorScheme === 'dark';
 
     const [email, setEmail] = useState('');
@@ -64,8 +65,6 @@ export default function ForgotPassword() {
     const [showTooltip, setShowTooltip] = useState(false);
     const [showOtp, setShowOtp] = useState(false);
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
-    
-    // Track the last time an OTP was sent to prevent spamming
     const [lastOtpSent, setLastOtpSent] = useState(0);
 
     const handleSendCode = async () => {
@@ -73,141 +72,98 @@ export default function ForgotPassword() {
         setError('');
         setShowTooltip(false);
 
-        // --- RATE LIMIT CHECK (30 Seconds) ---
         const now = Date.now();
-        const cooldown = 30000; // 30 seconds in ms
+        const cooldown = 30000;
         const timeElapsed = now - lastOtpSent;
 
         if (lastOtpSent > 0 && timeElapsed < cooldown) {
-            const remainingSeconds = Math.ceil((cooldown - timeElapsed) / 1000);
-            setAlertConfig({
-                visible: true,
-                type: 'error', // Use error style to block action
-                title: 'Please Wait',
-                message: `You can send a new code in ${remainingSeconds} seconds.`,
-                onDismiss: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
-            });
+            setAlertConfig({ visible: true, type: 'error', title: 'Please Wait', message: `Wait ${Math.ceil((cooldown - timeElapsed) / 1000)}s before resending.` });
             return;
         }
 
-        if (!email.includes('@')) {
-            setError("Please enter a valid email address.");
-            setShowTooltip(true);
-            return;
-        }
+        if (!email.includes('@')) { setError("Invalid email address."); setShowTooltip(true); return; }
 
         setLoading(true);
         try {
-            const { error } = await supabase.auth.signInWithOtp({ 
-                email, 
-                options: { shouldCreateUser: false } 
-            });
-            
-            if (error) throw new Error("Email not found or could not send code.");
-
-            // Success: Update timestamp and show OTP modal
+            const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+            if (error) throw new Error(error.message);
             setLastOtpSent(Date.now());
             setShowOtp(true);
         } catch (error: any) {
-            setError(error.message);
-            if (!error.message.includes("valid email")) {
-                 setAlertConfig({
-                    visible: true, type: 'error', title: 'Error', message: error.message,
-                    onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false}))
-                });
-                setError(''); 
-            } else {
-                setShowTooltip(true);
-            }
-        } finally {
-            setLoading(false);
-        }
+            setAlertConfig({ visible: true, type: 'error', title: 'Error', message: error.message, onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) });
+        } finally { setLoading(false); }
     };
 
     return (
-        <SafeAreaView className="flex-1 bg-white dark:bg-slate-900">
+        <View className="flex-1 bg-white dark:bg-slate-900" style={{ paddingTop: insets.top }}>
+            <ModernAlert {...alertConfig} />
+            <OtpVerificationModal 
+                visible={showOtp} 
+                email={email} 
+                onClose={() => setShowOtp(false)}
+                onVerify={async (code: string) => {
+                    const { error } = await supabase.auth.verifyOtp({ email, token: code, type: 'recovery' });
+                    if (error) return false;
+                    setShowOtp(false);
+                    router.replace({ pathname: '/auth/update-password', params: { from: 'login' } });
+                    return true;
+                }}
+                onResend={async () => { await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } }); }}
+            />
+
+            {/* HEADER - Matches Auth.tsx EXACTLY */}
+            <View className="absolute left-0 right-0 z-50 flex-row items-center justify-between px-6" style={{ top: insets.top + 16 }}>
+                <TouchableOpacity onPress={() => router.back()} className={`items-center justify-center w-10 h-10 rounded-full ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
+                    <HugeiconsIcon icon={ArrowLeft02Icon} size={20} color={isDark ? '#94a3b8' : '#64748b'} />
+                </TouchableOpacity>
+                <Image source={isDark ? require('../../assets/images/icon-transparent-white.png') : require('../../assets/images/icon-transparent.png')} style={{ width: 40, height: 40 }} resizeMode="contain" />
+            </View>
+
             <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setShowTooltip(false); }}>
-                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="flex-1 p-6 pt-10">
-                    <ModernAlert {...alertConfig} />
-
-                    <OtpVerificationModal 
-                        visible={showOtp} 
-                        email={email} 
-                        onClose={() => setShowOtp(false)}
-                        onVerify={async (code: string) => {
-                            const { error } = await supabase.auth.verifyOtp({ email, token: code, type: 'recovery' });
-                            if (error) return false;
-                            
-                            setShowOtp(false);
-                            // FIXED ROUTE: Use /auth/update-password
-                            router.replace({ pathname: '/auth/update-password', params: { from: 'login' } });
-                            return true;
-                        }}
-                        onResend={async () => {
-                            // Also enforce/update timestamp here so user can't close modal and spam main button
-                            await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
-                            setLastOtpSent(Date.now());
-                            setAlertConfig({
-                                visible: true, type: 'success', title: 'Code Sent', 
-                                message: 'New code sent to your email.', 
-                                onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false}))
-                            });
-                        }}
-                    />
-
-                    <View className="mb-8">
-                        <TouchableOpacity 
-                            onPress={() => router.back()} 
-                            className="items-center justify-center w-10 h-10 mb-6 rounded-full bg-slate-100 dark:bg-slate-800"
-                        >
-                            <HugeiconsIcon icon={ArrowLeft02Icon} size={24} color="#64748b" />
-                        </TouchableOpacity>
-                        <Text className="mb-2 text-3xl font-black text-slate-900 dark:text-white">Forgot Password</Text>
-                        <Text className="text-lg text-slate-500 dark:text-slate-400">
-                            Enter your email to receive a verification code.
-                        </Text>
-                    </View>
-
-                    <View className="gap-6 mt-4">
-                        <View className="relative z-50 w-full">
-                            <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'} ${error ? 'border-red-500' : ''}`}>
-                                <HugeiconsIcon icon={Mail01Icon} size={22} color={error ? "#ef4444" : "#94a3b8"} />
-                                <TextInput
-                                    className={`flex-1 h-full ml-3 font-sans font-medium ${error ? 'text-red-500' : (isDark ? 'text-white' : 'text-slate-700')}`}
-                                    placeholder="Email Address"
-                                    placeholderTextColor="#94a3b8"
-                                    autoCapitalize="none"
-                                    keyboardType="email-address"
-                                    value={email}
-                                    onFocus={() => setShowTooltip(false)}
-                                    onChangeText={(t) => { setEmail(t); setError(''); setShowTooltip(false); }}
-                                />
-                                {error && (
-                                    <TouchableOpacity onPress={() => setShowTooltip(!showTooltip)}>
-                                        <HugeiconsIcon icon={InformationCircleIcon} size={22} color="#ef4444" />
-                                    </TouchableOpacity>
-                                )}
-                            </View>
-                            {error && showTooltip && <AnimatedTooltip message={error} isDark={isDark} />}
+                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="justify-center flex-1 px-8">
+                    {/* CONTAINER MATCHING AUTH */}
+                    <View className="justify-center w-full" style={{ height: 600, justifyContent: 'center' }}>
+                        
+                        {/* TITLE - Matches Auth.tsx */}
+                        <View className="mb-8">
+                            <Text className={`text-3xl font-bold text-center ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                Forgot Password
+                            </Text>
+                            <Text className={`mt-2 text-center text-lg ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                                Enter your email to receive a verification code.
+                            </Text>
                         </View>
 
-                        <TouchableOpacity
-                            onPress={handleSendCode}
-                            disabled={loading}
-                            className="flex-row items-center justify-center w-full gap-2 bg-indigo-600 shadow-lg h-14 rounded-2xl shadow-indigo-500/30"
-                        >
-                            {loading ? (
-                                <ActivityIndicator color="white" />
-                            ) : (
-                                <>
-                                <Text className="font-sans text-lg font-bold text-white">Send Code</Text>
-                                <HugeiconsIcon icon={ArrowRight01Icon} size={20} color="white" strokeWidth={2.5} />
-                                </>
-                            )}
-                        </TouchableOpacity>
+                        <View className="gap-6">
+                            <View className="relative z-50 w-full">
+                                <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'} ${error ? 'border-red-500' : ''}`}>
+                                    <HugeiconsIcon icon={Mail01Icon} size={22} color={error ? "#ef4444" : "#94a3b8"} />
+                                    <TextInput
+                                        className={`flex-1 h-full ml-3 font-sans font-medium ${error ? 'text-red-500' : (isDark ? 'text-white' : 'text-slate-700')}`}
+                                        placeholder="Email Address" placeholderTextColor="#94a3b8" autoCapitalize="none" keyboardType="email-address"
+                                        value={email} onFocus={() => setShowTooltip(false)} onChangeText={(t) => { setEmail(t); setError(''); }}
+                                    />
+                                    {error && (
+                                        <TouchableOpacity onPress={() => setShowTooltip(!showTooltip)}>
+                                            <HugeiconsIcon icon={InformationCircleIcon} size={22} color="#ef4444" />
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+                                {error && showTooltip && <AnimatedTooltip message={error} isDark={isDark} />}
+                            </View>
+
+                            <TouchableOpacity onPress={handleSendCode} disabled={loading} className="flex-row items-center justify-center w-full gap-2 bg-indigo-600 shadow-lg h-14 rounded-2xl shadow-indigo-500/30">
+                                {loading ? <ActivityIndicator color="white" /> : (
+                                    <>
+                                        <Text className="font-sans text-lg font-bold text-white">Send Code</Text>
+                                        <HugeiconsIcon icon={ArrowRight01Icon} size={20} color="white" strokeWidth={2.5} />
+                                    </>
+                                )}
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 </KeyboardAvoidingView>
             </TouchableWithoutFeedback>
-        </SafeAreaView>
+        </View>
     );
 }

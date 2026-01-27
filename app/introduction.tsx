@@ -51,7 +51,7 @@ export default function IntroductionScreen() {
             entering={FadeInUp.delay(600).springify()}
             className="text-lg font-medium leading-8 text-center text-slate-500 dark:text-slate-400"
         >
-            Welcome to DART. Your journey to better efficiency starts here. Let's get your profile set up.
+            Welcome to DART. Your journey to better efficiency starts here. Let&apos;s get you set up.
         </Animated.Text>
       </View>
 
@@ -60,7 +60,7 @@ export default function IntroductionScreen() {
             onPress={handleContinue}
             className="flex-row items-center justify-center w-full h-16 gap-3 bg-indigo-600 shadow-xl shadow-indigo-500/30 rounded-2xl active:opacity-90"
         >
-            <Text className="text-xl font-bold tracking-wide text-white">Personalize Profile</Text>
+            <Text className="text-xl font-bold tracking-wide text-white">Let&apos;s Get Started</Text>
             <HugeiconsIcon icon={ArrowRight01Icon} size={24} color="white" strokeWidth={2.5} />
         </TouchableOpacity>
       </Animated.View>

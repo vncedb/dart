@@ -2,8 +2,7 @@ import { ArrowRight01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import * as MediaLibrary from 'expo-media-library';
 import * as Notifications from 'expo-notifications';
-// Removed unused router import if not used, but completeOnboarding might use it internally in context.
-// In this component, we don't need router if we call completeOnboarding which handles redirect.
+import { useRouter } from 'expo-router'; // Import Router
 import { useColorScheme } from 'nativewind';
 import React, { useRef, useState } from 'react';
 import {
@@ -53,7 +52,6 @@ const SLIDES = [
   }
 ];
 
-// Extracted Dot component to fix Hook rule violation
 const Dot = ({ index, currentIndex, isDark }: { index: number, currentIndex: number, isDark: boolean }) => {
     const dotStyle = useAnimatedStyle(() => {
         const active = index === currentIndex;
@@ -66,7 +64,8 @@ const Dot = ({ index, currentIndex, isDark }: { index: number, currentIndex: num
 };
 
 export default function WelcomeScreen() {
-  const { completeOnboarding } = useAuth();
+  const router = useRouter(); // Initialize Router
+  const { completeOnboarding, user } = useAuth(); // Get User
   const scrollX = useSharedValue(0);
   const flatListRef = useRef<Animated.FlatList<any>>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -101,7 +100,15 @@ export default function WelcomeScreen() {
 
   const handlePrivacyAgree = async () => {
     setShowPrivacy(false);
-    await completeOnboarding();
+    
+    // BRANCHING LOGIC:
+    // If Guest -> Complete Onboarding & Go Home
+    // If User -> Go to Profile Setup (Info)
+    if (user?.is_guest) {
+        await completeOnboarding();
+    } else {
+        router.push('/onboarding/info');
+    }
   };
 
   const RenderItem = ({ item, index }: any) => {

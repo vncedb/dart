@@ -13,7 +13,7 @@ import * as QueryParams from 'expo-auth-session/build/QueryParams';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useColorScheme } from 'nativewind';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     BackHandler,
@@ -22,9 +22,6 @@ import {
     Keyboard,
     KeyboardAvoidingView,
     Platform,
-    Animated as RNAnimated,
-    Easing as RNEasing,
-    StyleSheet,
     Text,
     TextInput,
     TouchableOpacity,
@@ -32,8 +29,9 @@ import {
     View
 } from 'react-native';
 import Animated, {
-    Easing,
-    interpolate,
+    FadeIn,
+    FadeInDown,
+    FadeOut,
     runOnJS,
     useAnimatedStyle,
     useSharedValue,
@@ -46,38 +44,26 @@ import { supabase } from '../lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
 
-// --- ANIMATED TOOLTIP COMPONENT ---
-const AnimatedTooltip = ({ message, isDark }: { message: string, isDark: boolean }) => {
-    const fadeAnim = useRef(new RNAnimated.Value(0)).current; 
-    const slideAnim = useRef(new RNAnimated.Value(15)).current; 
-  
-    useEffect(() => {
-      RNAnimated.parallel([
-        RNAnimated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true, easing: RNEasing.out(RNEasing.back(1.5)) }),
-        RNAnimated.timing(slideAnim, { toValue: 0, duration: 400, useNativeDriver: true, easing: RNEasing.out(RNEasing.cubic) }),
-      ]).start();
-    }, [fadeAnim, slideAnim]);
-  
-    return (
-      <RNAnimated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }} className="absolute right-0 z-50 w-64 mt-2 top-full">
-        <TouchableWithoutFeedback>
-          <View className="w-full">
-              {/* Tooltip aligned right-[20px] as requested */}
-              <View className={`absolute right-[20px] -top-2 w-4 h-4 rotate-45 ${isDark ? 'bg-slate-700' : 'bg-white'} border-l border-t ${isDark ? 'border-slate-600' : 'border-slate-200'}`} />
-              <View className={`p-4 rounded-xl shadow-xl border ${isDark ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
-                  <View className="flex-row items-start gap-3">
-                      <View className="mt-1"><HugeiconsIcon icon={InformationCircleIcon} size={18} color="#ef4444" /></View>
-                      <View className="flex-1">
-                          <Text className={`text-xs font-bold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>Attention Needed</Text>
-                          <Text className={`text-xs leading-5 ${isDark ? 'text-slate-300' : 'text-slate-500'}`}>{message}</Text>
-                      </View>
-                  </View>
-              </View>
-          </View>
-        </TouchableWithoutFeedback>
-      </RNAnimated.View>
-    );
-};
+const AnimatedTooltip = ({ message, isDark }: { message: string, isDark: boolean }) => (
+    <Animated.View 
+        entering={FadeInDown.springify()} 
+        exiting={FadeOut}
+        className="absolute right-0 z-50 w-64 mt-2 top-full"
+    >
+        <View className="w-full">
+            <View className={`absolute right-[20px] -top-2 w-4 h-4 rotate-45 ${isDark ? 'bg-slate-700' : 'bg-white'} border-l border-t ${isDark ? 'border-slate-600' : 'border-slate-200'}`} />
+            <View className={`p-4 rounded-xl shadow-xl border ${isDark ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
+                <View className="flex-row items-start gap-3">
+                    <HugeiconsIcon icon={InformationCircleIcon} size={18} color="#ef4444" />
+                    <View className="flex-1">
+                        <Text className={`text-xs font-bold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>Attention Needed</Text>
+                        <Text className={`text-xs leading-5 ${isDark ? 'text-slate-300' : 'text-slate-500'}`}>{message}</Text>
+                    </View>
+                </View>
+            </View>
+        </View>
+    </Animated.View>
+);
 
 export default function AuthScreen() {
   const router = useRouter();
@@ -86,16 +72,15 @@ export default function AuthScreen() {
   const isDark = colorScheme === 'dark';
   const insets = useSafeAreaInsets();
 
-  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'reset'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [loading, setLoading] = useState(false);
-  const [forgotLoading, setForgotLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
   const [errors, setErrors] = useState<{ email?: string; password?: string; confirmPassword?: string }>({});
   const [visibleTooltip, setVisibleTooltip] = useState<'email' | 'password' | 'confirmPassword' | null>(null);
@@ -104,98 +89,78 @@ export default function AuthScreen() {
   const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
   const [toastVisible, setToastVisible] = useState(false);
 
-  // Animation Values
-  const modeAnim = useSharedValue(0); 
-  const cardOpacity = useSharedValue(0); 
+  const opacityAnim = useSharedValue(1);
 
+  // Initialize Mode
   useEffect(() => {
-    cardOpacity.value = withTiming(1, { duration: 600, easing: Easing.out(Easing.cubic) });
-    if (routeParams.mode === 'signup') {
-        setAuthMode('signup');
-        modeAnim.value = 1; 
-    }
-  }, [routeParams.mode, cardOpacity, modeAnim]);
-
-  const handleBack = React.useCallback(() => {
-    Keyboard.dismiss();
-    cardOpacity.value = withTiming(0, { duration: 300 }, (finished) => {
-        if (finished) {
-            runOnJS(router.replace)('/');
-        }
-    });
-  }, [cardOpacity, router]);
+    if (routeParams.mode === 'signup') setAuthMode('signup');
+  }, [routeParams.mode]);
 
   useEffect(() => {
     const backAction = () => {
-        handleBack();
+        router.replace('/');
         return true;
     };
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => backHandler.remove();
-  }, [handleBack]);
+  }, []);
 
   const toggleAuthMode = () => {
     Keyboard.dismiss();
-    setErrors({});
-    setVisibleTooltip(null);
-    setConfirmPassword('');
-    const targetVal = authMode === 'login' ? 1 : 0;
-    modeAnim.value = withTiming(targetVal, { duration: 400, easing: Easing.inOut(Easing.cubic) });
-    setAuthMode(authMode === 'login' ? 'signup' : 'login');
+    // Fade out (150ms) -> Switch Mode -> Fade in (150ms)
+    opacityAnim.value = withTiming(0, { duration: 150 }, (finished) => {
+        if (finished) {
+            runOnJS(updateMode)();
+        }
+    });
   };
 
-  const loginStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(modeAnim.value, [0, 1], [1, 0]);
-    const pointerEvents = modeAnim.value < 0.5 ? 'auto' : 'none'; 
-    return { opacity, zIndex: modeAnim.value < 0.5 ? 1 : 0, pointerEvents: pointerEvents as any };
-  });
+  const updateMode = () => {
+    setErrors({});
+    setVisibleTooltip(null);
+    setAuthMode(prev => prev === 'login' ? 'signup' : 'login');
+    // We update the shared value synchronously after state update to ensure fade in
+    opacityAnim.value = withTiming(1, { duration: 150 });
+  };
 
-  const signupStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(modeAnim.value, [0, 1], [0, 1]);
-    const pointerEvents = modeAnim.value > 0.5 ? 'auto' : 'none';
-    return { opacity, zIndex: modeAnim.value > 0.5 ? 1 : 0, pointerEvents: pointerEvents as any };
-  });
-
-  const containerAnimatedStyle = useAnimatedStyle(() => ({ opacity: cardOpacity.value }));
+  const animatedStyle = useAnimatedStyle(() => ({
+      opacity: opacityAnim.value
+  }));
 
   const getPasswordRequirementMissing = (pass: string) => {
       if (pass.length < 8) return "Must be at least 8 characters long.";
       if (!/[A-Z]/.test(pass)) return "Must contain at least one uppercase letter.";
       if (!/[a-z]/.test(pass)) return "Must contain at least one lowercase letter.";
       if (!/[0-9]/.test(pass)) return "Must contain at least one number.";
-      if (!/[!@#$%^&*(),.?":{}|<>]/.test(pass)) return "Must contain at least one special character.";
       return null;
   };
 
   const handleValidation = () => {
     const newErrors: any = {};
     let valid = true;
-    if (!email.includes('@')) { newErrors.email = "Please enter a valid email address."; valid = false; }
+
+    if (!email.includes('@') || !email.includes('.')) { 
+        newErrors.email = "Please enter a valid email address."; 
+        valid = false; 
+    }
     
-    if (authMode === 'login') {
-        if (!password) { newErrors.password = "Password is required."; valid = false; }
-    } 
-    else if (authMode === 'signup' || authMode === 'reset') {
+    if (!password) { 
+        newErrors.password = "Password is required."; 
+        valid = false; 
+    } else if (authMode === 'signup') {
         const missingReq = getPasswordRequirementMissing(password);
         if (missingReq) { newErrors.password = missingReq; valid = false; }
         if (password !== confirmPassword) { newErrors.confirmPassword = "Passwords do not match."; valid = false; }
     }
+
     setErrors(newErrors);
+    
     if (newErrors.email) setVisibleTooltip('email');
     else if (newErrors.password) setVisibleTooltip('password');
     else if (newErrors.confirmPassword) setVisibleTooltip('confirmPassword');
     else setVisibleTooltip(null);
-    return valid;
-  };
 
-  const checkUserExists = async (emailToCheck: string) => {
-      try {
-          // This relies on the 'profiles' table. Ensure RLS allows reading basic profile data (or at least id/email)
-          // for validation, or this will always return false for unauthenticated users.
-          const { data, error } = await supabase.from('profiles').select('id').eq('email', emailToCheck).maybeSingle();
-          if (error) return false;
-          return !!data;
-      } catch { return false; }
+    return valid;
   };
 
   const checkAppRegistration = async (userId: string) => {
@@ -216,6 +181,7 @@ export default function AuthScreen() {
         if (authMode === 'login') {
             const { data, error } = await supabase.auth.signInWithPassword({ email, password });
             setLoading(false);
+            
             if (error) {
                 const msg = error.message.toLowerCase();
                 if (msg.includes('invalid login') || msg.includes('credential')) { 
@@ -233,22 +199,17 @@ export default function AuthScreen() {
                 if (data.user) {
                     await checkAppRegistration(data.user.id);
                     setToastVisible(true);
-                    setTimeout(() => { setToastVisible(false); router.replace('/(tabs)/home'); }, 1000);
+                    setTimeout(() => { 
+                        setToastVisible(false); 
+                        router.replace('/(tabs)/home'); 
+                    }, 800);
                 }
             }
         } 
         else if (authMode === 'signup') {
-            // --- STRICT CHECK BEFORE SENDING OTP ---
-            const exists = await checkUserExists(email);
-            if (exists) {
-                setLoading(false);
-                setErrors({ email: "This email is already registered. Please login." });
-                setVisibleTooltip('email');
-                return; // Stop execution here
-            }
-
             const { data: { session }, error } = await supabase.auth.signUp({ email, password });
             setLoading(false);
+            
             if (error) {
                 if (error.message.includes('already registered')) {
                     setErrors({ email: 'This email is already registered.' });
@@ -271,15 +232,6 @@ export default function AuthScreen() {
     }
   };
 
-  const handleForgotPassword = async () => {
-    Keyboard.dismiss();
-    setForgotLoading(true);
-    setTimeout(() => {
-        router.push('/auth/forgot-password');
-        setForgotLoading(false);
-    }, 100);
-  };
-
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     try {
@@ -293,17 +245,12 @@ export default function AuthScreen() {
         const paramsStr = res.url.includes('#') ? res.url.split('#')[1] : res.url.split('?')[1];
         const result = QueryParams.getQueryParams('?' + paramsStr);
         const authParams = result.params;
+        
         if (authParams['access_token'] && authParams['refresh_token']) {
             const { data: { user }, error: sessionError } = await supabase.auth.setSession({ access_token: authParams['access_token'], refresh_token: authParams['refresh_token'] });
             if (sessionError) throw sessionError;
             if (user) await checkAppRegistration(user.id);
             router.replace('/(tabs)/home');
-        } else {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session) {
-                if (session.user) await checkAppRegistration(session.user.id);
-                router.replace('/(tabs)/home');
-            }
         }
       }
     } catch (error: any) {
@@ -313,168 +260,163 @@ export default function AuthScreen() {
     } finally { setGoogleLoading(false); }
   };
 
-  const renderCardContent = (currentMode: 'login' | 'signup') => (
-    <View className="h-full p-8">
-        <View className="flex-row items-center justify-between mb-4">
-            <TouchableOpacity onPress={handleBack} className={`items-center justify-center w-10 h-10 rounded-full ${isDark ? 'bg-slate-700' : 'bg-slate-100'}`}>
-                <HugeiconsIcon icon={ArrowLeft02Icon} size={20} color="#64748b" />
-            </TouchableOpacity>
-            <Image source={isDark ? require('../assets/images/icon-transparent-white.png') : require('../assets/images/icon-transparent.png')} style={{ width: 40, height: 40 }} resizeMode="contain" />
-        </View>
-
-        <View className="flex-1 w-full justify-evenly">
-            <Text className={`font-sans text-2xl font-bold text-center ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                {currentMode === 'login' ? 'Welcome Back' : 'Create Account'}
-            </Text>
-
-            <View className="relative w-full h-[240px] justify-center">
-                {/* Email Input */}
-                <View className="relative z-50 w-full mb-6">
-                    <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'} ${errors.email ? 'border-red-500' : ''}`}>
-                        <HugeiconsIcon icon={Mail01Icon} color={errors.email ? "#ef4444" : "#94a3b8"} size={22} />
-                        <TextInput 
-                            placeholder="Email Address" placeholderTextColor="#94a3b8" 
-                            className={`flex-1 h-full ml-3 font-sans font-medium ${errors.email ? 'text-red-500' : (isDark ? 'text-white' : 'text-slate-700')}`} 
-                            autoCapitalize="none" keyboardType="email-address" value={email} 
-                            onFocus={() => setVisibleTooltip(null)}
-                            onChangeText={(t) => { setEmail(t); setErrors((prev) => ({...prev, email: undefined})); setVisibleTooltip(null); }} 
-                        />
-                        {errors.email && (
-                            <TouchableOpacity onPress={() => setVisibleTooltip(visibleTooltip === 'email' ? null : 'email')}>
-                                <HugeiconsIcon icon={InformationCircleIcon} size={22} color="#ef4444" />
-                            </TouchableOpacity>
-                        )}
-                    </View>
-                    {errors.email && visibleTooltip === 'email' && <AnimatedTooltip message={errors.email} isDark={isDark} />}
-                </View>
-
-                {/* Password Input */}
-                <View className="relative z-40 w-full mb-6">
-                    <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'} ${errors.password ? 'border-red-500' : ''}`}>
-                        <HugeiconsIcon icon={LockKeyIcon} color={errors.password ? "#ef4444" : "#94a3b8"} size={22} />
-                        <TextInput 
-                            placeholder="Password" placeholderTextColor="#94a3b8" 
-                            className={`flex-1 h-full ml-3 font-sans font-medium ${errors.password ? 'text-red-500' : (isDark ? 'text-white' : 'text-slate-700')}`} 
-                            secureTextEntry={!showPassword} value={password} 
-                            onFocus={() => setVisibleTooltip(null)}
-                            onChangeText={(t) => { setPassword(t); setErrors((prev) => ({...prev, password: undefined})); setVisibleTooltip(null); }} 
-                        />
-                        <TouchableOpacity onPress={() => {
-                            if (errors.password) setVisibleTooltip(visibleTooltip === 'password' ? null : 'password');
-                            else setShowPassword(!showPassword);
-                        }}>
-                            <HugeiconsIcon icon={errors.password ? InformationCircleIcon : (showPassword ? ViewIcon : ViewOffSlashIcon)} size={22} color={errors.password ? "#ef4444" : "#94a3b8"} />
-                        </TouchableOpacity>
-                    </View>
-                    {errors.password && visibleTooltip === 'password' && <AnimatedTooltip message={errors.password} isDark={isDark} />}
-                    
-                    {currentMode === 'login' && (
-                        <View className="absolute z-0 right-2 -bottom-7">
-                            {forgotLoading ? (
-                                <ActivityIndicator size="small" color={isDark ? "#818cf8" : "#4f46e5"} />
-                            ) : (
-                                <TouchableOpacity onPress={handleForgotPassword}>
-                                    <Text className="text-xs font-bold text-indigo-600 dark:text-indigo-400">Forgot?</Text>
-                                </TouchableOpacity>
-                            )}
-                        </View>
-                    )}
-                </View>
-
-                {currentMode === 'signup' && (
-                    <View className="relative z-30 w-full mb-6">
-                        <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'} ${errors.confirmPassword ? 'border-red-500' : ''}`}>
-                            <HugeiconsIcon icon={LockKeyIcon} color={errors.confirmPassword ? "#ef4444" : "#94a3b8"} size={22} />
-                            <TextInput 
-                                placeholder="Confirm Password" placeholderTextColor="#94a3b8" 
-                                className={`flex-1 h-full ml-3 font-sans font-medium ${errors.confirmPassword ? 'text-red-500' : (isDark ? 'text-white' : 'text-slate-700')}`} 
-                                secureTextEntry={!showConfirmPassword} value={confirmPassword} 
-                                onFocus={() => setVisibleTooltip(null)}
-                                onChangeText={(t) => { setConfirmPassword(t); setErrors((prev) => ({...prev, confirmPassword: undefined})); setVisibleTooltip(null); }} 
-                            />
-                            <TouchableOpacity onPress={() => {
-                                if (errors.confirmPassword) setVisibleTooltip(visibleTooltip === 'confirmPassword' ? null : 'confirmPassword');
-                                else setShowConfirmPassword(!showConfirmPassword);
-                            }}>
-                                <HugeiconsIcon icon={errors.confirmPassword ? InformationCircleIcon : (showConfirmPassword ? ViewIcon : ViewOffSlashIcon)} size={22} color={errors.confirmPassword ? "#ef4444" : "#94a3b8"} />
-                            </TouchableOpacity>
-                        </View>
-                        {errors.confirmPassword && visibleTooltip === 'confirmPassword' && <AnimatedTooltip message={errors.confirmPassword} isDark={isDark} />}
-                    </View>
-                )}
-            </View>
-
-            <TouchableOpacity onPress={handleAuthAction} disabled={loading} className="flex-row items-center justify-center gap-2 bg-indigo-600 shadow-lg h-14 rounded-2xl shadow-indigo-500/30">
-                {loading ? (
-                <Text className="font-sans text-lg font-bold text-white">Please wait...</Text>
-                ) : (
-                <>
-                    <Text className="font-sans text-lg font-bold text-white">{currentMode === 'login' ? 'Sign In' : 'Sign Up'}</Text>
-                    <HugeiconsIcon icon={ArrowRight01Icon} color="white" size={20} strokeWidth={2.5} />
-                </>
-                )}
-            </TouchableOpacity>
-        </View>
-
-        <View>
-            <View className="flex-row items-center my-6">
-                <View className={`flex-1 h-[1px] ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
-                <Text className="mx-4 font-sans text-xs font-bold tracking-wider uppercase text-slate-400">OR</Text>
-                <View className={`flex-1 h-[1px] ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
-            </View>
-
-            <TouchableOpacity onPress={handleGoogleLogin} disabled={googleLoading} className={`flex-row items-center justify-center gap-3 border h-14 rounded-2xl ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
-                {googleLoading ? (
-                    <Text className="font-sans font-bold text-slate-500">Connecting...</Text>
-                ) : (
-                    <>
-                    <Image source={require('../assets/images/google-logo.png')} style={{ width: 24, height: 24 }} resizeMode="contain" />
-                    <Text className={`font-sans font-bold ${isDark ? 'text-white' : 'text-slate-700'}`}>Continue with Google</Text>
-                    </>
-                )}
-            </TouchableOpacity>
-
-            <View className="flex-row justify-center mt-6">
-                <Text className="font-sans text-slate-500">{currentMode === 'login' ? "Don't have an account? " : "Already have an account? "}</Text>
-                <TouchableOpacity onPress={toggleAuthMode}>
-                    <Text className="ml-1 font-sans font-bold text-indigo-600 dark:text-indigo-400">{currentMode === 'login' ? 'Sign Up' : 'Log In'}</Text>
-                </TouchableOpacity>
-            </View>
-        </View>
-    </View>
-  );
-
   return (
     <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setVisibleTooltip(null); }}>
-      <ImageBackground source={require('../assets/images/intro/bgimage.jpeg')} className="justify-center flex-1" blurRadius={5}>
-        <View className={`absolute inset-0 ${isDark ? 'bg-slate-900/80' : 'bg-slate-50/90'}`} />
+      <ImageBackground source={require('../assets/images/intro/bgimage.jpeg')} className="flex-1" blurRadius={5}>
+        <View className={`absolute inset-0 ${isDark ? 'bg-slate-900/85' : 'bg-slate-50/90'}`} />
         <ModernToast visible={toastVisible} message="Success!" type="success" />
         <ModernAlert {...alertConfig} />
+        
         <OtpVerificationModal 
             visible={showOtp} 
             email={email} 
             onClose={() => setShowOtp(false)} 
             onVerify={async (code: string) => {
-                const type = 'signup';
-                const { data: { session }, error } = await supabase.auth.verifyOtp({ email, token: code, type });
+                const { data: { session }, error } = await supabase.auth.verifyOtp({ email, token: code, type: 'signup' });
                 if(error) return false;
                 setShowOtp(false);
-                if (session?.user?.email) {
+                if (session?.user) {
                     supabase.functions.invoke('send-email', { body: { email: session.user.email, type: 'WELCOME' } });
                     await checkAppRegistration(session.user.id);
+                    router.replace('/introduction');
                 }
-                router.replace('/introduction');
                 return true;
             }}
             onResend={async () => { await supabase.auth.resend({ type: 'signup', email }); }}
         />
+
         <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom }}>
-            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="justify-center flex-1 p-6">
-                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                    <Animated.View style={[styles.cardContainer, containerAnimatedStyle, { backgroundColor: isDark ? '#1e293b' : '#ffffff', overflow: 'hidden' }]}>
-                        <Animated.View style={[styles.cardFace, loginStyle]}>{renderCardContent('login')}</Animated.View>
-                        <Animated.View style={[styles.cardFace, signupStyle]}>{renderCardContent('signup')}</Animated.View>
-                    </Animated.View>
+            {/* HEADER */}
+            <View className="absolute left-0 right-0 z-50 flex-row items-center justify-between px-6" style={{ top: insets.top + 16 }}>
+                <TouchableOpacity onPress={() => router.replace('/')} className={`items-center justify-center w-10 h-10 rounded-full ${isDark ? 'bg-slate-800' : 'bg-white'}`}>
+                    <HugeiconsIcon icon={ArrowLeft02Icon} size={20} color={isDark ? '#94a3b8' : '#64748b'} />
+                </TouchableOpacity>
+                <Image source={isDark ? require('../assets/images/icon-transparent-white.png') : require('../assets/images/icon-transparent.png')} style={{ width: 40, height: 40 }} resizeMode="contain" />
+            </View>
+
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="justify-center flex-1 px-8">
+                <View className="justify-center w-full">
+                    
+                    {/* CONTAINER */}
+                    <View style={{ height: 600, justifyContent: 'space-between' }}> 
+                        
+                        {/* TITLE - NO DELAY */}
+                        <Animated.View style={animatedStyle} entering={FadeInDown.springify()}>
+                            <Text className={`text-3xl font-bold text-center ${isDark ? 'text-white' : 'text-slate-900'}`}>
+                                {authMode === 'login' ? 'Welcome Back' : 'Create Account'}
+                            </Text>
+                            <Text className={`mt-2 text-center ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                                {authMode === 'login' ? 'Sign in to continue your progress' : 'Join us and boost your productivity'}
+                            </Text>
+                        </Animated.View>
+
+                        {/* FORM - NO DELAY */}
+                        <View className="justify-center gap-5">
+                            <Animated.View style={animatedStyle} entering={FadeInDown.springify()} className="relative z-50">
+                                <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} ${errors.email ? 'border-red-500' : ''}`}>
+                                    <HugeiconsIcon icon={Mail01Icon} color={errors.email ? "#ef4444" : "#94a3b8"} size={22} />
+                                    <TextInput 
+                                        placeholder="Email Address" placeholderTextColor="#94a3b8" 
+                                        className={`flex-1 h-full ml-3 font-sans font-medium ${errors.email ? 'text-red-500' : (isDark ? 'text-white' : 'text-slate-700')}`} 
+                                        autoCapitalize="none" keyboardType="email-address" value={email} 
+                                        onFocus={() => setVisibleTooltip(null)}
+                                        onChangeText={(t) => { setEmail(t); setErrors(prev => ({...prev, email: undefined})); setVisibleTooltip(null); }} 
+                                    />
+                                    {errors.email && (
+                                        <TouchableOpacity onPress={() => setVisibleTooltip(visibleTooltip === 'email' ? null : 'email')}>
+                                            <HugeiconsIcon icon={InformationCircleIcon} size={22} color="#ef4444" />
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+                                {errors.email && visibleTooltip === 'email' && <AnimatedTooltip message={errors.email} isDark={isDark} />}
+                            </Animated.View>
+
+                            <Animated.View style={animatedStyle} entering={FadeInDown.springify()} className="relative z-40">
+                                <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} ${errors.password ? 'border-red-500' : ''}`}>
+                                    <HugeiconsIcon icon={LockKeyIcon} color={errors.password ? "#ef4444" : "#94a3b8"} size={22} />
+                                    <TextInput 
+                                        placeholder="Password" placeholderTextColor="#94a3b8" 
+                                        className={`flex-1 h-full ml-3 font-sans font-medium ${errors.password ? 'text-red-500' : (isDark ? 'text-white' : 'text-slate-700')}`} 
+                                        secureTextEntry={!showPassword} value={password} 
+                                        onFocus={() => setVisibleTooltip(null)}
+                                        onChangeText={(t) => { setPassword(t); setErrors(prev => ({...prev, password: undefined})); setVisibleTooltip(null); }} 
+                                    />
+                                    <TouchableOpacity onPress={() => errors.password ? setVisibleTooltip(visibleTooltip === 'password' ? null : 'password') : setShowPassword(!showPassword)}>
+                                        <HugeiconsIcon icon={errors.password ? InformationCircleIcon : (showPassword ? ViewIcon : ViewOffSlashIcon)} size={22} color={errors.password ? "#ef4444" : "#94a3b8"} />
+                                    </TouchableOpacity>
+                                </View>
+                                {errors.password && visibleTooltip === 'password' && <AnimatedTooltip message={errors.password} isDark={isDark} />}
+                                
+                                {authMode === 'login' && (
+                                    <Animated.View entering={FadeIn} className="absolute right-0 -bottom-8">
+                                        <TouchableOpacity onPress={() => router.push('/auth/forgot-password')}>
+                                            <Text className="font-bold text-indigo-500">Forgot Password?</Text>
+                                        </TouchableOpacity>
+                                    </Animated.View>
+                                )}
+                            </Animated.View>
+
+                            <View className={`relative z-30 transition-opacity duration-200 ${authMode === 'login' ? 'opacity-0' : 'opacity-100'}`} pointerEvents={authMode === 'login' ? 'none' : 'auto'}>
+                                <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} ${errors.confirmPassword ? 'border-red-500' : ''}`}>
+                                    <HugeiconsIcon icon={LockKeyIcon} color={errors.confirmPassword ? "#ef4444" : "#94a3b8"} size={22} />
+                                    <TextInput 
+                                        placeholder="Confirm Password" placeholderTextColor="#94a3b8" 
+                                        className={`flex-1 h-full ml-3 font-sans font-medium ${errors.confirmPassword ? 'text-red-500' : (isDark ? 'text-white' : 'text-slate-700')}`} 
+                                        secureTextEntry={!showConfirmPassword} value={confirmPassword} 
+                                        onFocus={() => setVisibleTooltip(null)}
+                                        onChangeText={(t) => { setConfirmPassword(t); setErrors(prev => ({...prev, confirmPassword: undefined})); setVisibleTooltip(null); }} 
+                                    />
+                                    <TouchableOpacity onPress={() => errors.confirmPassword ? setVisibleTooltip(visibleTooltip === 'confirmPassword' ? null : 'confirmPassword') : setShowConfirmPassword(!showConfirmPassword)}>
+                                        <HugeiconsIcon icon={errors.confirmPassword ? InformationCircleIcon : (showConfirmPassword ? ViewIcon : ViewOffSlashIcon)} size={22} color={errors.confirmPassword ? "#ef4444" : "#94a3b8"} />
+                                    </TouchableOpacity>
+                                </View>
+                                {errors.confirmPassword && visibleTooltip === 'confirmPassword' && <AnimatedTooltip message={errors.confirmPassword} isDark={isDark} />}
+                            </View>
+                        </View>
+
+                        {/* ACTIONS - NO DELAY */}
+                        <View>
+                            <Animated.View style={animatedStyle} entering={FadeInDown.springify()}>
+                                <TouchableOpacity onPress={handleAuthAction} disabled={loading} className="flex-row items-center justify-center w-full gap-2 bg-indigo-600 shadow-lg h-14 rounded-2xl shadow-indigo-500/30">
+                                    {loading ? (
+                                        <ActivityIndicator color="white" />
+                                    ) : (
+                                        <>
+                                            <Text className="text-lg font-bold text-white">{authMode === 'login' ? 'Sign In' : 'Create Account'}</Text>
+                                            <HugeiconsIcon icon={ArrowRight01Icon} color="white" size={20} strokeWidth={2.5} />
+                                        </>
+                                    )}
+                                </TouchableOpacity>
+                            </Animated.View>
+
+                            <Animated.View style={animatedStyle} entering={FadeInDown.springify()}>
+                                <View className="flex-row items-center my-6">
+                                    <View className={`flex-1 h-[1px] ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
+                                    <Text className="mx-4 text-xs font-bold tracking-wider uppercase text-slate-400">OR</Text>
+                                    <View className={`flex-1 h-[1px] ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
+                                </View>
+
+                                <TouchableOpacity onPress={handleGoogleLogin} disabled={googleLoading} className={`flex-row items-center justify-center gap-3 border h-14 rounded-2xl ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
+                                    {googleLoading ? (
+                                        <Text className="font-bold text-slate-500">Connecting...</Text>
+                                    ) : (
+                                        <>
+                                            <Image source={require('../assets/images/google-logo.png')} style={{ width: 24, height: 24 }} resizeMode="contain" />
+                                            <Text className={`font-bold ${isDark ? 'text-white' : 'text-slate-700'}`}>Continue with Google</Text>
+                                        </>
+                                    )}
+                                </TouchableOpacity>
+                            </Animated.View>
+
+                            <Animated.View style={animatedStyle} entering={FadeInDown.springify()} className="flex-row justify-center mt-6">
+                                <Text className="text-slate-500">{authMode === 'login' ? "Don't have an account? " : "Already have an account? "}</Text>
+                                <TouchableOpacity onPress={toggleAuthMode}>
+                                    <Text className="ml-1 font-bold text-indigo-500">{authMode === 'login' ? 'Sign Up' : 'Log In'}</Text>
+                                </TouchableOpacity>
+                            </Animated.View>
+                        </View>
+
+                    </View>
                 </View>
             </KeyboardAvoidingView>
         </View>
@@ -482,8 +424,3 @@ export default function AuthScreen() {
     </TouchableWithoutFeedback>
   );
 }
-
-const styles = StyleSheet.create({
-    cardContainer: { width: '100%', height: 690, borderRadius: 32 },
-    cardFace: { width: '100%', height: '100%', position: 'absolute' },
-});
