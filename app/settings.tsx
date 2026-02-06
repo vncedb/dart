@@ -1,20 +1,20 @@
+// Hidden Scroll Bar Indicator
 import {
   ArrowRight01Icon,
-  BiometricAccessIcon,
   Delete02Icon,
   InformationCircleIcon,
-  Logout03Icon,
+  Logout01Icon,
   Mail01Icon,
   Moon02Icon,
   Notification01Icon,
   PaintBoardIcon,
-  SecurityLockIcon,
+  SecurityCheckIcon,
   SmartPhone02Icon,
   Sun03Icon,
   Tick02Icon,
-  UserCircleIcon,
   VolumeHighIcon
 } from '@hugeicons/core-free-icons';
+// ... (Imports same as before) ...
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
@@ -22,8 +22,11 @@ import { useRouter } from 'expo-router';
 import { useColorScheme } from 'nativewind';
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
+  BackHandler,
   Linking,
   Modal,
+  Pressable,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -40,522 +43,275 @@ import ModernAlert from '../components/ModernAlert';
 import { useAppTheme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 
-// Theme Options
 type ThemeOption = 'system' | 'light' | 'dark';
 
-export default function SettingsScreen() {
-  const router = useRouter();
-  const theme = useAppTheme();
-  const { user, signOut } = useAuth();
-  const { colorScheme, setColorScheme } = useColorScheme();
-  
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [themePreference, setThemePreference] = useState<ThemeOption>('system');
-  const [themeModalVisible, setThemeModalVisible] = useState(false);
-  
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState('');
-  const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
-  const [biometricEnabled, setBiometricEnabled] = useState(false);
+// --- Modern Animated Settings Item ---
+const ModernSettingsItem = ({ icon, label, subLabel, onPress, rightElement, destructive, isLast, theme }: any) => {
+    const scaleValue = useRef(new Animated.Value(1)).current;
 
-  const isGuest = user?.is_guest;
-  const isMounted = useRef(true);
-
-  // Load Settings
-  useEffect(() => {
-    isMounted.current = true;
-    const loadSettings = async () => {
-        try {
-          const storedSettings = await AsyncStorage.getItem('appSettings');
-          if (storedSettings && isMounted.current) {
-            const parsed = JSON.parse(storedSettings);
-            if (parsed.soundEnabled !== undefined) setSoundEnabled(parsed.soundEnabled);
-            if (parsed.biometricEnabled !== undefined) setBiometricEnabled(parsed.biometricEnabled);
-            if (parsed.themePreference) setThemePreference(parsed.themePreference);
-          }
-        } catch (e) {
-          console.error("Failed to load settings", e);
-        }
+    const onPressIn = () => {
+        Animated.spring(scaleValue, { toValue: 0.97, useNativeDriver: true, speed: 20 }).start();
     };
-    loadSettings();
-    return () => { isMounted.current = false; };
-  }, []);
 
-  const saveSetting = async (key: string, value: any) => {
-    try {
-      const stored = await AsyncStorage.getItem('appSettings');
-      const settings = stored ? JSON.parse(stored) : {};
-      settings[key] = value;
-      await AsyncStorage.setItem('appSettings', JSON.stringify(settings));
-    } catch (e) {
-      console.error(e);
-    }
-  };
+    const onPressOut = () => {
+        Animated.spring(scaleValue, { toValue: 1, useNativeDriver: true, speed: 20 }).start();
+    };
 
-  // --- ACTIONS ---
-
-  const handleThemeChange = (newTheme: ThemeOption) => {
-    setThemePreference(newTheme);
-    setThemeModalVisible(false);
-    saveSetting('themePreference', newTheme);
-    if (setColorScheme) {
-        setColorScheme(newTheme);
-    }
-  };
-
-  const toggleSound = (val: boolean) => {
-    setSoundEnabled(val);
-    saveSetting('soundEnabled', val);
-  };
-
-  const toggleBiometric = (val: boolean) => {
-    setBiometricEnabled(val);
-    saveSetting('biometricEnabled', val);
-  };
-
-  const handleContactSupport = () => {
-    Linking.openURL('mailto:support@projectvdb.com?subject=DART Support Request');
-  };
-
-  const handleClearCache = async () => {
-    setAlertConfig({
-      visible: true,
-      type: 'confirm',
-      title: 'Clear Cache',
-      message: 'This will free up space by deleting temporary files. Your reports and data will be safe.',
-      confirmText: 'Clear Cache',
-      cancelText: 'Cancel',
-      onConfirm: async () => {
-        setAlertConfig((prev: any) => ({ ...prev, visible: false }));
-        setIsLoading(true);
-        setLoadingMessage('Cleaning up...');
-        try {
-            const fs = FileSystem as any;
-            if (fs.cacheDirectory) {
-                await fs.deleteAsync(fs.cacheDirectory, { idempotent: true });
-            }
-            setTimeout(() => {
-                if (!isMounted.current) return;
-                setIsLoading(false);
-                setAlertConfig({
-                    visible: true,
-                    type: 'success',
-                    title: 'Success',
-                    message: 'Cache cleared successfully.',
-                    onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
-                });
-            }, 1000);
-        } catch (e) {
-            console.error(e);
-            if (isMounted.current) setIsLoading(false);
-        }
-      },
-      onCancel: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
-    });
-  };
-
-  const handleSignOut = () => {
-    setAlertConfig({
-      visible: true,
-      type: 'confirm',
-      title: 'Sign Out',
-      message: 'Are you sure you want to sign out?',
-      confirmText: 'Sign Out',
-      cancelText: 'Cancel',
-      onConfirm: async () => {
-        setAlertConfig((prev: any) => ({ ...prev, visible: false }));
-        await signOut();
-      },
-      onCancel: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
-    });
-  };
-
-  // --- COMPONENTS ---
-
-  const SectionHeader = ({ title }: { title: string }) => (
-    <Text style={[styles.sectionHeader, { color: theme.colors.textSecondary }]}>
-      {title}
-    </Text>
-  );
-
-  const SettingItem = ({ 
-    icon, 
-    label, 
-    subLabel,
-    onPress, 
-    rightElement, 
-    destructive 
-  }: any) => (
-    <TouchableOpacity
-      onPress={onPress}
-      disabled={!onPress}
-      activeOpacity={onPress ? 0.7 : 1}
-      style={[styles.itemContainer, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
-    >
-      <View style={[styles.iconBox, { backgroundColor: destructive ? '#FEE2E2' : theme.colors.background }]}>
-        <HugeiconsIcon 
-            icon={icon} 
-            size={22} 
-            color={destructive ? '#EF4444' : theme.colors.text} 
-        />
-      </View>
-      <View style={{ flex: 1, marginLeft: 12 }}>
-        <Text style={[styles.itemLabel, { color: destructive ? '#EF4444' : theme.colors.text }]}>
-            {label}
-        </Text>
-        {subLabel && <Text style={[styles.itemSubLabel, { color: theme.colors.textSecondary }]}>{subLabel}</Text>}
-      </View>
-      <View>
-        {rightElement || (onPress && (
-            <HugeiconsIcon icon={ArrowRight01Icon} size={20} color={theme.colors.textSecondary} />
-        ))}
-      </View>
-    </TouchableOpacity>
-  );
-
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
-      <StatusBar barStyle={colorScheme === 'dark' ? "light-content" : "dark-content"} />
-      <ModernAlert {...alertConfig} />
-      <LoadingOverlay visible={isLoading} message={loadingMessage} />
-      
-      <Header title="Settings" />
-
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 100 }}>
-        
-        {/* --- TOP SECTION: PROFILE / SIGN IN --- */}
-        {isGuest ? (
-            <TouchableOpacity 
-                onPress={() => router.push('/auth')}
-                activeOpacity={0.9}
-                style={[styles.guestCard, { backgroundColor: theme.colors.primary, shadowColor: theme.colors.primary }]}
+    return (
+        <View>
+            <Pressable 
+                onPress={onPress}
+                onPressIn={onPress ? onPressIn : undefined}
+                onPressOut={onPress ? onPressOut : undefined}
+                disabled={!onPress}
             >
-                <View style={styles.guestContent}>
-                    <View style={styles.guestIconCircle}>
-                        <HugeiconsIcon icon={UserCircleIcon} size={32} color={theme.colors.primary} />
+                <Animated.View style={{ 
+                    flexDirection: 'row', alignItems: 'center', paddingVertical: 12,
+                    transform: [{ scale: scaleValue }]
+                }}>
+                    <View style={{ 
+                        width: 36, height: 36, borderRadius: 10, 
+                        backgroundColor: destructive ? '#fee2e2' : theme.colors.background, 
+                        alignItems: 'center', justifyContent: 'center', marginRight: 12 
+                    }}>
+                        <HugeiconsIcon icon={icon} size={18} color={destructive ? '#ef4444' : (onPress || rightElement ? theme.colors.primary : theme.colors.textSecondary)} />
                     </View>
                     <View style={{ flex: 1 }}>
-                        <Text style={styles.guestTitle}>Sign In / Create Account</Text>
-                        <Text style={styles.guestSubtitle}>Sync your data and access it anywhere.</Text>
+                        <Text style={{ fontSize: 15, fontWeight: '600', color: destructive ? '#ef4444' : theme.colors.text }}>{label}</Text>
+                        {subLabel && <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginTop: 2 }}>{subLabel}</Text>}
                     </View>
-                    <HugeiconsIcon icon={ArrowRight01Icon} size={24} color="#fff" />
-                </View>
-            </TouchableOpacity>
-        ) : (
-            <View style={[styles.profileCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                <View style={[styles.avatarCircle, { backgroundColor: theme.colors.primary + '20' }]}>
-                    <HugeiconsIcon icon={UserCircleIcon} size={28} color={theme.colors.primary} />
-                </View>
-                <View style={{ flex: 1 }}>
-                    <Text style={[styles.profileName, { color: theme.colors.text }]}>
-                        {user?.email || 'User'}
-                    </Text>
-                    <Text style={[styles.profileStatus, { color: theme.colors.success }]}>
-                        ● Signed In
-                    </Text>
-                </View>
-            </View>
-        )}
-
-        {/* --- PREFERENCES --- */}
-        <SectionHeader title="PREFERENCES" />
-        
-        <SettingItem 
-            icon={Notification01Icon}
-            label="Notifications"
-            onPress={() => router.push('/settings/notifications')}
-        />
-        
-        <SettingItem 
-            icon={PaintBoardIcon}
-            label="Appearance"
-            subLabel={themePreference === 'system' ? 'System Default' : (themePreference === 'dark' ? 'Dark Mode' : 'Light Mode')}
-            onPress={() => setThemeModalVisible(true)}
-        />
-        
-        <SettingItem 
-            icon={VolumeHighIcon}
-            label="Sound Effects"
-            rightElement={
-                <Switch 
-                    value={soundEnabled} 
-                    onValueChange={toggleSound}
-                    trackColor={{ false: '#767577', true: theme.colors.primary }}
-                    thumbColor={'#fff'}
-                />
-            }
-        />
-
-        {/* --- ACCOUNT & SECURITY --- */}
-        <SectionHeader title="ACCOUNT & SECURITY" />
-        
-        <SettingItem 
-            icon={BiometricAccessIcon}
-            label="Biometrics"
-            subLabel="Require FaceID/TouchID to open"
-            rightElement={
-                <Switch 
-                    value={biometricEnabled} 
-                    onValueChange={toggleBiometric}
-                    trackColor={{ false: '#767577', true: theme.colors.primary }}
-                    thumbColor={'#fff'}
-                />
-            }
-        />
-
-        {!isGuest && (
-            <SettingItem 
-                icon={SecurityLockIcon} 
-                label="Account & Security"
-                onPress={() => router.push('/settings/account-security')}
-            />
-        )}
-
-        {/* --- DATA & SUPPORT --- */}
-        <SectionHeader title="DATA & SUPPORT" />
-        
-        <SettingItem 
-            icon={InformationCircleIcon} 
-            label="Privacy Policy"
-            onPress={() => router.push('/settings/privacy-policy')}
-        />
-        
-        <SettingItem 
-            icon={Mail01Icon}
-            label="Contact Support"
-            onPress={handleContactSupport}
-        />
-        
-        <SettingItem 
-            icon={Delete02Icon}
-            label="Clear Cache"
-            onPress={handleClearCache}
-        />
-
-        {/* --- SIGN OUT --- */}
-        {!isGuest && (
-            <View style={{ marginTop: 24 }}>
-                <TouchableOpacity 
-                    onPress={handleSignOut}
-                    style={[styles.signOutButton, { backgroundColor: '#FEE2E2', borderColor: '#FECACA' }]}
-                >
-                    <HugeiconsIcon icon={Logout03Icon} size={20} color="#EF4444" />
-                    <Text style={styles.signOutText}>Sign Out</Text>
-                </TouchableOpacity>
-            </View>
-        )}
-
-        {/* --- FOOTER --- */}
-        <View style={styles.footer}>
-            <Text style={[styles.footerText, { color: theme.colors.textSecondary }]}>
-                Developed by Project Vdb
-            </Text>
-            <Text style={[styles.footerSubText, { color: theme.colors.textSecondary }]}>
-                DART v1.0.0
-            </Text>
+                    {rightElement ? rightElement : (onPress && <HugeiconsIcon icon={ArrowRight01Icon} size={20} color={theme.colors.textSecondary} />)}
+                </Animated.View>
+            </Pressable>
+            {!isLast && <View style={{ height: 1, backgroundColor: theme.colors.border, opacity: 0.5, marginVertical: 4 }} />}
         </View>
+    );
+};
 
-      </ScrollView>
+export default function SettingsScreen() {
+    // ... (Logic same as before) ...
+    const router = useRouter();
+    const theme = useAppTheme();
+    const { signOut } = useAuth();
+    const { colorScheme, setColorScheme } = useColorScheme();
 
-      {/* --- THEME MODAL --- */}
-      <Modal
-        visible={themeModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setThemeModalVisible(false)}
-      >
-        <TouchableOpacity 
-            style={styles.modalOverlay} 
-            activeOpacity={1} 
-            onPress={() => setThemeModalVisible(false)}
-        >
-            <View style={[styles.modalContent, { backgroundColor: theme.colors.card }]}>
-                <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Choose Appearance</Text>
-                
-                {[
-                    { key: 'system', label: 'System Default', icon: SmartPhone02Icon },
-                    { key: 'light', label: 'Light Mode', icon: Sun03Icon },
-                    { key: 'dark', label: 'Dark Mode', icon: Moon02Icon },
-                ].map((opt) => (
-                    <TouchableOpacity
-                        key={opt.key}
-                        style={[
-                            styles.modalOption, 
-                            themePreference === opt.key && { backgroundColor: theme.colors.primary + '10' }
-                        ]}
-                        onPress={() => handleThemeChange(opt.key as ThemeOption)}
-                    >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                            <HugeiconsIcon 
-                                icon={opt.icon} 
-                                size={22} 
-                                color={theme.colors.text} 
-                            />
-                            <Text style={[styles.modalOptionText, { color: theme.colors.text }]}>{opt.label}</Text>
-                        </View>
-                        {themePreference === opt.key && (
-                            <HugeiconsIcon icon={Tick02Icon} size={20} color={theme.colors.primary} />
-                        )}
-                    </TouchableOpacity>
-                ))}
-            </View>
-        </TouchableOpacity>
-      </Modal>
+    const [soundEnabled, setSoundEnabled] = useState(true);
+    const [themePreference, setThemePreference] = useState<ThemeOption>('system');
+    const [themeModalVisible, setThemeModalVisible] = useState(false);
 
-    </SafeAreaView>
-  );
+    const [isLoading, setIsLoading] = useState(false);
+    const [loadingMessage, setLoadingMessage] = useState('');
+    const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+
+    const isMounted = useRef(true);
+
+    useEffect(() => {
+        const backAction = () => {
+            if (router.canGoBack()) {
+                router.back();
+            } else {
+                router.replace('/(tabs)/home'); 
+            }
+            return true; 
+        };
+
+        const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
+        return () => backHandler.remove();
+    }, [router]);
+
+    useEffect(() => {
+        isMounted.current = true;
+        loadSettings();
+        return () => { isMounted.current = false; };
+    }, []);
+
+    const loadSettings = async () => {
+        try {
+            const storedSettings = await AsyncStorage.getItem('appSettings');
+            if (storedSettings && isMounted.current) {
+                const parsed = JSON.parse(storedSettings);
+                if (parsed.soundEnabled !== undefined) setSoundEnabled(parsed.soundEnabled);
+                if (parsed.themePreference) setThemePreference(parsed.themePreference);
+            }
+        } catch (e) {
+            console.error("Failed to load settings", e);
+        }
+    };
+
+    const saveSetting = async (key: string, value: any) => {
+        try {
+            const stored = await AsyncStorage.getItem('appSettings');
+            const settings = stored ? JSON.parse(stored) : {};
+            settings[key] = value;
+            await AsyncStorage.setItem('appSettings', JSON.stringify(settings));
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const handleThemeChange = (newTheme: ThemeOption) => {
+        setThemePreference(newTheme);
+        setThemeModalVisible(false);
+        saveSetting('themePreference', newTheme);
+        if (setColorScheme) setColorScheme(newTheme);
+    };
+
+    const toggleSound = (val: boolean) => {
+        setSoundEnabled(val);
+        saveSetting('soundEnabled', val);
+    };
+
+    const handleContactSupport = () => {
+        Linking.openURL('mailto:support@projectvdb.com?subject=DART Support Request');
+    };
+
+    const handleClearCache = async () => {
+        setAlertConfig({
+            visible: true,
+            type: 'confirm',
+            title: 'Clear Cache',
+            message: 'This will free up space by deleting temporary files. Your data is safe.',
+            confirmText: 'Clear Cache',
+            onConfirm: async () => {
+                setAlertConfig((prev: any) => ({ ...prev, visible: false }));
+                setIsLoading(true);
+                setLoadingMessage('Cleaning up...');
+                try {
+                    const fs = FileSystem as any;
+                    if (fs.cacheDirectory) await fs.deleteAsync(fs.cacheDirectory, { idempotent: true });
+                    
+                    setTimeout(() => {
+                        if (!isMounted.current) return;
+                        setIsLoading(false);
+                        setAlertConfig({ visible: true, type: 'success', title: 'Success', message: 'Cache cleared.', onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) });
+                    }, 800);
+                } catch (e) {
+                    setIsLoading(false);
+                }
+            },
+            onCancel: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
+        });
+    };
+
+    const handleSignOut = () => {
+        setAlertConfig({
+            visible: true,
+            type: 'confirm',
+            title: 'Sign Out',
+            message: 'Are you sure you want to sign out?',
+            confirmText: 'Sign Out',
+            confirmType: 'destructive',
+            onConfirm: async () => {
+                setAlertConfig((prev: any) => ({ ...prev, visible: false }));
+                await signOut();
+            },
+            onCancel: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
+        });
+    };
+
+    return (
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
+            <StatusBar barStyle={colorScheme === 'dark' ? "light-content" : "dark-content"} />
+            <ModernAlert {...alertConfig} />
+            <LoadingOverlay visible={isLoading} message={loadingMessage} />
+
+            <Header title="Settings" />
+
+            <ScrollView 
+                contentContainerStyle={{ padding: 24, paddingBottom: 100 }}
+                showsVerticalScrollIndicator={false}
+            >
+                <View style={{ marginBottom: 24 }}>
+                    <Text style={styles.sectionTitle}>APP SETTINGS</Text>
+                    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
+                        <ModernSettingsItem icon={Notification01Icon} label="Notifications" onPress={() => router.push('/settings/notifications')} theme={theme} />
+                        <ModernSettingsItem 
+                            icon={PaintBoardIcon} 
+                            label="Appearance" 
+                            subLabel={themePreference === 'system' ? 'System Default' : (themePreference === 'dark' ? 'Dark Mode' : 'Light Mode')} 
+                            onPress={() => setThemeModalVisible(true)} 
+                            theme={theme}
+                        />
+                        <ModernSettingsItem 
+                            icon={VolumeHighIcon} 
+                            label="Sound Effects" 
+                            isLast
+                            theme={theme}
+                            rightElement={
+                                <Switch value={soundEnabled} onValueChange={toggleSound} trackColor={{ false: '#767577', true: theme.colors.primary }} thumbColor={'#fff'} style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }} />
+                            } 
+                        />
+                    </View>
+                </View>
+
+                <View style={{ marginBottom: 24 }}>
+                    <Text style={styles.sectionTitle}>SECURITY</Text>
+                    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
+                        <ModernSettingsItem icon={SecurityCheckIcon} label="Account & Security" subLabel="Biometrics, Password, Danger Zone" onPress={() => router.push('/settings/account-security')} isLast theme={theme} />
+                    </View>
+                </View>
+
+                <View style={{ marginBottom: 32 }}>
+                    <Text style={styles.sectionTitle}>SUPPORT</Text>
+                    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
+                        <ModernSettingsItem icon={InformationCircleIcon} label="Privacy Policy" onPress={() => router.push('/settings/privacy-policy')} theme={theme} />
+                        <ModernSettingsItem icon={Mail01Icon} label="Contact Support" onPress={handleContactSupport} theme={theme} />
+                        <ModernSettingsItem icon={InformationCircleIcon} label="About" subLabel="Version & Build Info" onPress={() => router.push('/settings/about')} theme={theme} />
+                        <ModernSettingsItem icon={Delete02Icon} label="Clear Cache" onPress={handleClearCache} isLast theme={theme} />
+                    </View>
+                </View>
+
+                <TouchableOpacity
+                    onPress={handleSignOut}
+                    activeOpacity={0.8}
+                    style={{
+                        backgroundColor: '#FEF2F2', 
+                        height: 56,
+                        borderRadius: 16,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 12,
+                        borderWidth: 1,
+                        borderColor: '#FEE2E2'
+                    }}
+                >
+                    <Text style={{ color: '#ef4444', fontSize: 15, fontWeight: '600' }}>Sign Out</Text>
+                    <HugeiconsIcon icon={Logout01Icon} size={20} color="#ef4444" strokeWidth={2.5} />
+                </TouchableOpacity>
+
+            </ScrollView>
+
+            <Modal visible={themeModalVisible} transparent animationType="fade" onRequestClose={() => setThemeModalVisible(false)}>
+                <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setThemeModalVisible(false)}>
+                    <View style={[styles.modalContent, { backgroundColor: theme.colors.card }]}>
+                        <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Choose Appearance</Text>
+                        {[
+                            { key: 'system', label: 'System Default', icon: SmartPhone02Icon },
+                            { key: 'light', label: 'Light Mode', icon: Sun03Icon },
+                            { key: 'dark', label: 'Dark Mode', icon: Moon02Icon },
+                        ].map((opt) => (
+                            <TouchableOpacity key={opt.key} style={[styles.modalOption, themePreference === opt.key && { backgroundColor: theme.colors.primary + '10' }]} onPress={() => handleThemeChange(opt.key as ThemeOption)}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                                    <HugeiconsIcon icon={opt.icon} size={22} color={theme.colors.text} />
+                                    <Text style={[styles.modalOptionText, { color: theme.colors.text }]}>{opt.label}</Text>
+                                </View>
+                                {themePreference === opt.key && <HugeiconsIcon icon={Tick02Icon} size={20} color={theme.colors.primary} />}
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                </TouchableOpacity>
+            </Modal>
+        </SafeAreaView>
+    );
 }
 
 const styles = StyleSheet.create({
-  sectionHeader: {
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 1,
-    marginTop: 24,
-    marginBottom: 12,
-    marginLeft: 4,
-    textTransform: 'uppercase',
-    opacity: 0.7,
-  },
-  itemContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 10,
-    borderWidth: 1,
-  },
-  iconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  itemLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  itemSubLabel: {
-    fontSize: 13,
-    marginTop: 2,
-    opacity: 0.8,
-  },
-  guestCard: {
-    borderRadius: 20,
-    padding: 4,
-    marginBottom: 8,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  guestContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    gap: 16,
-  },
-  guestIconCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  guestTitle: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  guestSubtitle: {
-    color: 'rgba(255,255,255,0.8)',
-    fontSize: 12,
-    marginTop: 2,
-  },
-  profileCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    borderRadius: 20,
-    borderWidth: 1,
-    marginBottom: 8,
-  },
-  avatarCircle: {
-    width: 48, 
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 16,
-  },
-  profileName: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  profileStatus: {
-    fontSize: 12,
-    fontWeight: '500',
-    marginTop: 2,
-  },
-  signOutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 8,
-  },
-  signOutText: {
-    color: '#EF4444',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  footer: {
-    alignItems: 'center',
-    marginTop: 48,
-    gap: 4,
-  },
-  footerText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  footerSubText: {
-    fontSize: 12,
-    opacity: 0.6,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  modalContent: {
-    width: '100%',
-    borderRadius: 24,
-    padding: 24,
-    maxWidth: 400,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  modalOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    marginBottom: 8,
-  },
-  modalOptionText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
+    sectionTitle: { fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase', opacity: 0.7 },
+    card: { borderRadius: 24, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+    modalContent: { width: '100%', borderRadius: 24, padding: 24, maxWidth: 400 },
+    modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 20, textAlign: 'center' },
+    modalOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16, paddingHorizontal: 16, borderRadius: 12, marginBottom: 8 },
+    modalOptionText: { fontSize: 16, fontWeight: '600' },
 });

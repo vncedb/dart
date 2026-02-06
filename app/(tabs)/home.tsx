@@ -102,7 +102,7 @@ const calculateDailyGoal = (jobSettings: any) => {
     return Number((netMinutes / 60).toFixed(2));
 };
 
-// --- ANIMATED SKELETON ---
+// --- ANIMATED SKELETON LOADING ---
 const SkeletonItem = ({ style, borderRadius = 8 }: { style?: ViewStyle, borderRadius?: number }) => {
     const theme = useAppTheme();
     const opacity = useSharedValue(0.3);
@@ -161,7 +161,7 @@ const HomeContentSkeleton = () => {
                 </View>
             </View>
 
-            {/* Timeline Header */}
+            {/* Timeline Header Skeleton*/}
             <View style={[styles.rowBetween, { marginBottom: 16 }]}>
                 <SkeletonItem style={{ width: 140, height: 20 }} />
                 <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -170,7 +170,7 @@ const HomeContentSkeleton = () => {
                 </View>
             </View>
             
-            {/* Timeline List */}
+            {/* Timeline List Skeleton*/}
             <View style={[styles.skeletonCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, height: 250, justifyContent: 'flex-start', gap: 24 }]}>
                 {[1, 2, 3].map((i) => (
                     <View key={i} style={{ flexDirection: 'row' }}>

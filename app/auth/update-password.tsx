@@ -1,203 +1,246 @@
-import { ArrowLeft02Icon, ArrowRight01Icon, InformationCircleIcon, LockKeyIcon, ViewIcon, ViewOffSlashIcon } from '@hugeicons/core-free-icons';
-import { HugeiconsIcon } from '@hugeicons/react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useColorScheme } from 'nativewind';
-import React, { useEffect, useRef, useState } from 'react';
+// Footer Fixed Bottom, Outside Keyboard Avoiding View
 import {
-    ActivityIndicator,
-    Image,
+    InformationCircleIcon,
+    LockKeyIcon,
+    Tick01Icon,
+    ViewIcon,
+    ViewOffSlashIcon
+} from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react-native';
+import { useRouter } from 'expo-router';
+import React, { useState } from 'react';
+import {
     Keyboard,
     KeyboardAvoidingView,
     Platform,
-    Animated as RNAnimated,
-    Easing as RNEasing,
+    ScrollView,
     Text,
     TextInput,
     TouchableOpacity,
     TouchableWithoutFeedback,
     View
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ModernAlert } from '../../components/ModernUI';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import Footer from '../../components/Footer';
+import Header from '../../components/Header';
+import LoadingOverlay from '../../components/LoadingOverlay';
+import ModernAlert from '../../components/ModernAlert';
+import { useAppTheme } from '../../constants/theme';
+import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 
-const AnimatedTooltip = ({ message, isDark }: { message: string, isDark: boolean }) => {
-    const fadeAnim = useRef(new RNAnimated.Value(0)).current; 
-    const slideAnim = useRef(new RNAnimated.Value(15)).current; 
-    
-    useEffect(() => {
-      RNAnimated.parallel([
-        RNAnimated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true, easing: RNEasing.out(RNEasing.back(1.5)) }),
-        RNAnimated.timing(slideAnim, { toValue: 0, duration: 400, useNativeDriver: true, easing: RNEasing.out(RNEasing.cubic) }),
-      ]).start();
-    }, [fadeAnim, slideAnim]);
-
-    return (
-      <RNAnimated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }} className="absolute right-0 z-50 w-64 mt-2 top-full">
-        <TouchableWithoutFeedback>
-          <View className="w-full">
-              <View className={`absolute right-[20px] -top-2 w-4 h-4 rotate-45 ${isDark ? 'bg-slate-700' : 'bg-white'} border-l border-t ${isDark ? 'border-slate-600' : 'border-slate-200'}`} />
-              <View className={`p-4 rounded-xl shadow-xl border ${isDark ? 'bg-slate-700 border-slate-600' : 'bg-white border-slate-200'}`}>
-                  <View className="flex-row items-start gap-3">
-                      <View className="mt-1"><HugeiconsIcon icon={InformationCircleIcon} size={18} color="#ef4444" /></View>
-                      <View className="flex-1">
-                          <Text className={`text-xs font-bold mb-1 ${isDark ? 'text-white' : 'text-slate-900'}`}>Attention Needed</Text>
-                          <Text className={`text-xs leading-5 ${isDark ? 'text-slate-300' : 'text-slate-500'}`}>{message}</Text>
-                      </View>
-                  </View>
-              </View>
-          </View>
-        </TouchableWithoutFeedback>
-      </RNAnimated.View>
-    );
-};
+// ... (Tooltip and Validate functions same as before) ...
+const Tooltip = ({ message, theme }: { message: string, theme: any }) => (
+    <View style={{ position: 'absolute', right: 0, zIndex: 100, width: 220, marginTop: 8, top: '100%' }}>
+        <View style={{ width: '100%' }}>
+            <View style={{ position: 'absolute', right: 24, top: -6, width: 12, height: 12, backgroundColor: theme.colors.card, borderLeftWidth: 1, borderTopWidth: 1, borderColor: theme.colors.border, transform: [{ rotate: '45deg' }] }} />
+            <View style={{ padding: 12, borderRadius: 12, backgroundColor: theme.colors.card, borderWidth: 1, borderColor: theme.colors.border, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 10, elevation: 5 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                    <HugeiconsIcon icon={InformationCircleIcon} size={16} color="#ef4444" />
+                    <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 11, fontWeight: '800', marginBottom: 2, color: theme.colors.text }}>Attention Needed</Text>
+                        <Text style={{ fontSize: 11, lineHeight: 15, color: theme.colors.textSecondary }}>{message}</Text>
+                    </View>
+                </View>
+            </View>
+        </View>
+    </View>
+);
 
 export default function UpdatePasswordScreen() {
+    const theme = useAppTheme();
     const router = useRouter();
-    const params = useLocalSearchParams();
-    const { colorScheme } = useColorScheme();
-    const insets = useSafeAreaInsets();
-    const isDark = colorScheme === 'dark';
-    
-    const [password, setPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
-    const [showPassword, setShowPassword] = useState(false);
-    const [showConfirm, setShowConfirm] = useState(false);
-    
-    const [loading, setLoading] = useState(false);
-    const [errors, setErrors] = useState<{password?: string, confirmPassword?: string}>({});
-    const [activeTooltip, setActiveTooltip] = useState<'password' | 'confirmPassword' | null>(null);
-    const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+    const { user } = useAuth();
 
-    const isSignupFlow = params.flow === 'signup';
-    const fromSource = params.from; 
+    const [currentPassword, setCurrentPassword] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    
+    const [showCurrent, setShowCurrent] = useState(false);
+    const [showNew, setShowNew] = useState(false);
+    const [showConfirm, setShowConfirm] = useState(false);
+
+    const [loading, setLoading] = useState(false);
+    const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+    
+    const [errors, setErrors] = useState<any>({});
+    const [visibleTooltip, setVisibleTooltip] = useState<string | null>(null);
 
     const validate = () => {
-        let newErrors: any = {};
+        const newErrors: any = {};
         let isValid = true;
-        if (password.length < 8) newErrors.password = "Min 8 chars.";
-        else if (!/[A-Z]/.test(password)) newErrors.password = "Needs 1 uppercase.";
-        else if (!/[a-z]/.test(password)) newErrors.password = "Needs 1 lowercase.";
-        else if (!/[0-9]/.test(password)) newErrors.password = "Needs 1 number.";
 
-        if (password !== confirmPassword) newErrors.confirmPassword = "Passwords do not match.";
+        if (!currentPassword) { newErrors.current = "Current password is required."; isValid = false; }
+        if (newPassword.length < 6) { newErrors.new = "Password must be at least 6 characters."; isValid = false; }
+        if (newPassword !== confirmPassword) { newErrors.confirm = "Passwords do not match."; isValid = false; }
 
         setErrors(newErrors);
-        if (newErrors.password) setActiveTooltip('password');
-        else if (newErrors.confirmPassword) setActiveTooltip('confirmPassword');
-        else setActiveTooltip(null);
+        if (newErrors.current) setVisibleTooltip('current');
+        else if (newErrors.new) setVisibleTooltip('new');
+        else if (newErrors.confirm) setVisibleTooltip('confirm');
 
         return isValid;
     };
 
-    const handleBack = async () => {
-        if (fromSource === 'settings') {
-            router.back();
-        } else {
-            await supabase.auth.signOut();
-            router.back();
-        }
-    };
-
     const handleUpdate = async () => {
         Keyboard.dismiss();
-        setActiveTooltip(null);
-        if (!validate()) return;
+        setVisibleTooltip(null);
+        if (!validate() || !user?.email) return;
 
         setLoading(true);
         try {
-            const { error: updateError } = await supabase.auth.updateUser({ password: password });
+            const { error: signInError } = await supabase.auth.signInWithPassword({ 
+                email: user.email, 
+                password: currentPassword 
+            });
+
+            if (signInError) {
+                setErrors({ current: "Incorrect password." });
+                setVisibleTooltip('current');
+                setLoading(false);
+                return;
+            }
+
+            const { error: updateError } = await supabase.auth.updateUser({ password: newPassword });
+
             if (updateError) throw updateError;
 
             setAlertConfig({
-                visible: true, type: 'success', title: 'Password Updated', message: 'Your password has been changed successfully.',
-                onDismiss: async () => {
-                    if (fromSource === 'settings') {
-                        router.back(); 
-                    } else {
-                        await supabase.auth.signOut();
-                        router.replace('/');
-                    }
+                visible: true,
+                type: 'success',
+                title: 'Password Updated',
+                message: 'Your password has been changed successfully.',
+                confirmText: 'Done',
+                onConfirm: () => {
+                    setAlertConfig((p: any) => ({ ...p, visible: false }));
+                    router.back();
                 }
             });
-        } catch (err: any) {
+
+        } catch (e: any) {
+            setAlertConfig({
+                visible: true,
+                type: 'error',
+                title: 'Update Failed',
+                message: e.message || "An error occurred.",
+                confirmText: 'OK',
+                onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
+            });
+        } finally {
             setLoading(false);
-            setAlertConfig({ visible: true, type: 'error', title: 'Error', message: err.message, onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) });
         }
     };
 
-    return (
-        <View className="flex-1 bg-white dark:bg-slate-900" style={{ paddingTop: insets.top }}>
-            <ModernAlert {...alertConfig} dismissText={alertConfig.type === 'success' ? (fromSource === 'settings' ? "Done" : "Back to Login") : "Okay"} />
+    const PasswordInput = ({ label, value, onChange, show, toggleShow, errorKey, placeholder }: any) => {
+        const isError = errorKey && errors[errorKey];
+        const showTooltip = errorKey && visibleTooltip === errorKey;
 
-            {!isSignupFlow && (
-                 <View className="absolute left-0 right-0 z-50 flex-row items-center justify-between px-6" style={{ top: insets.top + 16 }}>
-                    <TouchableOpacity onPress={handleBack} className={`items-center justify-center w-10 h-10 rounded-full ${isDark ? 'bg-slate-800' : 'bg-slate-100'}`}>
-                        <HugeiconsIcon icon={ArrowLeft02Icon} size={20} color={isDark ? '#94a3b8' : '#64748b'} />
-                    </TouchableOpacity>
-                    <Image source={isDark ? require('../../assets/images/icon-transparent-white.png') : require('../../assets/images/icon-transparent.png')} style={{ width: 40, height: 40 }} resizeMode="contain" />
-                </View>
-            )}
-
-            <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setActiveTooltip(null); }}>
-                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="justify-center flex-1 px-8">
-                    
-                    {/* CONTAINER - Top aligned */}
-                    <View className="w-full mt-24">
+        return (
+            <View style={{ marginBottom: 20, zIndex: showTooltip ? 50 : 1 }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>
+                    {label} <Text style={{ color: '#ef4444' }}>*</Text>
+                </Text>
+                <View style={{ position: 'relative' }}>
+                    <View style={{ 
+                        flexDirection: 'row', alignItems: 'center', 
+                        backgroundColor: theme.colors.card, 
+                        borderRadius: 16, borderWidth: 1, 
+                        borderColor: isError ? '#ef4444' : theme.colors.border,
+                        height: 56, paddingHorizontal: 16 
+                    }}>
+                        <HugeiconsIcon icon={LockKeyIcon} size={22} color={isError ? "#ef4444" : theme.colors.textSecondary} />
+                        <TextInput 
+                            value={value} 
+                            onChangeText={(t) => { onChange(t); if(errorKey) { setErrors((p:any) => ({...p, [errorKey]: undefined})); setVisibleTooltip(null); }}} 
+                            style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text }} 
+                            placeholder={placeholder} 
+                            placeholderTextColor={theme.colors.textSecondary}
+                            secureTextEntry={!show}
+                            onFocus={() => setVisibleTooltip(null)}
+                        />
+                        <TouchableOpacity onPress={toggleShow}>
+                            <HugeiconsIcon icon={show ? ViewIcon : ViewOffSlashIcon} size={22} color={theme.colors.textSecondary} />
+                        </TouchableOpacity>
                         
-                        {/* TITLE - Matched fonts */}
-                        <View className="mb-8">
-                            <Text className={`text-3xl font-bold text-center ${isDark ? 'text-white' : 'text-slate-900'}`}>
-                                {isSignupFlow ? "Set Password" : "New Password"}
-                            </Text>
-                            <Text className={`mt-2 text-center ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                                Create a strong password to secure your account.
-                            </Text>
-                        </View>
-
-                        <View className="gap-6">
-                            <View className="relative z-50 w-full">
-                                <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'} ${errors.password ? 'border-red-500' : ''}`}>
-                                    <HugeiconsIcon icon={LockKeyIcon} size={22} color={errors.password ? "#ef4444" : "#94a3b8"} />
-                                    <TextInput
-                                        className={`flex-1 h-full ml-3 font-sans font-medium ${errors.password ? 'text-red-500' : (isDark ? 'text-white' : 'text-slate-700')}`}
-                                        placeholder="New Password" placeholderTextColor="#94a3b8" secureTextEntry={!showPassword} value={password}
-                                        onFocus={() => setActiveTooltip(null)} onChangeText={(t) => { setPassword(t); setErrors(prev => ({...prev, password: undefined})); }}
-                                    />
-                                    <TouchableOpacity onPress={() => { if(errors.password) setActiveTooltip(activeTooltip === 'password' ? null : 'password'); else setShowPassword(!showPassword); }}>
-                                        <HugeiconsIcon icon={errors.password ? InformationCircleIcon : (showPassword ? ViewIcon : ViewOffSlashIcon)} size={22} color={errors.password ? "#ef4444" : "#94a3b8"} />
-                                    </TouchableOpacity>
-                                </View>
-                                {errors.password && activeTooltip === 'password' && <AnimatedTooltip message={errors.password} isDark={isDark} />}
-                            </View>
-
-                            <View className="relative z-40 w-full">
-                                <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-slate-50 border-slate-200'} ${errors.confirmPassword ? 'border-red-500' : ''}`}>
-                                    <HugeiconsIcon icon={LockKeyIcon} size={22} color={errors.confirmPassword ? "#ef4444" : "#94a3b8"} />
-                                    <TextInput
-                                        className={`flex-1 h-full ml-3 font-sans font-medium ${errors.confirmPassword ? 'text-red-500' : (isDark ? 'text-white' : 'text-slate-700')}`}
-                                        placeholder="Confirm Password" placeholderTextColor="#94a3b8" secureTextEntry={!showConfirm} value={confirmPassword}
-                                        onFocus={() => setActiveTooltip(null)} onChangeText={(t) => { setConfirmPassword(t); setErrors(prev => ({...prev, confirmPassword: undefined})); }}
-                                    />
-                                    <TouchableOpacity onPress={() => { if(errors.confirmPassword) setActiveTooltip(activeTooltip === 'confirmPassword' ? null : 'confirmPassword'); else setShowConfirm(!showConfirm); }}>
-                                        <HugeiconsIcon icon={errors.confirmPassword ? InformationCircleIcon : (showConfirm ? ViewIcon : ViewOffSlashIcon)} size={22} color={errors.confirmPassword ? "#ef4444" : "#94a3b8"} />
-                                    </TouchableOpacity>
-                                </View>
-                                {errors.confirmPassword && activeTooltip === 'confirmPassword' && <AnimatedTooltip message={errors.confirmPassword} isDark={isDark} />}
-                            </View>
-
-                            <TouchableOpacity onPress={handleUpdate} disabled={loading} className="flex-row items-center justify-center w-full gap-2 bg-indigo-600 shadow-lg h-14 rounded-2xl shadow-indigo-500/30">
-                                {loading ? <ActivityIndicator color="white" /> : (
-                                    <>
-                                        <Text className="font-sans text-lg font-bold text-white">{isSignupFlow ? "Create Account" : "Update Password"}</Text>
-                                        <HugeiconsIcon icon={ArrowRight01Icon} size={20} color="white" strokeWidth={2.5} />
-                                    </>
-                                )}
+                        {isError && (
+                            <TouchableOpacity onPress={() => setVisibleTooltip(showTooltip ? null : errorKey)} style={{ marginLeft: 8 }}>
+                                <HugeiconsIcon icon={InformationCircleIcon} size={22} color="#ef4444" />
                             </TouchableOpacity>
-                        </View>
+                        )}
                     </View>
+                    {showTooltip && <Tooltip message={errors[errorKey]} theme={theme} />}
+                </View>
+            </View>
+        );
+    };
+
+    return (
+        <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setVisibleTooltip(null); }}>
+            <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
+                <Header title="Change Password" showBack />
+                <LoadingOverlay visible={loading} message="Updating Password..." />
+                <ModernAlert {...alertConfig} />
+
+                <KeyboardAvoidingView 
+                    behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
+                    style={{ flex: 1 }}
+                >
+                    <ScrollView 
+                        contentContainerStyle={{ padding: 24 }} 
+                        showsVerticalScrollIndicator={false}
+                    >
+                        <View style={{ backgroundColor: theme.colors.card, borderRadius: 24, padding: 20, borderWidth: 1, borderColor: theme.colors.border, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
+                            
+                            <PasswordInput 
+                                label="Current Password" 
+                                value={currentPassword} 
+                                onChange={setCurrentPassword} 
+                                show={showCurrent} 
+                                toggleShow={() => setShowCurrent(!showCurrent)} 
+                                errorKey="current" 
+                                placeholder="Enter current password"
+                            />
+
+                            <View style={{ alignItems: 'flex-end', marginTop: -12, marginBottom: 20 }}>
+                                <TouchableOpacity onPress={() => router.push('/auth/forgot-password')} style={{ paddingVertical: 4 }}>
+                                    <Text style={{ color: theme.colors.primary, fontWeight: '600', fontSize: 13 }}>Forgot Password?</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            <View style={{ height: 1, backgroundColor: theme.colors.border, opacity: 0.5, marginBottom: 20 }} />
+
+                            <PasswordInput 
+                                label="New Password" 
+                                value={newPassword} 
+                                onChange={setNewPassword} 
+                                show={showNew} 
+                                toggleShow={() => setShowNew(!showNew)} 
+                                errorKey="new" 
+                                placeholder="Enter new password"
+                            />
+
+                            <PasswordInput 
+                                label="Confirm New Password" 
+                                value={confirmPassword} 
+                                onChange={setConfirmPassword} 
+                                show={showConfirm} 
+                                toggleShow={() => setShowConfirm(!showConfirm)} 
+                                errorKey="confirm" 
+                                placeholder="Confirm new password"
+                            />
+
+                        </View>
+                    </ScrollView>
                 </KeyboardAvoidingView>
-            </TouchableWithoutFeedback>
-        </View>
+                
+                <Footer>
+                    <TouchableOpacity onPress={handleUpdate} disabled={loading} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.primary, height: 56, borderRadius: 16, shadowColor: theme.colors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}>
+                        <Text style={{ color: 'white', fontSize: 16, fontWeight: '700', marginRight: 8 }}>Update Password</Text>
+                        <HugeiconsIcon icon={Tick01Icon} size={20} color="white" strokeWidth={2.5} />
+                    </TouchableOpacity>
+                </Footer>
+            </SafeAreaView>
+        </TouchableWithoutFeedback>
     );
 }

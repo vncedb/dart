@@ -4,7 +4,6 @@ import { withLayoutContext } from 'expo-router';
 import React from 'react';
 import CustomTabBar from '../../components/CustomTabBar';
 
-// Create the custom navigator
 const { Navigator } = createMaterialTopTabNavigator();
 
 export const MaterialTopTabs = withLayoutContext<

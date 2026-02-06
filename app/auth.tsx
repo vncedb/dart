@@ -184,12 +184,14 @@ export default function AuthScreen() {
             } else {
                 if (data.user) {
                     await checkAppRegistration(data.user);
+                    // NOTE: Do not set loading false. 
+                    // Let the AuthContext and RootLayout handle the redirect to Onboarding.
+                    // This prevents the form from flashing back before navigation.
                 }
             }
         } 
         else if (authMode === 'signup') {
-            // 1. Pre-check: Try to see if this email exists in profiles to prevent fake signup flow
-            // This works if RLS allows reading profiles (common in dev).
+            // 1. Pre-check: Try to see if this email exists in profiles
             const { data: existingProfile } = await supabase.from('profiles').select('id').eq('email', email).single();
             
             if (existingProfile) {
@@ -213,6 +215,7 @@ export default function AuthScreen() {
             } else {
                 if (session && user) {
                      await checkAppRegistration(user);
+                     // Success: Do not set loading false. Redirect pending.
                 } else {
                     // Success, but requires verification
                     setLoading(false); 
@@ -267,11 +270,17 @@ export default function AuthScreen() {
             onVerify={async (code: string) => {
                 const { data: { session }, error } = await supabase.auth.verifyOtp({ email, token: code, type: 'signup' });
                 if(error) return false;
-                setShowOtp(false);
+                
                 if (session?.user) {
                     supabase.functions.invoke('send-email', { body: { email: session.user.email, type: 'WELCOME' } });
                     await checkAppRegistration(session.user);
+                    // Set loading TRUE on the main screen to prevent UI flash when modal closes
+                    setLoading(true);
+                    setShowOtp(false);
+                    return true;
                 }
+                // If verify worked but no session (edge case), just close
+                setShowOtp(false);
                 return true;
             }}
             onResend={async () => { await supabase.auth.resend({ type: 'signup', email }); }}

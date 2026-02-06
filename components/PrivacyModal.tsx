@@ -1,26 +1,29 @@
+// Detect scroll to bottom logic
 import { CheckmarkSquare03Icon, Shield02Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-    Dimensions,
-    Modal,
-    Platform,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View
+  Dimensions,
+  Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView, ScrollView } from 'react-native-gesture-handler';
 import Animated, {
-    Easing,
-    FadeIn,
-    FadeOut,
-    runOnJS,
-    SlideInDown,
-    SlideOutDown,
-    useAnimatedStyle,
-    useSharedValue,
-    withTiming
+  Easing,
+  FadeIn,
+  FadeOut,
+  runOnJS,
+  SlideInDown,
+  SlideOutDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Button from './Button';
@@ -41,6 +44,7 @@ export default function PrivacyModal({ visible, onAgree, onDismiss, isDark }: Pr
   
   // Animation Value for Dragging
   const translateY = useSharedValue(0);
+  const [canAgree, setCanAgree] = useState(false);
 
   // Colors based on theme
   const backgroundColor = isDark ? '#1e293b' : '#ffffff';
@@ -48,9 +52,12 @@ export default function PrivacyModal({ visible, onAgree, onDismiss, isDark }: Pr
   const textSecondary = isDark ? '#94a3b8' : '#64748b';
   const handleColor = isDark ? '#475569' : '#cbd5e1';
 
-  // Reset Drag Position when opening
+  // Reset state when opening
   useEffect(() => {
-    if (visible) translateY.value = 0;
+    if (visible) {
+        translateY.value = 0;
+        setCanAgree(false); // Reset agreement capability
+    }
   }, [visible]);
 
   // Gesture Handler - Applied ONLY to the Header area
@@ -72,6 +79,18 @@ export default function PrivacyModal({ visible, onAgree, onDismiss, isDark }: Pr
     transform: [{ translateY: translateY.value }],
   }));
 
+  // Scroll Detection Logic
+  const isCloseToBottom = ({ layoutMeasurement, contentOffset, contentSize }: NativeScrollEvent) => {
+    const paddingToBottom = 20;
+    return layoutMeasurement.height + contentOffset.y >= contentSize.height - paddingToBottom;
+  };
+
+  const handleScroll = ({ nativeEvent }: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (isCloseToBottom(nativeEvent)) {
+          if (!canAgree) setCanAgree(true);
+      }
+  };
+
   if (!visible) return null;
 
   return (
@@ -84,11 +103,10 @@ export default function PrivacyModal({ visible, onAgree, onDismiss, isDark }: Pr
             exiting={FadeOut.duration(300)} 
             style={styles.backdrop}
         >
-           {/* Tap backdrop to close */}
            <TouchableOpacity style={{flex:1}} onPress={onDismiss} activeOpacity={1} />
         </Animated.View>
 
-        {/* Modal Sheet - Slide Up Animation (No Bounce) */}
+        {/* Modal Sheet */}
         <Animated.View 
             entering={SlideInDown.duration(400).easing(Easing.out(Easing.quad))} 
             exiting={SlideOutDown.duration(300)}
@@ -104,18 +122,18 @@ export default function PrivacyModal({ visible, onAgree, onDismiss, isDark }: Pr
               {/* Draggable Header Section */}
               <GestureDetector gesture={pan}>
                 <View style={{ backgroundColor: 'transparent' }}>
-                  {/* Drag Handle */}
                   <View style={styles.handleContainer}>
                     <View style={[styles.handle, { backgroundColor: handleColor }]} />
                   </View>
 
-                  {/* Header Content */}
                   <View style={styles.header}>
                     <View style={[styles.iconWrapper, { backgroundColor: isDark ? 'rgba(99, 102, 241, 0.2)' : '#e0e7ff' }]}>
                        <HugeiconsIcon icon={Shield02Icon} size={32} color="#6366f1" />
                     </View>
                     <Text style={[styles.title, { color: textColor }]}>Privacy Policy</Text>
-                    <Text style={[styles.subtitle, { color: textSecondary }]}>Please review our terms to continue.</Text>
+                    <Text style={[styles.subtitle, { color: textSecondary }]}>
+                        {canAgree ? "Thank you for reviewing." : "Please scroll to the end to accept."}
+                    </Text>
                   </View>
                 </View>
               </GestureDetector>
@@ -123,9 +141,11 @@ export default function PrivacyModal({ visible, onAgree, onDismiss, isDark }: Pr
               {/* Scrollable Content */}
               <ScrollView 
                 style={styles.content} 
-                showsVerticalScrollIndicator={false}
+                showsVerticalScrollIndicator={true}
                 contentContainerStyle={{ paddingBottom: 20 }}
-                bounces={false}
+                onScroll={handleScroll}
+                scrollEventThrottle={400} // Check scroll position every 400ms (or faster)
+                bounces={true}
               >
                 <Section title="1. Data Collection" textColor={textColor}>
                   <Text style={[styles.paragraph, { color: textSecondary }]}>
@@ -150,16 +170,26 @@ export default function PrivacyModal({ visible, onAgree, onDismiss, isDark }: Pr
                     The app requires access to your photo library for profile customization and notifications to keep you updated on report statuses.
                   </Text>
                 </Section>
+                
+                <Section title="5. Agreement" textColor={textColor}>
+                   <Text style={[styles.paragraph, { color: textSecondary }]}>
+                     By clicking &quot;I Agree & Continue&quot;, you acknowledge that you have read and understood our Privacy Policy.
+                   </Text>
+                </Section>
+                
+                {/* Spacer to ensure scrolling hits bottom comfortably */}
+                <View style={{ height: 40 }} /> 
               </ScrollView>
 
-              {/* Footer matching Onboarding Info */}
+              {/* Footer */}
               <Footer>
                   <Button 
-                      title="I Agree & Continue"
+                      title={canAgree ? "I Agree & Continue" : "Scroll to Accept"}
                       onPress={onAgree}
-                      variant="primary"
-                      style={{ width: '100%' }}
-                      icon={<HugeiconsIcon icon={CheckmarkSquare03Icon} size={20} color="white" />}
+                      disabled={!canAgree}
+                      variant={canAgree ? "primary" : "secondary"} // Visual feedback
+                      style={{ width: '100%', opacity: canAgree ? 1 : 0.6 }}
+                      icon={canAgree ? <HugeiconsIcon icon={CheckmarkSquare03Icon} size={20} color="white" /> : undefined}
                   />
               </Footer>
 

@@ -1,319 +1,302 @@
-// ... (imports remain the same)
+// Aligned UI with Settings: Modern animations, removed redundant divider
 import {
-  Delete02Icon,
-  FingerPrintIcon,
-  LockKeyIcon,
-  Mail01Icon,
-  Notification03Icon,
-  PencilEdit02Icon,
-  ViewIcon,
-  ViewOffSlashIcon
+    Alert02Icon,
+    ArrowRight01Icon,
+    BiometricAccessIcon,
+    LockKeyIcon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import NetInfo from '@react-native-community/netinfo';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    Animated,
+    Modal,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
 import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
 import OtpVerificationModal from '../../components/OtpVerificationModal';
+import { useAppTheme } from '../../constants/theme';
+import { useAuth } from '../../context/AuthContext';
+import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 
-// ... (EditModal and PasswordInput components remain the same) ...
-// (Omitting duplicates for brevity, copy them from previous response if needed)
-const EditModal = ({ visible, onClose, title, children, onSave, saveLabel = "Save" }: any) => (
-  <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="justify-center flex-1 bg-black/50">
-      <Pressable style={{ flex: 1 }} onPress={onClose} />
-      <View className="mx-6 bg-white shadow-xl dark:bg-slate-800 rounded-3xl">
-        <View className="p-5 border-b border-slate-100 dark:border-slate-700">
-          <Text className="font-sans text-lg font-bold text-center text-slate-900 dark:text-white">{title}</Text>
-        </View>
-        <View className="p-6">
-          {children}
-          <View className="flex-row gap-3 mt-6">
-            <TouchableOpacity onPress={onClose} className="items-center flex-1 py-3 bg-slate-100 dark:bg-slate-700 rounded-xl">
-              <Text className="font-bold text-slate-500 dark:text-slate-300">Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={onSave} className={`items-center flex-1 py-3 rounded-xl ${saveLabel === 'Delete' ? 'bg-red-500' : 'bg-indigo-600'}`}>
-              <Text className="font-bold text-white">{saveLabel}</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </View>
-      <Pressable style={{ flex: 1 }} onPress={onClose} />
-    </KeyboardAvoidingView>
-  </Modal>
-);
+// --- Modern Settings Item (Standardized) ---
+const ModernSettingsItem = ({ icon, label, desc, onPress, rightElement, destructive, isLast, theme }: any) => {
+    const scaleValue = useRef(new Animated.Value(1)).current;
 
-const PasswordInput = ({ value, onChangeText, placeholder, isError }: any) => {
-    const [show, setShow] = useState(false);
+    const onPressIn = () => {
+        Animated.spring(scaleValue, { toValue: 0.97, useNativeDriver: true, speed: 20 }).start();
+    };
+
+    const onPressOut = () => {
+        Animated.spring(scaleValue, { toValue: 1, useNativeDriver: true, speed: 20 }).start();
+    };
+
     return (
-        <View className={`flex-row items-center px-4 h-14 mb-3 border bg-slate-50 dark:bg-slate-900 rounded-xl ${isError ? 'border-red-500 bg-red-50 dark:bg-red-900/10' : 'border-slate-200 dark:border-slate-700'}`}>
-            <TextInput value={value} onChangeText={onChangeText} placeholder={placeholder} secureTextEntry={!show} placeholderTextColor={isError ? "#f87171" : "#94a3b8"} className={`flex-1 text-base font-bold ${isError ? 'text-red-600' : 'text-slate-900 dark:text-white'}`} />
-            <TouchableOpacity onPress={() => setShow(!show)}><HugeiconsIcon icon={show ? ViewIcon : ViewOffSlashIcon} size={20} color={isError ? "#ef4444" : "#94a3b8"} /></TouchableOpacity>
+        <View>
+            <Pressable 
+                onPress={onPress} 
+                onPressIn={onPress ? onPressIn : undefined} 
+                onPressOut={onPress ? onPressOut : undefined}
+                disabled={!onPress}
+            >
+                <Animated.View style={{ 
+                    flexDirection: 'row', alignItems: 'center', paddingVertical: 12,
+                    transform: [{ scale: scaleValue }]
+                }}>
+                    <View style={{ 
+                        width: 36, height: 36, borderRadius: 10, 
+                        backgroundColor: destructive ? '#fee2e2' : theme.colors.background, 
+                        alignItems: 'center', justifyContent: 'center', marginRight: 12 
+                    }}>
+                        <HugeiconsIcon icon={icon} size={18} color={destructive ? '#ef4444' : (onPress || rightElement ? theme.colors.primary : theme.colors.textSecondary)} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 15, fontWeight: '600', color: destructive ? '#ef4444' : theme.colors.text }}>{label}</Text>
+                        {desc && <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginTop: 2 }}>{desc}</Text>}
+                    </View>
+                    {rightElement ? rightElement : (onPress && <HugeiconsIcon icon={ArrowRight01Icon} size={20} color={theme.colors.textSecondary} />)}
+                </Animated.View>
+            </Pressable>
+            {!isLast && <View style={{ height: 1, backgroundColor: theme.colors.border, opacity: 0.5, marginVertical: 4 }} />}
         </View>
     );
 };
 
+// --- DELETE CONFIRMATION MODAL ---
+const DeleteConfirmationModal = ({ visible, onClose, onConfirm }: any) => {
+    const theme = useAppTheme();
+    const [timer, setTimer] = useState(10);
+
+    useEffect(() => {
+        let interval: any;
+        if (visible) {
+            setTimer(10);
+            interval = setInterval(() => {
+                setTimer((prev) => {
+                    if (prev <= 1) { clearInterval(interval); return 0; }
+                    return prev - 1;
+                });
+            }, 1000);
+        }
+        return () => clearInterval(interval);
+    }, [visible]);
+
+    if (!visible) return null;
+
+    return (
+        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+            <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+                <View style={{ width: '100%', backgroundColor: theme.colors.card, borderRadius: 28, padding: 24, shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.25, shadowRadius: 20, elevation: 10 }}>
+                    <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#fee2e2', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 20 }}>
+                        <HugeiconsIcon icon={Alert02Icon} size={32} color="#ef4444" />
+                    </View>
+                    <Text style={{ fontSize: 22, fontWeight: '800', textAlign: 'center', color: theme.colors.text, marginBottom: 12 }}>Delete Account?</Text>
+                    <Text style={{ fontSize: 15, textAlign: 'center', color: theme.colors.textSecondary, lineHeight: 22, marginBottom: 24 }}>
+                        You are about to permanently delete your account. This action <Text style={{ fontWeight: 'bold', color: '#ef4444' }}>cannot be undone</Text>. {"\n\n"}
+                        All your data including attendance logs, reports, jobs, and settings will be wiped from this device and our servers immediately.
+                    </Text>
+                    <View style={{ gap: 12 }}>
+                        <TouchableOpacity onPress={onConfirm} disabled={timer > 0} style={{ backgroundColor: timer > 0 ? theme.colors.border : '#ef4444', paddingVertical: 16, borderRadius: 16, alignItems: 'center', opacity: timer > 0 ? 0.7 : 1 }}>
+                            <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>{timer > 0 ? `Wait ${timer}s` : 'Delete Account'}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={onClose} style={{ paddingVertical: 16, alignItems: 'center' }}>
+                            <Text style={{ color: theme.colors.textSecondary, fontWeight: '600' }}>Cancel</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </View>
+        </Modal>
+    );
+};
+
 export default function AccountSecurityScreen() {
-  const router = useRouter();
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [loadingMsg, setLoadingMsg] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
-  
-  // ... (State variables same as before) ...
-  const [emailModal, setEmailModal] = useState(false);
-  const [passwordModal, setPasswordModal] = useState(false);
-  const [biometricEnabled, setBiometricEnabled] = useState(false);
-  const [biometricSupported, setBiometricSupported] = useState(false);
-  const [otpVisible, setOtpVisible] = useState(false);
-  const [otpType, setOtpType] = useState<'email_change' | 'delete'>('email_change');
-  const [targetEmail, setTargetEmail] = useState(''); 
-  const [newEmail, setNewEmail] = useState('');
-  const [emailError, setEmailError] = useState('');
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [passError, setPassError] = useState(false);
-  const [samePassError, setSamePassError] = useState(false);
-  const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+    const theme = useAppTheme();
+    const router = useRouter();
+    const { signOut, user } = useAuth();
+    
+    const [biometricEnabled, setBiometricEnabled] = useState(false);
+    const [biometricSupported, setBiometricSupported] = useState(false);
+    
+    const [loading, setLoading] = useState(false);
+    const [loadingMsg, setLoadingMsg] = useState('');
+    const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+    
+    const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+    const [otpVisible, setOtpVisible] = useState(false);
 
-  // ... (Fetch logic same as before) ...
-  const fetchUser = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
-    setUser(user);
-    if (!emailModal && user?.email) setNewEmail(user.email);
-    checkBiometricStatus();
-  }, [emailModal]);
+    useEffect(() => { checkBiometrics(); }, []);
 
-  const checkBiometricStatus = async () => {
-      try {
-          const hasHardware = await LocalAuthentication.hasHardwareAsync();
-          const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-          setBiometricSupported(hasHardware && isEnrolled);
-          const storedSettings = await AsyncStorage.getItem('appSettings');
-          if (storedSettings) {
-              const settings = JSON.parse(storedSettings);
-              setBiometricEnabled(settings.biometricEnabled || false);
-          }
-      } catch (e) { console.log(e); }
-  };
+    const checkBiometrics = async () => {
+        const compatible = await LocalAuthentication.hasHardwareAsync();
+        setBiometricSupported(compatible);
+        if (compatible) {
+            const savedSetting = await AsyncStorage.getItem('appSettings');
+            if (savedSetting) {
+                const parsed = JSON.parse(savedSetting);
+                if (parsed.biometricEnabled) setBiometricEnabled(true);
+            }
+        }
+    };
 
-  const toggleBiometrics = async (value: boolean) => {
-      if (value) {
-          const result = await LocalAuthentication.authenticateAsync({ promptMessage: 'Confirm identity' });
-          if (!result.success) {
-              setAlertConfig({ visible: true, type: 'error', title: 'Failed', message: 'Biometric setup failed.', confirmText: 'OK', onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) });
-              return;
-          }
-      }
-      setBiometricEnabled(value);
-      try {
-          const stored = await AsyncStorage.getItem('appSettings');
-          const settings = stored ? JSON.parse(stored) : {};
-          settings.biometricEnabled = value;
-          await AsyncStorage.setItem('appSettings', JSON.stringify(settings));
-      } catch (e) { console.log(e); }
-  };
+    const toggleBiometric = async (value: boolean) => {
+        if (value) {
+            const result = await LocalAuthentication.authenticateAsync({ promptMessage: 'Authenticate to enable biometrics', fallbackLabel: 'Use Passcode' });
+            if (result.success) {
+                setBiometricEnabled(true);
+                updateSetting(true);
+            } else {
+                setAlertConfig({ visible: true, type: 'error', title: 'Authentication Failed', message: 'Could not enable biometrics.', onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false })) });
+                setBiometricEnabled(false);
+            }
+        } else {
+            setBiometricEnabled(false);
+            updateSetting(false);
+        }
+    };
 
-  useEffect(() => { fetchUser(); }, [fetchUser]);
-  const onRefresh = useCallback(async () => { setRefreshing(true); await fetchUser(); setRefreshing(false); }, [fetchUser]);
+    const updateSetting = async (val: boolean) => {
+        try {
+            const stored = await AsyncStorage.getItem('appSettings');
+            const settings = stored ? JSON.parse(stored) : {};
+            settings.biometricEnabled = val;
+            await AsyncStorage.setItem('appSettings', JSON.stringify(settings));
+        } catch (e) { console.error(e); }
+    };
 
-  // ... (Email Update & Password Update same as before) ...
-  const handleInitiateEmailUpdate = async () => {
-    setEmailError('');
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) { setEmailError('Invalid email.'); return; }
-    const netInfo = await NetInfo.fetch();
-    if (!netInfo.isConnected) { setAlertConfig({ visible: true, type: 'error', title: 'No Internet', message: 'Check connection.', confirmText: 'OK', onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) }); return; }
-    setEmailModal(false); setLoadingMsg("Sending Code..."); setLoading(true);
-    try {
-        const { error } = await supabase.auth.updateUser({ email: newEmail });
-        if (error) setAlertConfig({ visible: true, type: 'error', title: 'Error', message: error.message, confirmText: 'OK', onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) });
-        else { setTargetEmail(newEmail); setOtpType('email_change'); setOtpVisible(true); }
-    } catch (e) { console.log(e); } finally { setLoading(false); }
-  };
+    // --- Biometric Guard for Password Change ---
+    const handleChangePassword = async () => {
+        if (biometricEnabled && biometricSupported) {
+            const result = await LocalAuthentication.authenticateAsync({
+                promptMessage: 'Verify identity to change password',
+                fallbackLabel: 'Use Passcode'
+            });
+            if (!result.success) return; 
+        }
+        router.push('/auth/update-password');
+    };
 
-  const handleUpdatePassword = async () => {
-    if (!currentPassword || newPassword.length < 8) { setPassError(true); return; }
-    setPasswordModal(false); setLoadingMsg("Updating..."); setLoading(true);
-    try {
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email: user.email, password: currentPassword });
-        if (signInError) { setLoading(false); setPassError(true); setPasswordModal(true); return; }
-        const { error } = await supabase.auth.updateUser({ password: newPassword });
-        if (error) setAlertConfig({ visible: true, type: 'error', title: 'Failed', message: error.message, confirmText: 'OK', onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) });
-        else { setCurrentPassword(''); setNewPassword(''); setAlertConfig({ visible: true, type: 'success', title: 'Success', message: 'Password updated.', confirmText: 'OK', onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) }); }
-    } finally { setLoading(false); }
-  };
+    const handleDeleteRequest = async () => {
+        if (biometricEnabled && biometricSupported) {
+            const result = await LocalAuthentication.authenticateAsync({ promptMessage: 'Authenticate to delete account', fallbackLabel: 'Use Passcode' });
+            if (!result.success) {
+                setAlertConfig({ visible: true, type: 'error', title: 'Verification Failed', message: 'Biometric authentication required to proceed.', onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false })) });
+                return;
+            }
+        }
+        setDeleteModalVisible(true);
+    };
 
-  // --- UPDATED DELETE LOGIC ---
-  const handlePreDeleteConfirmation = () => {
-      setAlertConfig({ visible: true, type: 'confirmation', title: 'Delete Account?', message: 'This will wipe all your data immediately. We will send a verification code.', confirmText: 'Delete', onConfirm: () => { setAlertConfig((p:any) => ({...p, visible: false})); handleInitiateDelete(); }, onCancel: () => setAlertConfig((p:any) => ({...p, visible: false})) });
-  };
+    const handleConfirmDelete = async () => {
+        setDeleteModalVisible(false);
+        setLoading(true);
+        setLoadingMsg("Sending Verification Code...");
+        try {
+            if (!user?.email) throw new Error("No user email found.");
+            const { error } = await supabase.auth.signInWithOtp({ email: user.email });
+            if (error) throw error;
+            setOtpVisible(true);
+        } catch (error: any) {
+            setAlertConfig({ visible: true, type: 'error', title: 'Error', message: error.message, onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) });
+        } finally { setLoading(false); }
+    };
 
-  const handleInitiateDelete = async () => {
-      const netInfo = await NetInfo.fetch();
-      if (!netInfo.isConnected) { setAlertConfig({ visible: true, type: 'error', title: 'No Internet', message: 'Check connection.', confirmText: 'OK', onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false })) }); return; }
-      setLoadingMsg("Sending Code..."); setLoading(true);
-      try {
-        const { error } = await supabase.auth.signInWithOtp({ email: user.email });
-        if (error) { setAlertConfig({ visible: true, type: 'error', title: 'Error', message: error.message, confirmText: 'OK', onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) }); } 
-        else { setTargetEmail(user.email); setOtpType('delete'); setOtpVisible(true); }
-      } finally { setLoading(false); }
-  };
+    const handleVerifyOtp = async (code: string) => {
+        const { error: verifyError } = await supabase.auth.verifyOtp({ email: user?.email || '', token: code, type: 'magiclink' });
+        if (verifyError) return false;
+        setOtpVisible(false);
+        setLoading(true);
+        setLoadingMsg("Deleting Account...");
+        try {
+            const userId = user?.id;
+            if (!userId) throw new Error("User ID missing.");
+            const db = await getDB();
+            await db.runAsync('DELETE FROM attendance WHERE user_id = ?', [userId]);
+            await db.runAsync('DELETE FROM accomplishments WHERE user_id = ?', [userId]);
+            await db.runAsync('DELETE FROM saved_reports WHERE user_id = ?', [userId]);
+            await db.runAsync('DELETE FROM job_positions WHERE user_id = ?', [userId]);
+            await db.runAsync('DELETE FROM profiles WHERE id = ?', [userId]);
+            const { error: fnError } = await supabase.functions.invoke('delete-user');
+            if (fnError) console.error("Cloud delete failed, local data wiped.");
+            setLoading(false);
+            setAlertConfig({
+                visible: true, type: 'success', title: 'Account Deleted', message: 'Your account has been permanently removed.', confirmText: 'Done',
+                onConfirm: async () => { setAlertConfig((prev: any) => ({ ...prev, visible: false })); await signOut(); router.replace('/'); }
+            });
+            return true;
+        } catch (error: any) {
+            setLoading(false);
+            setAlertConfig({ visible: true, type: 'error', title: 'Deletion Incomplete', message: 'Local data cleared, cloud error. Contact support.', onConfirm: () => { setAlertConfig((p:any) => ({...p, visible: false})); router.replace('/'); } });
+            return true;
+        }
+    };
 
-  const handleVerifyOtp = async (code: string) => {
-      if (otpType === 'email_change') {
-          // ... (Email change logic unchanged) ...
-          const { error } = await supabase.auth.verifyOtp({ email: newEmail, token: code, type: 'email_change' });
-          if (error) return false;
-          const { data: { session } } = await supabase.auth.refreshSession();
-          if (session?.user) { setUser(session.user); setNewEmail(session.user.email || ''); await supabase.from('profiles').update({ email: newEmail }).eq('id', session.user.id); }
-          setOtpVisible(false); setAlertConfig({ visible: true, type: 'success', title: 'Success', message: 'Email updated.', confirmText: 'OK', onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) });
-          return true;
-      } else if (otpType === 'delete') {
-          // Verify code first
-          const { error: verifyError } = await supabase.auth.verifyOtp({ email: user.email, token: code, type: 'email' }); 
-          if (verifyError) return false;
-          
-          setOtpVisible(false); 
-          setLoadingMsg("Deleting Data..."); 
-          setLoading(true);
-          
-          try {
-              // 1. Manually delete child data to prevent FK errors
-              // This is necessary if ON DELETE CASCADE is not set in DB
-              const uid = user.id;
-              
-              // Unlink jobs from profile
-              await supabase.from('profiles').update({ current_job_id: null }).eq('id', uid);
-              
-              // Delete dependent tables
-              await supabase.from('attendance').delete().eq('user_id', uid);
-              await supabase.from('accomplishments').delete().eq('user_id', uid);
-              await supabase.from('report_history').delete().eq('user_id', uid);
-              await supabase.from('job_positions').delete().eq('user_id', uid);
-              
-              // Finally delete profile (this might trigger user deletion if you have a trigger, otherwise we schedule it)
-              const { error: delError } = await supabase.from('profiles').delete().eq('id', uid);
-              
-              if (delError) {
-                  throw delError;
-              }
+    return (
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
+            <Header title="Account & Security" showBack />
+            <LoadingOverlay visible={loading} message={loadingMsg} />
+            <ModernAlert {...alertConfig} />
+            <DeleteConfirmationModal visible={deleteModalVisible} onClose={() => setDeleteModalVisible(false)} onConfirm={handleConfirmDelete} />
+            <OtpVerificationModal visible={otpVisible} email={user?.email || ''} onClose={() => setOtpVisible(false)} onVerify={handleVerifyOtp} onResend={async () => { await supabase.auth.signInWithOtp({ email: user?.email || '' }) }} title="Verify Deletion" message="Enter code to confirm deletion" />
 
-              // Sign out immediately
-              await supabase.auth.signOut();
-              router.replace('/login');
-              
-          } catch (e: any) {
-              setLoading(false);
-              setAlertConfig({ visible: true, type: 'error', title: 'Deletion Failed', message: e.message || 'Could not delete data. Contact support.', confirmText: 'OK', onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) });
-          }
-          return true;
-      }
-      return false;
-  };
-
-  // ... (Render UI same as before) ...
-  return (
-    <SafeAreaView className="flex-1 bg-[#F1F5F9] dark:bg-[#0B1120]" edges={['top']}>
-      <LoadingOverlay visible={loading} message={loadingMsg} />
-      <ModernAlert {...alertConfig} />
-      <OtpVerificationModal visible={otpVisible} email={targetEmail} onClose={() => setOtpVisible(false)} onVerify={handleVerifyOtp} onResend={() => {}} title="Verify Action" />
-      
-      <EditModal visible={emailModal} onClose={() => setEmailModal(false)} title="Change Email" saveLabel="Send Code" onSave={handleInitiateEmailUpdate}>
-        <TextInput value={newEmail} onChangeText={setNewEmail} placeholder="New Email" className="p-4 mb-3 text-base font-bold border bg-slate-50 rounded-xl border-slate-200 dark:text-white" />
-        {emailError ? <Text className="text-red-500">{emailError}</Text> : null}
-      </EditModal>
-
-      <EditModal visible={passwordModal} onClose={() => setPasswordModal(false)} title="Change Password" saveLabel="Update" onSave={handleUpdatePassword}>
-        <PasswordInput value={currentPassword} onChangeText={setCurrentPassword} placeholder="Current Password" isError={passError} />
-        <PasswordInput value={newPassword} onChangeText={setNewPassword} placeholder="New Password" isError={passError} />
-      </EditModal>
-
-      <Header title="Account & Security" />
-
-      <ScrollView contentContainerStyle={{ padding: 24 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
-        {/* ... (Login Details, Biometrics, Settings sections - same as previous) ... */}
-        
-        {/* LOGIN DETAILS */}
-        <View className="mb-6">
-            <Text className="mb-3 ml-1 text-xs font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500">Login Details</Text>
-            <View className="bg-white dark:bg-slate-800 rounded-[24px] overflow-hidden shadow-sm">
-                <View className="flex-row items-center justify-between p-4 border-b border-slate-100 dark:border-slate-700/50">
-                    <View className="flex-row items-center flex-1 gap-3">
-                        <View className="items-center justify-center w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700"><HugeiconsIcon icon={Mail01Icon} size={20} color="#6366f1" /></View>
-                        <View className="flex-1"><Text className="text-xs font-medium text-slate-400">Email</Text><Text className="text-base font-bold text-slate-900 dark:text-white" numberOfLines={1}>{user?.email}</Text></View>
-                    </View>
-                    <TouchableOpacity onPress={() => setEmailModal(true)} className="p-2 rounded-lg bg-slate-50 dark:bg-slate-700"><HugeiconsIcon icon={PencilEdit02Icon} size={18} color="#6366f1" /></TouchableOpacity>
-                </View>
-                <View className="flex-row items-center justify-between p-4">
-                    <View className="flex-row items-center flex-1 gap-3">
-                        <View className="items-center justify-center w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-700"><HugeiconsIcon icon={LockKeyIcon} size={20} color="#6366f1" /></View>
-                        <View className="flex-1"><Text className="text-xs font-medium text-slate-400">Password</Text><Text className="text-base font-bold text-slate-900 dark:text-white">••••••••</Text></View>
-                    </View>
-                    <TouchableOpacity onPress={() => setPasswordModal(true)} className="p-2 rounded-lg bg-slate-50 dark:bg-slate-700"><HugeiconsIcon icon={PencilEdit02Icon} size={18} color="#6366f1" /></TouchableOpacity>
-                </View>
-            </View>
-        </View>
-        
-        {/* BIOMETRICS */}
-        {biometricSupported && (
-            <View className="mb-6">
-                <Text className="mb-3 ml-1 text-xs font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500">Security</Text>
-                <View className="bg-white dark:bg-slate-800 rounded-[24px] overflow-hidden shadow-sm">
-                    <View className="flex-row items-center justify-between p-4">
-                        <View className="flex-row items-center flex-1 gap-3">
-                            <View className="items-center justify-center w-10 h-10 rounded-full bg-emerald-50 dark:bg-emerald-900/20"><HugeiconsIcon icon={FingerPrintIcon} size={20} color="#10b981" /></View>
-                            <View className="flex-1"><Text className="text-base font-bold text-slate-900 dark:text-white">Biometric Login</Text></View>
-                        </View>
-                        <Switch value={biometricEnabled} onValueChange={toggleBiometrics} trackColor={{ false: '#e2e8f0', true: '#10b981' }} thumbColor="#fff" />
+            <ScrollView contentContainerStyle={{ padding: 24 }}>
+                <View style={{ marginBottom: 24 }}>
+                    <Text style={styles.sectionTitle}>LOGIN SECURITY</Text>
+                    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
+                        {biometricSupported && (
+                            <ModernSettingsItem 
+                                icon={BiometricAccessIcon} 
+                                label="Biometric Unlock" 
+                                desc="Use FaceID/TouchID to open app" 
+                                theme={theme}
+                                rightElement={
+                                    <Switch value={biometricEnabled} onValueChange={toggleBiometric} trackColor={{ false: theme.colors.border, true: theme.colors.success }} thumbColor={'#fff'} style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }} />
+                                } 
+                            />
+                        )}
+                        <ModernSettingsItem 
+                            icon={LockKeyIcon} 
+                            label="Change Password" 
+                            desc="Update your login credentials" 
+                            onPress={handleChangePassword} 
+                            isLast 
+                            theme={theme} 
+                        />
                     </View>
                 </View>
-            </View>
-        )}
 
-        <View className="mb-6">
-            <Text className="mb-3 ml-1 text-xs font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500">Settings</Text>
-            <View className="bg-white dark:bg-slate-800 rounded-[24px] overflow-hidden shadow-sm">
-                 <TouchableOpacity onPress={() => router.push('/settings/notifications')} className="flex-row items-center justify-between p-4">
-                    <View className="flex-row items-center gap-3">
-                        <View className="items-center justify-center w-10 h-10 rounded-full bg-indigo-50 dark:bg-indigo-900/20"><HugeiconsIcon icon={Notification03Icon} size={20} color="#6366f1" /></View>
-                        <Text className="text-base font-bold text-slate-900 dark:text-white">Notification & Permissions</Text>
+                <View style={{ marginBottom: 24 }}>
+                    <Text style={styles.sectionTitle}>DANGER ZONE</Text>
+                    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
+                         <ModernSettingsItem 
+                            icon={Alert02Icon} 
+                            label="Delete Account" 
+                            desc="Permanently remove all data" 
+                            onPress={handleDeleteRequest} 
+                            destructive 
+                            isLast 
+                            theme={theme} 
+                        />
                     </View>
-                </TouchableOpacity>
-            </View>
-        </View>
-
-        {/* DELETE ACTION */}
-        <View className="mb-6">
-            <Text className="mb-3 ml-1 text-xs font-bold tracking-wider uppercase text-slate-400 dark:text-slate-500">Account Actions</Text>
-            <View className="bg-white dark:bg-slate-800 rounded-[24px] overflow-hidden shadow-sm border border-red-50 dark:border-red-900/20">
-                <TouchableOpacity onPress={handlePreDeleteConfirmation} className="flex-row items-center justify-between p-4 active:bg-red-50 dark:active:bg-red-900/10">
-                    <View className="flex-row items-center gap-3">
-                        <View className="items-center justify-center w-10 h-10 bg-red-100 rounded-full dark:bg-red-900/40"><HugeiconsIcon icon={Delete02Icon} size={20} color="#ef4444" /></View>
-                        <View className="flex-1 pr-4"><Text className="font-sans font-bold text-red-500">Delete Account</Text></View>
-                    </View>
-                </TouchableOpacity>
-            </View>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
-  );
+                </View>
+            </ScrollView>
+        </SafeAreaView>
+    );
 }
+
+const styles = StyleSheet.create({
+    sectionTitle: { fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase', opacity: 0.7, color: '#64748b' },
+    card: { borderRadius: 24, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+});

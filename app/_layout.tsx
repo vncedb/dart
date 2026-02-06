@@ -1,3 +1,4 @@
+// Fixed Navigation Guard to allow 'update-password' for logged-in users
 import {
   Nunito_400Regular,
   Nunito_500Medium,
@@ -6,17 +7,13 @@ import {
   useFonts,
 } from "@expo-google-fonts/nunito";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import {
-  DarkTheme,
-  DefaultTheme,
-  ThemeProvider,
-} from "@react-navigation/native";
+import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
 import * as Notifications from 'expo-notifications';
-import { Stack, useRouter, useSegments } from "expo-router";
+import { Stack, useRootNavigationState, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useColorScheme } from "nativewind";
 import { useEffect, useRef, useState } from "react";
-import { LogBox, Platform, View } from "react-native";
+import { LogBox, Platform, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
@@ -25,12 +22,10 @@ import { AuthProvider, useAuth } from "../context/AuthContext";
 import { SyncProvider } from "../context/SyncContext";
 import "../global.css";
 import { initDatabase } from "../lib/database";
-import { ReportService } from "../services/ReportService";
 
 LogBox.ignoreLogs([
   "SafeAreaView has been deprecated",
   "shouldShowAlert is deprecated",
-  "Warning: SafeAreaView",
 ]);
 
 SplashScreen.preventAutoHideAsync();
@@ -50,12 +45,11 @@ function RootLayoutNav() {
   const { colorScheme, setColorScheme } = useColorScheme();
   const router = useRouter();
   const segments = useSegments();
-  
-  const [isAppReady, setIsAppReady] = useState(false);
-  const [isBiometricAuthorized, setIsBiometricAuthorized] = useState(false);
-  const [biometricCheckComplete, setBiometricCheckComplete] = useState(false);
-  
-  const responseListener = useRef<Notifications.Subscription | null>(null);
+  const rootNavigationState = useRootNavigationState();
+
+  const [isReady, setIsReady] = useState(false);
+  const [isBiometricLocked, setIsBiometricLocked] = useState(false);
+  const isInitialized = useRef(false);
 
   const [fontsLoaded] = useFonts({
     Nunito_400Regular,
@@ -64,146 +58,102 @@ function RootLayoutNav() {
     Nunito_700Bold,
   });
 
+  // 1. Initialization
   useEffect(() => {
-    const prepareApp = async () => {
+    if (isInitialized.current) return;
+    
+    async function prepare() {
+      isInitialized.current = true;
       try {
         await initDatabase();
         const storedSettings = await AsyncStorage.getItem("appSettings");
-        let biometricEnabled = false;
-
+        
         if (storedSettings) {
           const parsed = JSON.parse(storedSettings);
           if (parsed.themePreference) {
-             setColorScheme(parsed.themePreference === 'system' ? 'system' : parsed.themePreference);
+            if (parsed.themePreference !== 'system' || colorScheme !== 'system') {
+               setColorScheme(parsed.themePreference === 'system' ? 'system' : parsed.themePreference);
+            }
           }
-          biometricEnabled = !!parsed.biometricEnabled;
+          if (parsed.biometricEnabled) {
+             setIsBiometricLocked(true); 
+          }
         }
-
-        // BIOMETRIC CHECK: Only run if user is logged in
-        if (biometricEnabled && user) {
-            setIsBiometricAuthorized(false);
-        } else {
-            setIsBiometricAuthorized(true);
-        }
-        setBiometricCheckComplete(true);
-
       } catch (e) {
-        console.warn("Initialization Error:", e);
-        setIsBiometricAuthorized(true);
-        setBiometricCheckComplete(true);
+        console.warn("Init Error:", e);
       } finally {
-        setIsAppReady(true);
+        setIsReady(true);
       }
-    };
-
-    if (!isAuthLoading) {
-        prepareApp();
     }
-  }, [isAuthLoading, user]);
+    prepare();
+  }, []); 
 
+  // 2. Notifications
   useEffect(() => {
-    const setupNotifications = async () => {
-      if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync('default', {
-          name: 'Default',
-          importance: Notifications.AndroidImportance.MAX,
-          vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#FF231F7C',
-        });
-      }
+    if (Platform.OS === 'android') {
+      Notifications.setNotificationChannelAsync('default', {
+        name: 'Default',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#FF231F7C',
+      });
+    }
 
-      await Notifications.setNotificationCategoryAsync("active_job", [
-        {
-          identifier: "clock_out",
-          buttonTitle: "Clock Out",
-          options: { isDestructive: true, opensAppToForeground: true }, 
-        },
-        {
-          identifier: "view_job",
-          buttonTitle: "View Timer",
-          options: { opensAppToForeground: true },
-        },
-      ]);
-    };
-
-    setupNotifications();
-
-    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
+    const subscription = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data;
-      const actionId = response.actionIdentifier;
-
-      if (data && data.action === 'open_saved_reports') {
-        router.push('/reports/saved-reports');
-      }
-
-      if (actionId === 'clock_out' || actionId === 'view_job' || data?.type === 'ongoing_job') {
-        router.push('/(tabs)/home');
-      }
+      if (data?.action === 'open_saved_reports') router.push('/reports/saved-reports');
+      if (data?.type === 'ongoing_job') router.push('/(tabs)/home');
     });
 
-    return () => {
-      if (responseListener.current) {
-        responseListener.current.remove();
-      }
-    };
-  }, [router]);
+    return () => subscription.remove();
+  }, []);
 
+  // 3. Navigation Guard
   useEffect(() => {
-    if (!isAuthLoading && user?.id) {
-       ReportService.checkAndGenerateAutoReports(user.id);
-    }
-  }, [isAuthLoading, user]);
+    if (!rootNavigationState?.key || !isReady || !fontsLoaded || isAuthLoading) return;
 
-  // --- NAVIGATION GUARD ---
-  useEffect(() => {
-    if (!fontsLoaded || isAuthLoading || !isAppReady || !biometricCheckComplete) {
-      return;
-    }
+    const currentSegments = segments as string[];
+    const isRoot = currentSegments.length === 0;
+    
+    // Define Route Groups
+    const inAuthGroup = currentSegments[0] === 'auth';
+    const inTabsGroup = currentSegments[0] === '(tabs)';
+    const inOnboarding = currentSegments[0] === 'onboarding';
+    
+    // Exception: Allow logged-in users to access these specific auth screens
+    const isProtectedAuthRoute = 
+        currentSegments.join('/') === 'auth/update-password';
 
-    const performNavigationAndHideSplash = async () => {
-      const inAuthGroup = segments[0] === '(auth)';
-      const isRoot = segments.length === 0;
-
+    const checkNavigation = async () => {
       if (user) {
-          // User is authenticated
-          if (!isOnboarded) {
-              // Redirect to Simplified Onboarding (app/onboarding.tsx)
-              router.replace('/onboarding');
-          } else {
-              // User is onboarded -> Go Home
-              // Only redirect if currently on Auth or Index screens
-              if (isRoot || inAuthGroup) {
-                  router.replace('/(tabs)/home');
-              }
+        // --- LOGGED IN ---
+        if (!isOnboarded) {
+          // Force Onboarding
+          if (!inOnboarding) router.replace('/onboarding');
+        } else {
+          // Authenticated & Onboarded
+          // Redirect to Home IF trying to access Guest pages (Index, Login, Signup)
+          // BUT allow if they are on a 'Protected' auth route like Change Password
+          if (isRoot || inOnboarding || (inAuthGroup && !isProtectedAuthRoute)) {
+             router.replace('/(tabs)/home');
           }
-      } 
-      else {
-          // User is NOT authenticated
-          // If trying to access protected tabs, kick back to Index
-          if (segments[0] === '(tabs)') {
-              router.replace('/');
-          }
+        }
+      } else {
+        // --- GUEST ---
+        // Redirect to Index if trying to access Protected pages
+        if (inTabsGroup || inOnboarding || isProtectedAuthRoute) {
+           router.replace('/');
+        }
       }
-
+      
       await SplashScreen.hideAsync();
     };
 
-    performNavigationAndHideSplash();
-  }, [fontsLoaded, isAuthLoading, isAppReady, biometricCheckComplete, isOnboarded, user, segments]);
+    checkNavigation();
+  }, [isReady, fontsLoaded, isAuthLoading, user, isOnboarded, segments, rootNavigationState?.key]);
 
-
-  // --- RENDER GUARD ---
-  if (!fontsLoaded || isAuthLoading || !isAppReady || !biometricCheckComplete) {
+  if (!isReady || !fontsLoaded || isAuthLoading) {
     return null; 
-  }
-
-  // --- BIOMETRIC LOCK UI ---
-  if (!isBiometricAuthorized) {
-    return (
-      <BiometricLockScreen 
-        onUnlock={() => setIsBiometricAuthorized(true)} 
-      />
-    );
   }
 
   return (
@@ -212,25 +162,33 @@ function RootLayoutNav() {
         <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
           <Stack.Screen name="index" />
           <Stack.Screen name="auth" />
-          <Stack.Screen name="onboarding" options={{ animation: "fade", gestureEnabled: false }} />
-          <Stack.Screen name="(tabs)" options={{ gestureEnabled: false, animation: "fade" }} />
+          <Stack.Screen name="auth/update-password" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="auth/forgot-password" options={{ animation: "slide_from_right" }} />
           
-          {/* Other settings & features */}
+          <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
+          <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
+          
           <Stack.Screen name="settings" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/account-security" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/notifications" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/privacy-policy" options={{ animation: "slide_from_right" }} />
-          <Stack.Screen name="edit-profile" options={{ animation: "slide_from_right" }} />
-          <Stack.Screen name="job/job" options={{ animation: "slide_from_right" }} />
-          <Stack.Screen name="job/form" options={{ animation: "slide_from_right", presentation: "modal" }} />
-          <Stack.Screen name="reports/details" options={{ animation: "slide_from_right", presentation: "modal" }} />
-          <Stack.Screen name="reports/saved-reports" options={{ animation: "slide_from_right" }} />
-          <Stack.Screen name="reports/generate" options={{ animation: "slide_from_right" }} />
-          <Stack.Screen name="reports/preview" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="settings/about" options={{ animation: "slide_from_right" }} />
           
-          {/* Screens removed from flow but kept for safety/references if files exist */}
-          <Stack.Screen name="introduction" options={{ animation: "fade" }} />
+          <Stack.Screen name="edit-profile" options={{ animation: "slide_from_bottom", presentation: "modal" }} />
+          <Stack.Screen name="job/job" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="job/form" options={{ animation: "slide_from_bottom", presentation: "modal" }} />
+          
+          <Stack.Screen name="reports/saved-reports" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="reports/generate" options={{ animation: "slide_from_bottom", presentation: "modal" }} />
+          <Stack.Screen name="reports/preview" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="reports/details" options={{ animation: "slide_from_bottom", presentation: "modal" }} />
         </Stack>
+
+        {isBiometricLocked && user && (
+          <View style={StyleSheet.absoluteFill} pointerEvents="auto">
+             <BiometricLockScreen onUnlock={() => setIsBiometricLocked(false)} />
+          </View>
+        )}
       </View>
     </ThemeProvider>
   );

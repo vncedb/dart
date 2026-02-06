@@ -1,3 +1,4 @@
+// AuthContext with Biometric Reset on SignOut
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Session, User } from '@supabase/supabase-js';
 import { useRouter } from 'expo-router';
@@ -5,6 +6,7 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import { supabase } from '../lib/supabase';
 
 const ONBOARDED_KEY = 'isOnboarded';
+const APP_SETTINGS_KEY = 'appSettings';
 
 type AuthContextType = {
   session: Session | null;
@@ -38,7 +40,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       await AsyncStorage.setItem(ONBOARDED_KEY, 'true');
       setIsOnboarded(true);
-      // RootLayout will handle the redirection to Home
     } catch (error) {
       console.error('Failed to complete onboarding:', error);
     }
@@ -47,12 +48,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const signOut = useCallback(async () => {
     setIsLoading(true);
     try {
+      // 1. Sign out from Supabase
       await supabase.auth.signOut();
+      
+      // 2. Reset Local State
       setSession(null);
       setUser(null);
-      // Optional: Reset onboarding if you want users to see it again upon re-login
-      // await AsyncStorage.removeItem(ONBOARDED_KEY); 
-      // setIsOnboarded(false);
+      
+      // 3. Disable Biometric Unlock in Settings (Reset to Off)
+      const storedSettings = await AsyncStorage.getItem(APP_SETTINGS_KEY);
+      if (storedSettings) {
+          const parsed = JSON.parse(storedSettings);
+          parsed.biometricEnabled = false; // Force disable
+          await AsyncStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(parsed));
+      }
+
     } catch (error) {
       console.error("Sign out failed:", error);
     } finally {

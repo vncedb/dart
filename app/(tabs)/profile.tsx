@@ -1,10 +1,10 @@
+// Profile: Fixed Buttons (Top Only), Removed Guest Logic & Redundancy
 import {
     Briefcase01Icon,
     Briefcase02Icon,
     Calendar03Icon,
     Camera01Icon,
     Clock01Icon,
-    CloudUploadIcon,
     DollarCircleIcon,
     Layers01Icon,
     Mail01Icon,
@@ -15,7 +15,6 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import NetInfo from '@react-native-community/netinfo';
-// UPDATED: Use named imports to fix TS errors
 import {
     cacheDirectory,
     documentDirectory,
@@ -28,7 +27,6 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
-    // Dimensions, // Removed unused import
     Image,
     Platform,
     RefreshControl,
@@ -134,7 +132,7 @@ const JobCard = ({ currentJob, visibleKeys, theme, onEdit }: any) => {
     );
 };
 
-const EmptyJobCard = ({ theme, router, hasJobs }: any) => (
+const EmptyJobCard = ({ theme, hasJobs }: any) => (
     <View style={[styles.emptyCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
         <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
             <HugeiconsIcon icon={Briefcase01Icon} size={32} color={theme.colors.primary} />
@@ -146,38 +144,9 @@ const EmptyJobCard = ({ theme, router, hasJobs }: any) => (
         
         <Text style={[styles.emptyDesc, { color: theme.colors.textSecondary }]}>
             {hasJobs 
-                ? "You have saved jobs but none are set as active." 
+                ? "You have saved jobs but none are set as active. Use 'Manage Jobs' above to select one." 
                 : "Set up your job profile to start tracking your attendance."}
         </Text>
-        
-        <TouchableOpacity 
-            onPress={() => router.push('/job/job')} 
-            style={[styles.primaryButton, { backgroundColor: theme.colors.primary }]}
-        >
-            <Text style={styles.primaryButtonText}>
-                {hasJobs ? "Select Active Job" : "Manage Jobs"}
-            </Text>
-        </TouchableOpacity>
-    </View>
-);
-
-const GuestSyncCard = ({ theme, router }: any) => (
-    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, marginBottom: 20 }]}>
-        <View style={{ padding: 20, alignItems: 'center' }}>
-            <View style={{ width: 50, height: 50, borderRadius: 25, backgroundColor: theme.colors.primary + '15', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
-                <HugeiconsIcon icon={CloudUploadIcon} size={28} color={theme.colors.primary} />
-            </View>
-            <Text style={[styles.jobTitle, { color: theme.colors.text, textAlign: 'center' }]}>Back up your data</Text>
-            <Text style={{ textAlign: 'center', color: theme.colors.textSecondary, marginTop: 4, marginBottom: 16 }}>
-                Create an account to sync your reports across devices and keep them safe.
-            </Text>
-            <TouchableOpacity 
-                onPress={() => router.push('/auth')}
-                style={[styles.primaryButton, { backgroundColor: theme.colors.primary, width: '100%' }]}
-            >
-                <Text style={[styles.primaryButtonText, { textAlign: 'center' }]}>Sign In / Create Account</Text>
-            </TouchableOpacity>
-        </View>
     </View>
 );
 
@@ -212,8 +181,7 @@ export default function ProfileScreen() {
         try {
             if (!user) { setIsLoading(false); return; }
             const userId = user.id;
-            const isGuest = !!user.is_guest;
-            setEmail(user.email || 'Guest User');
+            setEmail(user.email || '');
 
             const db = await getDB();
 
@@ -243,17 +211,11 @@ export default function ProfileScreen() {
             if (tempProfile) {
                 setViewData({ profile: tempProfile, job: tempJob });
             } else {
-                if (isGuest && !localProfile) {
-                    const guestProfile = { id: userId, first_name: 'Guest', last_name: 'User', is_onboarded: 1 };
-                    await saveProfileLocal(guestProfile);
-                    setViewData({ profile: guestProfile, job: null });
-                } else {
-                    setIsLoading(true);
-                }
+                setIsLoading(true);
             }
 
             const state = await NetInfo.fetch();
-            if (!isGuest && state.isConnected) {
+            if (state.isConnected) {
                 const { data: remoteProfile } = await supabase.from('profiles').select('*').eq('id', userId).single();
                 if (remoteProfile) {
                     if (remoteProfile.avatar_url) {
@@ -262,12 +224,10 @@ export default function ProfileScreen() {
                             const cleanFileName = rawFileName ? rawFileName.split('?')[0].replace(/[^a-zA-Z0-9._-]/g, '_') : 'avatar.jpg';
                             const fileName = `${userId}_${cleanFileName}`;
                             
-                            // UPDATED: Using named import directory constants
                             const rootDir = documentDirectory || cacheDirectory;
                             
                             if (rootDir) {
                                 const avatarDir = `${rootDir}avatars/`;
-                                // UPDATED: Using named import functions directly
                                 const dirInfo = await getInfoAsync(avatarDir);
                                 if (!dirInfo.exists) await makeDirectoryAsync(avatarDir, { intermediates: true });
 
@@ -306,7 +266,7 @@ export default function ProfileScreen() {
 
     const onRefresh = async () => { 
         setRefreshing(true); 
-        if (user && !user.is_guest) await triggerSync(); 
+        if (user) await triggerSync(); 
         await loadData(true); 
     };
 
@@ -318,7 +278,7 @@ export default function ProfileScreen() {
                 const path = pathParts[1].split('?')[0]; 
                 await supabase.storage.from('avatars').remove([path]);
             }
-        } catch (e) { console.log("Failed to delete old avatar:", e); }
+        } catch (e) { console.log("Failed to delete old profile picture:", e); }
     };
 
     const uploadAvatar = async (uri: string, userId: string) => {
@@ -349,26 +309,22 @@ export default function ProfileScreen() {
 
             let finalUpdates = { ...updates };
             
-            if (!user.is_guest && updates.avatar_url && updates.avatar_url.startsWith('file://')) {
+            if (updates.avatar_url && updates.avatar_url.startsWith('file://')) {
                  setLoadingMessage('Uploading Image...');
                  try {
                      const publicUrl = await uploadAvatar(updates.avatar_url, user.id);
                      finalUpdates.avatar_url = publicUrl;
                      finalUpdates.local_avatar_path = updates.avatar_url; 
                      if (viewData.profile.avatar_url && viewData.profile.avatar_url !== publicUrl) deleteOldAvatar(viewData.profile.avatar_url);
-                 } catch (e: any) { // Type check 'e' properly or suppress if known 'any'
+                 } catch (e: any) { 
                      setIsUpdating(false);
                      let title = "Upload Failed";
                      let message = "Could not upload image.";
-                     // Assuming 'e' is Error-like
                      if (e.message === 'Offline') message = "You are offline.";
                      else if (e.message === 'Request timed out') title = "Upload Timeout";
                      setAlertConfig({ visible: true, type: 'error', title, message, confirmText: 'OK', onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) });
                      return; 
                  }
-            } else if (updates.avatar_url && updates.avatar_url.startsWith('file://') && user.is_guest) {
-                finalUpdates.local_avatar_path = updates.avatar_url;
-                finalUpdates.avatar_url = null; 
             }
 
             setLoadingMessage('Saving Data...');
@@ -377,11 +333,10 @@ export default function ProfileScreen() {
             
             await saveProfileLocal(updatedProfile);
             
-            if (!user.is_guest) {
-                const { local_avatar_path, ...syncData } = finalUpdates;
-                await queueSyncItem('profiles', user.id, 'UPDATE', syncData);
-                triggerSync();
-            }
+            const { local_avatar_path, ...syncData } = finalUpdates;
+            await queueSyncItem('profiles', user.id, 'UPDATE', syncData);
+            triggerSync();
+            
         } catch (e) { 
             console.log("Update Error:", e);
             setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Failed to save changes.', confirmText: 'OK', onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) });
@@ -402,7 +357,7 @@ export default function ProfileScreen() {
     const avatarSource = userProfile?.local_avatar_path ? { uri: userProfile.local_avatar_path } : (userProfile?.avatar_url ? { uri: userProfile.avatar_url } : null);
 
     const displayName = (() => {
-        if(!userProfile) return 'Guest User';
+        if(!userProfile) return 'User';
         const titlePart = userProfile.title ? `${userProfile.title.trim()} ` : '';
         const middleInitial = userProfile.middle_name && userProfile.middle_name.trim().length > 0 ? ` ${userProfile.middle_name.trim().charAt(0).toUpperCase()}.` : '';
         const namePart = `${userProfile.first_name || ''}${middleInitial} ${userProfile.last_name || ''}`.trim() || userProfile.full_name || 'User';
@@ -410,7 +365,6 @@ export default function ProfileScreen() {
     })();
 
     const displayJobTitle = userJob ? userJob.title : 'No Job Selected';
-    const isGuest = user?.is_guest;
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
@@ -434,13 +388,7 @@ export default function ProfileScreen() {
             ) : (
                 <ScrollView contentContainerStyle={styles.scrollContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} />} showsVerticalScrollIndicator={false}>
                     
-                    {isGuest && (
-                        <View style={{ paddingHorizontal: 24, marginTop: 24 }}>
-                            <GuestSyncCard theme={theme} router={router} />
-                        </View>
-                    )}
-
-                    <View style={[styles.profileSection, { paddingTop: isGuest ? 0 : 32 }]}>
+                    <View style={styles.profileSection}>
                         <TouchableOpacity onPress={() => setAvatarModalVisible(true)} activeOpacity={0.8}>
                             <View style={styles.avatarMainContainer}>
                                 <View style={[styles.avatarWrapper, { borderColor: theme.colors.primary, backgroundColor: theme.colors.card }]}>
@@ -469,6 +417,7 @@ export default function ProfileScreen() {
                             </View>
                         </View>
 
+                        {/* Top Action Buttons - Manage Jobs Kept Here */}
                         <View style={styles.actionButtonsRow}>
                             <TouchableOpacity onPress={() => router.push('/edit-profile')} style={[styles.actionButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                                 <HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.text} />
@@ -483,7 +432,17 @@ export default function ProfileScreen() {
 
                     <View style={styles.sectionContainer}>
                         <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>CURRENT JOB</Text>
-                        {userJob ? <JobCard currentJob={userJob} visibleKeys={visibleDetailKeys} theme={theme} onEdit={() => setModalVisible(true)} /> : <EmptyJobCard theme={theme} router={router} hasJobs={hasJobs} />}
+                        {userJob ? (
+                            <JobCard 
+                                currentJob={userJob} 
+                                visibleKeys={visibleDetailKeys} 
+                                theme={theme} 
+                                onEdit={() => setModalVisible(true)} 
+                                router={router}
+                            />
+                        ) : (
+                            <EmptyJobCard theme={theme} router={router} hasJobs={hasJobs} />
+                        )}
                     </View>
                 </ScrollView>
             )}
