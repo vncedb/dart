@@ -57,12 +57,94 @@ interface DatePickerProps {
   onSelect: (date: Date) => void;
   selectedDate?: Date;
   title?: string;
-  markedDates?: string[]; // New Prop
+  markedDates?: string[];
 }
 
 type ViewMode = "calendar" | "month" | "year";
 
-// ... (WheelItem and WheelPicker components remain unchanged) ...
+// --- MEMOIZED DAY CELL ---
+// Extracting this prevents the entire grid from re-rendering on selection
+const DayCell = React.memo(
+  ({
+    day,
+    isSelected,
+    isCurrentMonth,
+    isToday,
+    hasIndicator,
+    onSelect,
+    theme,
+  }: {
+    day: Date;
+    isSelected: boolean;
+    isCurrentMonth: boolean;
+    isToday: boolean;
+    hasIndicator: boolean;
+    onSelect: (date: Date) => void;
+    theme: any;
+  }) => {
+    return (
+      <View style={styles.dayCellWrapper}>
+        <TouchableOpacity
+          onPress={() => onSelect(day)}
+          style={[
+            styles.dayCell,
+            {
+              backgroundColor: isSelected ? theme.colors.primary : "transparent",
+            },
+            !isSelected &&
+              isToday && {
+                borderWidth: 1.5,
+                borderColor: theme.colors.primary,
+              },
+          ]}
+        >
+          <Text
+            style={[
+              styles.dayText,
+              {
+                color: isCurrentMonth
+                  ? theme.colors.text
+                  : theme.colors.textSecondary,
+              },
+              !isSelected &&
+                isToday && {
+                  color: theme.colors.primary,
+                  fontWeight: "700",
+                },
+              isSelected && { color: "#fff", fontWeight: "800" },
+            ]}
+          >
+            {format(day, "d")}
+          </Text>
+
+          {hasIndicator && (
+            <View
+              style={{
+                position: "absolute",
+                bottom: 6,
+                width: 4,
+                height: 4,
+                borderRadius: 2,
+                backgroundColor: isSelected ? "#fff" : theme.colors.primary,
+              }}
+            />
+          )}
+        </TouchableOpacity>
+      </View>
+    );
+  },
+  (prev, next) => {
+    return (
+      prev.isSelected === next.isSelected &&
+      prev.isCurrentMonth === next.isCurrentMonth &&
+      prev.hasIndicator === next.hasIndicator &&
+      prev.theme === next.theme &&
+      prev.day.getTime() === next.day.getTime()
+    );
+  }
+);
+DayCell.displayName = "DayCell";
+
 // --- WHEEL ITEM ---
 const WheelItem = React.memo(
   ({ item, index, scrollY, onPress, formatLabel, theme }: any) => {
@@ -75,18 +157,18 @@ const WheelItem = React.memo(
         distance,
         [0, ITEM_HEIGHT, ITEM_HEIGHT * 2],
         [1.2, 0.85, 0.7],
-        Extrapolation.CLAMP,
+        Extrapolation.CLAMP
       );
       const opacity = interpolate(
         distance,
         [0, ITEM_HEIGHT, ITEM_HEIGHT * 2],
         [1, 0.4, 0.2],
-        Extrapolation.CLAMP,
+        Extrapolation.CLAMP
       );
       const color = interpolateColor(
         distance,
         [0, ITEM_HEIGHT],
-        [theme.colors.primary, theme.colors.textSecondary],
+        [theme.colors.primary, theme.colors.textSecondary]
       );
 
       return { transform: [{ scale }], opacity, color };
@@ -109,31 +191,19 @@ const WheelItem = React.memo(
         </Animated.Text>
       </TouchableOpacity>
     );
-  },
+  }
 );
 WheelItem.displayName = "WheelItem";
 
 // --- WHEEL PICKER ---
 const WheelPicker = React.memo(
-  ({ data, initialIndex, onChange, formatLabel, onClose }: any) => {
+  ({ data, initialIndex, onChange, formatLabel }: any) => {
     const theme = useAppTheme();
-    const scrollY = useSharedValue(0);
+    const scrollY = useSharedValue(initialIndex * ITEM_HEIGHT); // Initialize directly
     const [activeIndex, setActiveIndex] = useState(initialIndex);
-     
     const flatListRef = React.useRef<FlatList>(null);
-    const [isReady, setIsReady] = useState(false);
 
-    useEffect(() => {
-      const timer = setTimeout(() => {
-        flatListRef.current?.scrollToOffset({
-          offset: initialIndex * ITEM_HEIGHT,
-          animated: false,
-        });
-        scrollY.value = initialIndex * ITEM_HEIGHT;
-        setIsReady(true);
-      }, 0);
-      return () => clearTimeout(timer);
-    }, []);
+    // Removed setTimeout/isReady state. getItemLayout handles the positioning efficiently.
 
     const onScroll = useAnimatedScrollHandler((event) => {
       scrollY.value = event.contentOffset.y;
@@ -149,7 +219,7 @@ const WheelPicker = React.memo(
           if (Platform.OS !== "web") Haptics.selectionAsync();
         }
       },
-      [data.length, activeIndex, onChange],
+      [data.length, activeIndex, onChange]
     );
 
     const handlePress = useCallback(
@@ -162,7 +232,7 @@ const WheelPicker = React.memo(
         onChange(index);
         if (Platform.OS !== "web") Haptics.selectionAsync();
       },
-      [onChange],
+      [onChange]
     );
 
     return (
@@ -171,7 +241,6 @@ const WheelPicker = React.memo(
           height: CONTENT_HEIGHT,
           width: "100%",
           overflow: "hidden",
-          opacity: isReady ? 1 : 0,
         }}
       >
         <Animated.FlatList
@@ -205,11 +274,12 @@ const WheelPicker = React.memo(
           onMomentumScrollEnd={handleMomentumEnd}
           removeClippedSubviews={true}
           initialNumToRender={10}
+          maxToRenderPerBatch={10}
           windowSize={5}
         />
       </View>
     );
-  },
+  }
 );
 WheelPicker.displayName = "WheelPicker";
 
@@ -220,27 +290,29 @@ export default function DatePicker({
   onSelect,
   selectedDate = new Date(),
   title = "Select Date",
-  markedDates = []
+  markedDates = [],
 }: DatePickerProps) {
   const theme = useAppTheme();
   const [tempDate, setTempDate] = useState(new Date(selectedDate));
   const [currentMonth, setCurrentMonth] = useState(new Date(selectedDate));
   const [viewMode, setViewMode] = useState<ViewMode>("calendar");
-  
+
   const [showModal, setShowModal] = useState(visible);
   const animation = useSharedValue(0);
 
   const months = useMemo(
     () => Array.from({ length: 12 }, (_, i) => new Date(0, i)),
-    [],
+    []
   );
-  
+
   const years = useMemo(() => {
     const startYear = 1900;
     const currentYear = new Date().getFullYear();
+    // Pre-calculate to avoid loop on every render if not needed, 
+    // though useMemo handles it well.
     return Array.from(
       { length: currentYear - startYear + 1 },
-      (_, i) => startYear + i,
+      (_, i) => startYear + i
     );
   }, []);
 
@@ -250,7 +322,7 @@ export default function DatePicker({
       setTempDate(new Date(selectedDate));
       setCurrentMonth(new Date(selectedDate));
       setViewMode("calendar");
-      
+
       animation.value = withSpring(1, {
         damping: 18,
         stiffness: 120,
@@ -258,17 +330,17 @@ export default function DatePicker({
       });
     } else {
       if (showModal) {
-         closeModal();
+        closeModal();
       }
     }
   }, [visible, selectedDate]);
 
   const closeModal = (callback?: () => void) => {
     animation.value = withTiming(0, { duration: 200 }, (finished) => {
-        if (finished) {
-            runOnJS(setShowModal)(false);
-            if (callback) runOnJS(callback)();
-        }
+      if (finished) {
+        runOnJS(setShowModal)(false);
+        if (callback) runOnJS(callback)();
+      }
     });
   };
 
@@ -278,10 +350,15 @@ export default function DatePicker({
 
   const handleConfirm = () => {
     closeModal(() => {
-        onClose();
-        onSelect(tempDate);
+      onClose();
+      onSelect(tempDate);
     });
   };
+
+  const handleDaySelect = useCallback((day: Date) => {
+    setTempDate(day);
+    if (Platform.OS !== "web") Haptics.selectionAsync();
+  }, []);
 
   const animatedBackdropStyle = useAnimatedStyle(() => ({
     opacity: animation.value,
@@ -301,7 +378,8 @@ export default function DatePicker({
   const handleMonthChange = useCallback((index: number) => {
     setCurrentMonth((prev) => {
       const newDate = setMonth(prev, index);
-      setTempDate((d) => setMonth(d, index));
+      // Optional: keep selection in sync with month scroll
+      // setTempDate((d) => setMonth(d, index)); 
       return newDate;
     });
   }, []);
@@ -312,12 +390,13 @@ export default function DatePicker({
       if (year) {
         setCurrentMonth((prev) => {
           const newDate = setYear(prev, year);
-          setTempDate((d) => setYear(d, year));
+          // Optional: keep selection in sync with year scroll
+          // setTempDate((d) => setYear(d, year)); 
           return newDate;
         });
       }
     },
-    [years],
+    [years]
   );
 
   const calendarDays = useMemo(() => {
@@ -329,8 +408,8 @@ export default function DatePicker({
 
   const renderCalendar = () => (
     <Animated.View
-      entering={FadeIn}
-      exiting={FadeOut}
+      entering={FadeIn.duration(200)}
+      exiting={FadeOut.duration(200)}
       style={styles.calendarContainer}
     >
       <View style={styles.weekHeader}>
@@ -345,65 +424,23 @@ export default function DatePicker({
       </View>
       <View style={styles.daysGrid}>
         {calendarDays.map((day) => {
-          const dateStr = format(day, 'yyyy-MM-dd');
+          const dateStr = format(day, "yyyy-MM-dd");
           const isSelected = isSameDay(day, tempDate);
           const isCurrentMonth = isSameMonth(day, currentMonth);
           const isToday = isSameDay(day, new Date());
           const hasIndicator = markedDates.includes(dateStr);
 
           return (
-            <View key={day.toISOString()} style={styles.dayCellWrapper}>
-              <TouchableOpacity
-                onPress={() => {
-                  setTempDate(day);
-                  if (Platform.OS !== "web") Haptics.selectionAsync();
-                }}
-                style={[
-                  styles.dayCell,
-                  {
-                    backgroundColor: isSelected
-                      ? theme.colors.primary
-                      : "transparent",
-                  },
-                  !isSelected &&
-                    isToday && {
-                      borderWidth: 1.5,
-                      borderColor: theme.colors.primary,
-                    },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.dayText,
-                    {
-                      color: isCurrentMonth
-                        ? theme.colors.text
-                        : theme.colors.textSecondary,
-                    },
-                    !isSelected &&
-                      isToday && {
-                        color: theme.colors.primary,
-                        fontWeight: "700",
-                      },
-                    isSelected && { color: "#fff", fontWeight: "800" },
-                  ]}
-                >
-                  {format(day, "d")}
-                </Text>
-                
-                {/* Activity Indicator Dot */}
-                {hasIndicator && (
-                    <View style={{
-                        position: 'absolute',
-                        bottom: 6,
-                        width: 4,
-                        height: 4,
-                        borderRadius: 2,
-                        backgroundColor: isSelected ? '#fff' : theme.colors.primary
-                    }} />
-                )}
-              </TouchableOpacity>
-            </View>
+            <DayCell
+              key={day.toISOString()}
+              day={day}
+              isSelected={isSelected}
+              isCurrentMonth={isCurrentMonth}
+              isToday={isToday}
+              hasIndicator={hasIndicator}
+              onSelect={handleDaySelect}
+              theme={theme}
+            />
           );
         })}
       </View>
@@ -426,9 +463,9 @@ export default function DatePicker({
         <Pressable onPress={(e) => e.stopPropagation()}>
           <Animated.View
             style={[
-              styles.container, 
+              styles.container,
               { backgroundColor: theme.colors.card },
-              animatedContainerStyle
+              animatedContainerStyle,
             ]}
           >
             <ModalHeader title={title} position="center" />
@@ -526,11 +563,10 @@ export default function DatePicker({
                 <WheelPicker
                   data={months}
                   initialIndex={months.findIndex(
-                    (m) => m.getMonth() === currentMonth.getMonth(),
+                    (m) => m.getMonth() === currentMonth.getMonth()
                   )}
                   onChange={handleMonthChange}
                   formatLabel={formatMonth}
-                  onClose={() => setViewMode("calendar")}
                 />
               )}
               {viewMode === "year" && (
@@ -538,11 +574,10 @@ export default function DatePicker({
                   data={years}
                   initialIndex={Math.max(
                     0,
-                    years.indexOf(currentMonth.getFullYear()),
+                    years.indexOf(currentMonth.getFullYear())
                   )}
                   onChange={handleYearChange}
                   formatLabel={formatYear}
-                  onClose={() => setViewMode("calendar")}
                 />
               )}
             </View>

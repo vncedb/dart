@@ -1,20 +1,15 @@
 // Hidden Scroll Bar Indicator
 import {
-  ArrowRight01Icon,
-  Delete02Icon,
-  InformationCircleIcon,
-  Logout01Icon,
-  Mail01Icon,
-  Moon02Icon,
-  Notification01Icon,
-  PaintBoardIcon,
-  SecurityCheckIcon,
-  SmartPhone02Icon,
-  Sun03Icon,
-  Tick02Icon,
-  VolumeHighIcon
+    ArrowRight01Icon,
+    Delete02Icon,
+    InformationCircleIcon,
+    Logout01Icon,
+    Mail01Icon,
+    Notification01Icon,
+    PaintBoardIcon,
+    SecurityCheckIcon,
+    VolumeHighIcon
 } from '@hugeicons/core-free-icons';
-// ... (Imports same as before) ...
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
@@ -22,18 +17,18 @@ import { useRouter } from 'expo-router';
 import { useColorScheme } from 'nativewind';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Animated,
-  BackHandler,
-  Linking,
-  Modal,
-  Pressable,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Switch,
-  Text,
-  TouchableOpacity,
-  View,
+    Animated,
+    BackHandler,
+    Image,
+    Linking,
+    Pressable,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Switch,
+    Text,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -89,21 +84,31 @@ const ModernSettingsItem = ({ icon, label, subLabel, onPress, rightElement, dest
 };
 
 export default function SettingsScreen() {
-    // ... (Logic same as before) ...
     const router = useRouter();
     const theme = useAppTheme();
-    const { signOut } = useAuth();
-    const { colorScheme, setColorScheme } = useColorScheme();
+    const { signOut, user } = useAuth();
+    const { colorScheme } = useColorScheme();
 
     const [soundEnabled, setSoundEnabled] = useState(true);
     const [themePreference, setThemePreference] = useState<ThemeOption>('system');
-    const [themeModalVisible, setThemeModalVisible] = useState(false);
-
+    
     const [isLoading, setIsLoading] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState('');
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
+    // Check Provider
+    const isGoogleAuth = user?.app_metadata?.provider === 'google';
+
     const isMounted = useRef(true);
+
+    // Refresh settings when screen comes into focus (e.g. back from Appearance screen)
+    useEffect(() => {
+        loadSettings();
+        // Add listener for focus to reload settings if they changed elsewhere
+        // (Though React Navigation state updates usually trigger re-renders, explicit reloading ensures sync)
+        const unsubscribe = router.canGoBack() ? null : null; 
+        return () => {};
+    }, []);
 
     useEffect(() => {
         const backAction = () => {
@@ -123,7 +128,7 @@ export default function SettingsScreen() {
         isMounted.current = true;
         loadSettings();
         return () => { isMounted.current = false; };
-    }, []);
+    }, [colorScheme]); // Reload if color scheme changes
 
     const loadSettings = async () => {
         try {
@@ -147,13 +152,6 @@ export default function SettingsScreen() {
         } catch (e) {
             console.error(e);
         }
-    };
-
-    const handleThemeChange = (newTheme: ThemeOption) => {
-        setThemePreference(newTheme);
-        setThemeModalVisible(false);
-        saveSetting('themePreference', newTheme);
-        if (setColorScheme) setColorScheme(newTheme);
     };
 
     const toggleSound = (val: boolean) => {
@@ -221,6 +219,34 @@ export default function SettingsScreen() {
                 contentContainerStyle={{ padding: 24, paddingBottom: 100 }}
                 showsVerticalScrollIndicator={false}
             >
+                {/* --- PROFILE SECTION --- */}
+                <View style={{ marginBottom: 24 }}>
+                    <Text style={styles.sectionTitle}>PROFILE</Text>
+                    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
+                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <View style={[styles.profileIconContainer, { backgroundColor: theme.colors.background }]}>
+                              {isGoogleAuth ? (
+                                <Image 
+                                  source={require('../assets/images/google-logo.png')} 
+                                  style={{ width: 22, height: 22 }}
+                                  resizeMode="contain"
+                                />
+                              ) : (
+                                <HugeiconsIcon icon={Mail01Icon} size={22} color={theme.colors.primary} />
+                              )}
+                            </View>
+                            <View style={{ marginLeft: 12, flex: 1 }}>
+                                <Text style={{ fontSize: 16, fontWeight: '600', color: theme.colors.text }}>
+                                    {user?.email}
+                                </Text>
+                                <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 2 }}>
+                                    Signed in via {isGoogleAuth ? 'Google' : 'Email'}
+                                </Text>
+                            </View>
+                         </View>
+                    </View>
+                </View>
+
                 <View style={{ marginBottom: 24 }}>
                     <Text style={styles.sectionTitle}>APP SETTINGS</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
@@ -229,7 +255,7 @@ export default function SettingsScreen() {
                             icon={PaintBoardIcon} 
                             label="Appearance" 
                             subLabel={themePreference === 'system' ? 'System Default' : (themePreference === 'dark' ? 'Dark Mode' : 'Light Mode')} 
-                            onPress={() => setThemeModalVisible(true)} 
+                            onPress={() => router.push('/settings/appearance')} 
                             theme={theme}
                         />
                         <ModernSettingsItem 
@@ -281,27 +307,6 @@ export default function SettingsScreen() {
                 </TouchableOpacity>
 
             </ScrollView>
-
-            <Modal visible={themeModalVisible} transparent animationType="fade" onRequestClose={() => setThemeModalVisible(false)}>
-                <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setThemeModalVisible(false)}>
-                    <View style={[styles.modalContent, { backgroundColor: theme.colors.card }]}>
-                        <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Choose Appearance</Text>
-                        {[
-                            { key: 'system', label: 'System Default', icon: SmartPhone02Icon },
-                            { key: 'light', label: 'Light Mode', icon: Sun03Icon },
-                            { key: 'dark', label: 'Dark Mode', icon: Moon02Icon },
-                        ].map((opt) => (
-                            <TouchableOpacity key={opt.key} style={[styles.modalOption, themePreference === opt.key && { backgroundColor: theme.colors.primary + '10' }]} onPress={() => handleThemeChange(opt.key as ThemeOption)}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-                                    <HugeiconsIcon icon={opt.icon} size={22} color={theme.colors.text} />
-                                    <Text style={[styles.modalOptionText, { color: theme.colors.text }]}>{opt.label}</Text>
-                                </View>
-                                {themePreference === opt.key && <HugeiconsIcon icon={Tick02Icon} size={20} color={theme.colors.primary} />}
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                </TouchableOpacity>
-            </Modal>
         </SafeAreaView>
     );
 }
@@ -309,9 +314,5 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
     sectionTitle: { fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase', opacity: 0.7 },
     card: { borderRadius: 24, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
-    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-    modalContent: { width: '100%', borderRadius: 24, padding: 24, maxWidth: 400 },
-    modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 20, textAlign: 'center' },
-    modalOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16, paddingHorizontal: 16, borderRadius: 12, marginBottom: 8 },
-    modalOptionText: { fontSize: 16, fontWeight: '600' },
+    profileIconContainer: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }
 });

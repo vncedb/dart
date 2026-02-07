@@ -1,24 +1,24 @@
 // Footer Fixed to Bottom (Outside KAV)
 import {
-  ArrowDown01Icon,
-  InformationCircleIcon,
-  Tick01Icon,
-  UserIcon
+    ArrowDown01Icon,
+    InformationCircleIcon,
+    Tick01Icon,
+    UserIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
-  ActivityIndicator,
-  Keyboard,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View
+    ActivityIndicator,
+    Keyboard,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -48,6 +48,36 @@ const Tooltip = ({ message, theme }: { message: string, theme: any }) => (
                 </View>
             </View>
         </View>
+    </View>
+);
+
+// --- MOVED OUTSIDE ---
+const AuthInput = ({ label, value, onChange, required, icon, errorKey, theme, errors, setErrors, visibleTooltip, setVisibleTooltip }: any) => {
+    const isError = errorKey && errors[errorKey];
+    const showTooltip = errorKey && visibleTooltip === errorKey;
+    return (
+      <View style={{ marginBottom: 20, zIndex: showTooltip ? 50 : 1 }}>
+          <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>{label} {required && <Text style={{ color: '#ef4444' }}>*</Text>}</Text>
+          <View style={{ position: 'relative' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.card, borderRadius: 16, borderWidth: 1, borderColor: isError ? '#ef4444' : theme.colors.border, height: 56, paddingHorizontal: 16 }}>
+                  <HugeiconsIcon icon={icon} size={22} color={isError ? "#ef4444" : theme.colors.textSecondary} />
+                  <TextInput value={value} onChangeText={(t) => { onChange(t); if(errorKey) { setErrors((prev:any) => ({...prev, [errorKey]: undefined})); setVisibleTooltip(null); }}} style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text }} placeholder={`Enter ${label}`} placeholderTextColor={theme.colors.textSecondary} onFocus={() => setVisibleTooltip(null)} />
+                  {isError && (<TouchableOpacity onPress={() => setVisibleTooltip(showTooltip ? null : errorKey)}><HugeiconsIcon icon={InformationCircleIcon} size={22} color="#ef4444" /></TouchableOpacity>)}
+              </View>
+              {showTooltip && <Tooltip message={errors[errorKey] || ''} theme={theme} />}
+          </View>
+      </View>
+    );
+};
+
+// --- MOVED OUTSIDE ---
+const AuthSelect = ({ label, value, onPress, theme }: any) => (
+    <View style={{ marginBottom: 20 }}>
+        <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>{label}</Text>
+        <TouchableOpacity onPress={onPress} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, height: 56, backgroundColor: theme.colors.card, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border }}>
+            <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '600', color: value ? theme.colors.text : theme.colors.textSecondary }}>{value || 'Select'}</Text>
+            <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.textSecondary} />
+        </TouchableOpacity>
     </View>
 );
 
@@ -121,34 +151,6 @@ export default function EditProfileScreen() {
     } 
   };
 
-  const AuthInput = ({ label, value, onChange, required, icon, errorKey }: any) => {
-      const isError = errorKey && errors[errorKey as keyof typeof errors];
-      const showTooltip = errorKey && visibleTooltip === errorKey;
-      return (
-        <View style={{ marginBottom: 20, zIndex: showTooltip ? 50 : 1 }}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>{label} {required && <Text style={{ color: '#ef4444' }}>*</Text>}</Text>
-            <View style={{ position: 'relative' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.card, borderRadius: 16, borderWidth: 1, borderColor: isError ? '#ef4444' : theme.colors.border, height: 56, paddingHorizontal: 16 }}>
-                    <HugeiconsIcon icon={icon} size={22} color={isError ? "#ef4444" : theme.colors.textSecondary} />
-                    <TextInput value={value} onChangeText={(t) => { onChange(t); if(errorKey) { setErrors(prev => ({...prev, [errorKey]: undefined})); setVisibleTooltip(null); }}} style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text }} placeholder={`Enter ${label}`} placeholderTextColor={theme.colors.textSecondary} onFocus={() => setVisibleTooltip(null)} />
-                    {isError && (<TouchableOpacity onPress={() => setVisibleTooltip(showTooltip ? null : errorKey)}><HugeiconsIcon icon={InformationCircleIcon} size={22} color="#ef4444" /></TouchableOpacity>)}
-                </View>
-                {showTooltip && <Tooltip message={errors[errorKey as keyof typeof errors] || ''} theme={theme} />}
-            </View>
-        </View>
-      );
-  };
-
-  const AuthSelect = ({ label, value, onPress }: any) => (
-      <View style={{ marginBottom: 20 }}>
-          <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>{label}</Text>
-          <TouchableOpacity onPress={onPress} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, height: 56, backgroundColor: theme.colors.card, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border }}>
-              <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '600', color: value ? theme.colors.text : theme.colors.textSecondary }}>{value || 'Select'}</Text>
-              <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.textSecondary} />
-          </TouchableOpacity>
-      </View>
-  );
-
   return (
     <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setVisibleTooltip(null); }}>
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
@@ -173,12 +175,16 @@ export default function EditProfileScreen() {
                         >
                             <View style={{ backgroundColor: theme.colors.card, borderRadius: 24, padding: 20, borderWidth: 1, borderColor: theme.colors.border, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
                                 <View style={{ flexDirection: 'row', gap: 12 }}>
-                                    <View style={{ flex: 1 }}><AuthSelect label="Title" value={profile.title} onPress={() => setTitleModalVisible(true)} /></View>
-                                    <View style={{ flex: 1 }}><AuthSelect label="Suffix" value={profile.professional_suffix} onPress={() => setSuffixModalVisible(true)} /></View>
+                                    <View style={{ flex: 1 }}>
+                                        <AuthSelect label="Title" value={profile.title} onPress={() => setTitleModalVisible(true)} theme={theme} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <AuthSelect label="Suffix" value={profile.professional_suffix} onPress={() => setSuffixModalVisible(true)} theme={theme} />
+                                    </View>
                                 </View>
-                                <AuthInput label="First Name" value={profile.first_name} onChange={(t: string) => setProfile({...profile, first_name: t})} required icon={UserIcon} errorKey="firstName" />
-                                <AuthInput label="Middle Name" value={profile.middle_name} onChange={(t: string) => setProfile({...profile, middle_name: t})} icon={UserIcon} />
-                                <AuthInput label="Last Name" value={profile.last_name} onChange={(t: string) => setProfile({...profile, last_name: t})} required icon={UserIcon} errorKey="lastName" />
+                                <AuthInput label="First Name" value={profile.first_name} onChange={(t: string) => setProfile({...profile, first_name: t})} required icon={UserIcon} errorKey="firstName" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                                <AuthInput label="Middle Name" value={profile.middle_name} onChange={(t: string) => setProfile({...profile, middle_name: t})} icon={UserIcon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                                <AuthInput label="Last Name" value={profile.last_name} onChange={(t: string) => setProfile({...profile, last_name: t})} required icon={UserIcon} errorKey="lastName" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
                             </View>
                         </ScrollView>
                     </KeyboardAvoidingView>

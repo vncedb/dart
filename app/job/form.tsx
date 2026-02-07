@@ -108,6 +108,54 @@ const Tooltip = ({ message, theme }: { message: string, theme: any }) => (
     </View>
 );
 
+// --- MOVED OUTSIDE ---
+const StyledInput = ({ label, value, onChange, placeholder, icon, required, errorKey, readonly, onPress, theme, errors, setErrors, visibleTooltip, setVisibleTooltip }: any) => {
+    const isError = errorKey && errors[errorKey];
+    const showTooltip = errorKey && visibleTooltip === errorKey;
+    
+    return (
+        <View style={{ marginBottom: 20, zIndex: showTooltip ? 50 : 1 }}>
+            <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>
+                {label} {required && <Text style={{ color: '#ef4444' }}>*</Text>}
+            </Text>
+            <View style={{ position: 'relative' }}>
+                <TouchableOpacity activeOpacity={readonly ? 0.7 : 1} onPress={onPress}>
+                    <View style={{ 
+                        flexDirection: 'row', alignItems: 'center', 
+                        backgroundColor: theme.colors.card, 
+                        borderRadius: 16, borderWidth: 1, 
+                        borderColor: isError ? '#ef4444' : theme.colors.border,
+                        height: 56, paddingHorizontal: 16 
+                    }}>
+                        <HugeiconsIcon icon={icon} size={22} color={isError ? "#ef4444" : (readonly ? theme.colors.primary : theme.colors.textSecondary)} />
+                        {readonly ? (
+                            <Text numberOfLines={1} style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text }}>{value}</Text>
+                        ) : (
+                            <TextInput 
+                                value={value} 
+                                onChangeText={(t) => { onChange(t); if(errorKey) { setErrors((prev:any) => ({...prev, [errorKey]: undefined})); setVisibleTooltip(null); }}} 
+                                style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text }} 
+                                placeholder={placeholder} 
+                                placeholderTextColor={theme.colors.textSecondary}
+                                onFocus={() => setVisibleTooltip(null)}
+                            />
+                        )}
+                        
+                        {readonly && <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.icon} />}
+                        
+                        {isError && !readonly && (
+                            <TouchableOpacity onPress={() => setVisibleTooltip(showTooltip ? null : errorKey)}>
+                                <HugeiconsIcon icon={InformationCircleIcon} size={22} color="#ef4444" />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                </TouchableOpacity>
+                {showTooltip && <Tooltip message={errors[errorKey] || ''} theme={theme} />}
+            </View>
+        </View>
+    );
+};
+
 export default function JobForm() {
     const router = useRouter();
     const navigation = useNavigation();
@@ -325,53 +373,6 @@ export default function JobForm() {
         }
     };
 
-    const StyledInput = ({ label, value, onChange, placeholder, icon, required, errorKey, readonly, onPress }: any) => {
-        const isError = errorKey && errors[errorKey as keyof typeof errors];
-        const showTooltip = errorKey && visibleTooltip === errorKey;
-        
-        return (
-            <View style={{ marginBottom: 20, zIndex: showTooltip ? 50 : 1 }}>
-                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>
-                    {label} {required && <Text style={{ color: '#ef4444' }}>*</Text>}
-                </Text>
-                <View style={{ position: 'relative' }}>
-                    <TouchableOpacity activeOpacity={readonly ? 0.7 : 1} onPress={onPress}>
-                        <View style={{ 
-                            flexDirection: 'row', alignItems: 'center', 
-                            backgroundColor: theme.colors.card, 
-                            borderRadius: 16, borderWidth: 1, 
-                            borderColor: isError ? '#ef4444' : theme.colors.border,
-                            height: 56, paddingHorizontal: 16 
-                        }}>
-                            <HugeiconsIcon icon={icon} size={22} color={isError ? "#ef4444" : (readonly ? theme.colors.primary : theme.colors.textSecondary)} />
-                            {readonly ? (
-                                <Text numberOfLines={1} style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text }}>{value}</Text>
-                            ) : (
-                                <TextInput 
-                                    value={value} 
-                                    onChangeText={(t) => { onChange(t); if(errorKey) { setErrors(prev => ({...prev, [errorKey]: undefined})); setVisibleTooltip(null); }}} 
-                                    style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text }} 
-                                    placeholder={placeholder} 
-                                    placeholderTextColor={theme.colors.textSecondary}
-                                    onFocus={() => setVisibleTooltip(null)}
-                                />
-                            )}
-                            
-                            {readonly && <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.icon} />}
-                            
-                            {isError && !readonly && (
-                                <TouchableOpacity onPress={() => setVisibleTooltip(showTooltip ? null : errorKey)}>
-                                    <HugeiconsIcon icon={InformationCircleIcon} size={22} color="#ef4444" />
-                                </TouchableOpacity>
-                            )}
-                        </View>
-                    </TouchableOpacity>
-                    {showTooltip && <Tooltip message={errors[errorKey as keyof typeof errors] || ''} theme={theme} />}
-                </View>
-            </View>
-        );
-    };
-
     if (initialLoading) return <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={theme.colors.primary} /></View>;
     
     return (
@@ -412,18 +413,18 @@ export default function JobForm() {
                         <View style={{ marginBottom: 24 }}>
                             <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Job Details</Text>
                             <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
-                                <StyledInput label="Job Title" value={position || 'Select Title'} onPress={() => setJobSelectorVisible(true)} readonly icon={Briefcase01Icon} required errorKey="position" />
-                                <StyledInput label="Company Name" value={company} onChange={(t:string) => markDirty(setCompany, t)} placeholder="Enter Company" icon={Building03Icon} required errorKey="company" />
-                                <StyledInput label="Department" value={department} onChange={(t:string) => markDirty(setDepartment, t)} placeholder="Optional" icon={UserGroupIcon} />
-                                <StyledInput label="Employment Status" value={employmentStatus} onPress={() => setStatusSelectorVisible(true)} readonly icon={UserIcon} />
-                                <StyledInput label="Date Started" value={startDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} onPress={() => setCalendarVisible(true)} readonly icon={Calendar03Icon} />
+                                <StyledInput label="Job Title" value={position || 'Select Title'} onPress={() => setJobSelectorVisible(true)} readonly icon={Briefcase01Icon} required errorKey="position" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                                <StyledInput label="Company Name" value={company} onChange={(t:string) => markDirty(setCompany, t)} placeholder="Enter Company" icon={Building03Icon} required errorKey="company" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                                <StyledInput label="Department" value={department} onChange={(t:string) => markDirty(setDepartment, t)} placeholder="Optional" icon={UserGroupIcon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                                <StyledInput label="Employment Status" value={employmentStatus} onPress={() => setStatusSelectorVisible(true)} readonly icon={UserIcon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                                <StyledInput label="Date Started" value={startDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} onPress={() => setCalendarVisible(true)} readonly icon={Calendar03Icon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
                             </View>
                         </View>
                         
                         <View style={{ marginBottom: 24 }}>
                             <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Compensation</Text>
                             <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
-                                <StyledInput label="Pay Rate" value={salaryDisplay} onChange={handleSalaryChange} placeholder="₱ 0.00" icon={DollarCircleIcon} required errorKey="salary" />
+                                <StyledInput label="Pay Rate" value={salaryDisplay} onChange={handleSalaryChange} placeholder="₱ 0.00" icon={DollarCircleIcon} required errorKey="salary" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
                                 <View style={{ flexDirection: 'row', backgroundColor: theme.colors.background, padding: 4, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 20 }}>
                                     {(['hourly', 'daily', 'monthly'] as const).map((type) => (
                                         <TouchableOpacity key={type} onPress={() => markDirty(setRateType, type)} style={{ flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: rateType === type ? theme.colors.primary : 'transparent', alignItems: 'center' }}>

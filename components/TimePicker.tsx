@@ -38,7 +38,7 @@ interface TimePickerProps {
 }
 
 const CONTAINER_WIDTH = 340;
-const CONTAINER_HEIGHT = 500; 
+const CONTAINER_HEIGHT = 520;
 const CLOCK_SIZE = 240;
 const CENTER = CLOCK_SIZE / 2;
 const RADIUS = CLOCK_SIZE / 2 - 32;
@@ -127,13 +127,33 @@ export default function TimePicker({
     onClose();
   };
 
+  const updateAngleForMode = (targetMode: "HOUR" | "MINUTE", h: number, m: number) => {
+    const val = targetMode === "HOUR" ? (h === 12 ? 0 : h) : m;
+    const step = targetMode === "HOUR" ? 30 : 6;
+    const targetAngle = val * step;
+    
+    // Animate to new angle
+    angle.value = withSpring(targetAngle, {
+        damping: 16,
+        stiffness: 120
+    });
+  };
+
   const openAnalog = (targetMode: "HOUR" | "MINUTE") => {
     setMode(targetMode);
+    
+    // Snap instantly when opening
     const val = targetMode === "HOUR" ? (hours === 12 ? 0 : hours) : minutes;
     const step = targetMode === "HOUR" ? 30 : 6;
     angle.value = val * step;
+    
     setViewMode("ANALOG");
     if (Platform.OS !== "web") Haptics.selectionAsync();
+  };
+
+  const switchToMinuteMode = () => {
+      setMode("MINUTE");
+      updateAngleForMode("MINUTE", hours, minutes);
   };
 
   const handleCenterTap = () => {
@@ -182,10 +202,18 @@ export default function TimePicker({
           stiffness: 150
       });
 
-      // Auto-switch back to digital after brief delay (optional UX)
-      setTimeout(() => {
-        runOnJS(setViewMode)("DIGITAL");
-      }, 400); 
+      // Smart Flow: Auto-advance
+      if (currentMode === "HOUR") {
+          // Wait briefly then switch to Minutes
+          setTimeout(() => {
+              runOnJS(switchToMinuteMode)();
+          }, 450);
+      } else {
+          // Wait briefly then return to Digital
+          setTimeout(() => {
+            runOnJS(setViewMode)("DIGITAL");
+          }, 450); 
+      }
     }
   };
 
@@ -268,12 +296,20 @@ export default function TimePicker({
               >
                 <View style={styles.centerContent}>
                   <View style={styles.timeDisplay}>
+                    {/* Hour Display */}
                     <TouchableOpacity
                       onPress={() => openAnalog('HOUR')}
-                      activeOpacity={0.6}
-                      style={styles.timeUnit}
+                      activeOpacity={0.8}
+                      style={[
+                          styles.timeUnit,
+                          mode === 'HOUR' && viewMode === 'ANALOG' && styles.activeTimeUnit,
+                          { backgroundColor: theme.colors.background }
+                      ]}
                     >
-                      <Text style={[styles.timeText, { color: theme.colors.text }]}>
+                      <Text style={[
+                          styles.timeText, 
+                          { color: theme.colors.text }
+                      ]}>
                         {hours === 0 ? 12 : hours}
                       </Text>
                       <Text style={[styles.label, {color: theme.colors.textSecondary}]}>HOURS</Text>
@@ -281,17 +317,26 @@ export default function TimePicker({
                     
                     <Text style={[styles.colon, { color: theme.colors.text }]}>:</Text>
                     
+                    {/* Minute Display */}
                     <TouchableOpacity
                       onPress={() => openAnalog('MINUTE')}
-                      activeOpacity={0.6}
-                      style={styles.timeUnit}
+                      activeOpacity={0.8}
+                      style={[
+                          styles.timeUnit,
+                          mode === 'MINUTE' && viewMode === 'ANALOG' && styles.activeTimeUnit,
+                          { backgroundColor: theme.colors.background }
+                      ]}
                     >
-                      <Text style={[styles.timeText, { color: theme.colors.text }]}>
+                      <Text style={[
+                          styles.timeText, 
+                          { color: theme.colors.text }
+                      ]}>
                         {minutes.toString().padStart(2, "0")}
                       </Text>
                       <Text style={[styles.label, {color: theme.colors.textSecondary}]}>MINUTES</Text>
                     </TouchableOpacity>
                     
+                    {/* AM/PM Switcher */}
                     <View style={styles.ampmContainer}>
                       {["AM", "PM"].map((p) => (
                         <TouchableOpacity
@@ -299,15 +344,13 @@ export default function TimePicker({
                           onPress={() => {
                             setPeriod(p as any);
                             if (Platform.OS !== "web")
-                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                           }}
                           style={[
                             styles.ampmButton,
-                            period === p && {
-                              backgroundColor: theme.colors.primary,
-                              borderColor: theme.colors.primary,
-                            },
-                            period !== p && { borderColor: theme.colors.border },
+                            period === p 
+                                ? { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary }
+                                : { backgroundColor: 'transparent', borderColor: theme.colors.border },
                           ]}
                         >
                           <Text
@@ -333,7 +376,6 @@ export default function TimePicker({
                 pointerEvents={viewMode === "ANALOG" ? "auto" : "none"}
               >
                 <View style={styles.centerContent}>
-                  {/* Container for the Clock */}
                   <View style={styles.clockWrapper}>
                     <View style={styles.clockContainer} {...panResponder.panHandlers}>
                         <Svg height={CLOCK_SIZE} width={CLOCK_SIZE}>
@@ -347,7 +389,7 @@ export default function TimePicker({
                             strokeWidth={1}
                         />
 
-                        {/* 2. Hands & Selector Tip (BOTTOM LAYER) */}
+                        {/* 2. Hands & Selector Tip */}
                         <AnimatedLine
                             x1={CENTER}
                             y1={CENTER}
@@ -362,7 +404,7 @@ export default function TimePicker({
                             animatedProps={knobProps}
                         />
 
-                        {/* 3. Numbers (TOP LAYER - Drawn over the blue circle selector) */}
+                        {/* 3. Numbers */}
                         {mode === "HOUR" &&
                             Array.from({ length: 12 }).map((_, i) => {
                             const val = i + 1;
@@ -404,7 +446,7 @@ export default function TimePicker({
                             );
                             })}
                         
-                        {/* 4. Center Pivot Dot */}
+                        {/* 4. Center Pivot */}
                         <Circle
                             cx={CENTER}
                             cy={CENTER}
@@ -412,11 +454,11 @@ export default function TimePicker({
                             fill={theme.colors.primary}
                         />
 
-                        {/* 5. Center Display (Purely Visuals for the Button) */}
+                        {/* 5. Center Info Label */}
                         <Circle
                             cx={CENTER}
                             cy={CENTER}
-                            r={24} 
+                            r={26} 
                             fill={theme.colors.card}
                             stroke={theme.colors.border}
                             strokeWidth={0.5}
@@ -424,8 +466,8 @@ export default function TimePicker({
                         <SvgText
                             x={CENTER}
                             y={CENTER + 6}
-                            fill={theme.colors.text}
-                            fontSize="22"
+                            fill={theme.colors.primary}
+                            fontSize="20"
                             fontWeight="800"
                             textAnchor="middle"
                         >
@@ -448,13 +490,16 @@ export default function TimePicker({
                         </Svg>
                     </View>
 
-                    {/* Dedicated Confirm Button in the Center */}
+                    {/* Button to confirm analog selection manually if needed */}
                     <TouchableOpacity 
                         style={styles.centerButtonOverlay}
                         onPress={handleCenterTap}
                         activeOpacity={0.7}
                     />
                   </View>
+                  <Text style={[styles.hintText, { color: theme.colors.textSecondary }]}>
+                      {mode === "HOUR" ? "Select Hour" : "Select Minute"}
+                  </Text>
                 </View>
               </Animated.View>
 
@@ -519,7 +564,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  // Invisible button covering the center area
   centerButtonOverlay: {
       position: 'absolute',
       top: (CLOCK_SIZE / 2) - 30, 
@@ -527,7 +571,6 @@ const styles = StyleSheet.create({
       width: 60,
       height: 60,
       borderRadius: 30,
-      // backgroundColor: 'rgba(255, 0, 0, 0.3)', // Debug color
   },
   timeDisplay: {
     flexDirection: "row",
@@ -535,14 +578,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   timeUnit: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    minWidth: 70,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    minWidth: 80,
     alignItems: "center",
     justifyContent: "center",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  activeTimeUnit: {
+      borderColor: '#3b82f6', // Example active color, usually theme.primary
+      backgroundColor: 'rgba(59, 130, 246, 0.05)',
   },
   timeText: {
-    fontSize: 56,
+    fontSize: 48,
     fontWeight: "800",
     letterSpacing: -1,
     fontVariant: ["tabular-nums"],
@@ -552,17 +602,31 @@ const styles = StyleSheet.create({
       fontWeight: '700',
       marginTop: 4,
       letterSpacing: 1,
+      opacity: 0.6,
   },
-  colon: { fontSize: 50, fontWeight: "700", marginBottom: 20, opacity: 0.5 },
-  ampmContainer: { flexDirection: "column", marginLeft: 20, gap: 8 },
+  colon: { 
+      fontSize: 40, 
+      fontWeight: "700", 
+      marginBottom: 24, 
+      opacity: 0.5,
+      marginHorizontal: 8,
+  },
+  ampmContainer: { flexDirection: "column", marginLeft: 16, gap: 8 },
   ampmButton: {
     borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     alignItems: "center",
+    justifyContent: 'center',
   },
   ampmText: { fontSize: 13, fontWeight: "800" },
+  hintText: {
+      marginTop: 24,
+      fontSize: 14,
+      fontWeight: '600',
+      opacity: 0.8,
+  },
   footer: { 
       flexDirection: "row", 
       padding: 20, 

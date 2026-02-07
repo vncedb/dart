@@ -1,29 +1,29 @@
 import {
-    ArrowRight01Icon,
-    Coffee01Icon,
-    PencilEdit02Icon,
+  ArrowRight01Icon,
+  PencilEdit02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import React, { useEffect, useState } from "react";
 import {
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    Pressable,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Animated, {
-    FadeIn,
-    FadeOut,
-    ZoomIn,
-    ZoomOut,
+  FadeIn,
+  FadeOut,
+  ZoomIn,
+  ZoomOut,
 } from "react-native-reanimated";
 import { useAppTheme } from "../constants/theme";
 import Button from "./Button";
-import InputModal from "./InputModal"; // Added Import
+import ModalHeader from "./ModalHeader";
 import TimePicker from "./TimePicker";
 
 interface AddBreakModalProps {
@@ -48,15 +48,13 @@ export default function AddBreakModal({
   const theme = useAppTheme();
 
   const [start, setStart] = useState(
-    new Date(new Date().setHours(12, 0, 0, 0)),
+    new Date(new Date().setHours(12, 0, 0, 0))
   );
   const [end, setEnd] = useState(new Date(new Date().setHours(13, 0, 0, 0)));
   const [title, setTitle] = useState("");
 
   const [pickerVisible, setPickerVisible] = useState(false);
   const [activePicker, setActivePicker] = useState<"start" | "end">("start");
-
-  const [renameVisible, setRenameVisible] = useState(false); // State for InputModal
 
   useEffect(() => {
     if (visible) {
@@ -114,150 +112,137 @@ export default function AddBreakModal({
       onRequestClose={onClose}
       statusBarTranslucent
     >
+      <Animated.View
+        entering={FadeIn.duration(200)}
+        exiting={FadeOut.duration(200)}
+        style={StyleSheet.absoluteFill}
+      >
+        <Pressable style={styles.backdrop} onPress={onClose} />
+      </Animated.View>
+
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.overlay}
+        pointerEvents="box-none"
       >
-        <Animated.View
-          entering={FadeIn.duration(200)}
-          exiting={FadeOut.duration(200)}
-          style={StyleSheet.absoluteFill}
-        >
-          <Pressable style={styles.backdrop} onPress={onClose} />
-        </Animated.View>
-
         <Animated.View
           entering={ZoomIn.duration(250).springify()}
           exiting={ZoomOut.duration(200)}
           style={[styles.container, { backgroundColor: theme.colors.card }]}
         >
-          {/* Centered Header */}
-          <View style={styles.header}>
+          <ModalHeader title="Add Break" position="center" />
+
+          <View style={styles.content}>
+            <View style={{ alignItems: "center", marginBottom: 20, marginTop: 20 }}>
+              <Text
+                style={[styles.subtitle, { color: theme.colors.textSecondary }]}
+              >
+                Duration:{" "}
+                <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>
+                  {getDuration()}
+                </Text>
+              </Text>
+            </View>
+
+            <View style={styles.row}>
+              <TouchableOpacity
+                onPress={() => openPicker("start")}
+                style={[
+                  styles.timeBox,
+                  {
+                    backgroundColor: theme.colors.background,
+                    borderColor: theme.colors.border,
+                  },
+                ]}
+              >
+                <Text
+                  style={[styles.label, { color: theme.colors.textSecondary }]}
+                >
+                  START
+                </Text>
+                <Text style={[styles.timeText, { color: theme.colors.text }]}>
+                  {formatTime(start)}
+                </Text>
+              </TouchableOpacity>
+
+              <View style={{ paddingHorizontal: 8 }}>
+                <HugeiconsIcon
+                  icon={ArrowRight01Icon}
+                  size={20}
+                  color={theme.colors.border}
+                />
+              </View>
+
+              <TouchableOpacity
+                onPress={() => openPicker("end")}
+                style={[
+                  styles.timeBox,
+                  {
+                    backgroundColor: theme.colors.background,
+                    borderColor: theme.colors.border,
+                  },
+                ]}
+              >
+                <Text
+                  style={[styles.label, { color: theme.colors.textSecondary }]}
+                >
+                  END
+                </Text>
+                <Text style={[styles.timeText, { color: theme.colors.text }]}>
+                  {formatTime(end)}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             <View
               style={[
-                styles.iconWrapper,
-                { backgroundColor: theme.colors.primary + "15" },
-              ]}
-            >
-              <HugeiconsIcon
-                icon={Coffee01Icon}
-                size={32}
-                color={theme.colors.primary}
-              />
-            </View>
-            <Text style={[styles.title, { color: theme.colors.text }]}>
-              Add Break
-            </Text>
-            <Text
-              style={[styles.subtitle, { color: theme.colors.textSecondary }]}
-            >
-              Duration:{" "}
-              <Text style={{ color: theme.colors.primary, fontWeight: "700" }}>
-                {getDuration()}
-              </Text>
-            </Text>
-          </View>
-
-          {/* Time Inputs */}
-          <View style={styles.row}>
-            <TouchableOpacity
-              onPress={() => openPicker("start")}
-              style={[
-                styles.timeBox,
+                styles.inputContainer,
                 {
                   backgroundColor: theme.colors.background,
                   borderColor: theme.colors.border,
                 },
               ]}
             >
-              <Text
-                style={[styles.label, { color: theme.colors.textSecondary }]}
+              <View
+                style={[styles.inputIcon, { backgroundColor: theme.colors.card }]}
               >
-                START
-              </Text>
-              <Text style={[styles.timeText, { color: theme.colors.text }]}>
-                {formatTime(start)}
-              </Text>
-            </TouchableOpacity>
-
-            <View style={{ paddingHorizontal: 8 }}>
-              <HugeiconsIcon
-                icon={ArrowRight01Icon}
-                size={20}
-                color={theme.colors.border}
+                <HugeiconsIcon
+                  icon={PencilEdit02Icon}
+                  size={18}
+                  color={theme.colors.textSecondary}
+                />
+              </View>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    color: theme.colors.text,
+                  },
+                ]}
+                value={title}
+                onChangeText={setTitle}
+                placeholder="Break Name (Optional)"
+                placeholderTextColor={theme.colors.textSecondary}
               />
             </View>
 
-            <TouchableOpacity
-              onPress={() => openPicker("end")}
-              style={[
-                styles.timeBox,
-                {
-                  backgroundColor: theme.colors.background,
-                  borderColor: theme.colors.border,
-                },
-              ]}
-            >
-              <Text
-                style={[styles.label, { color: theme.colors.textSecondary }]}
-              >
-                END
-              </Text>
-              <Text style={[styles.timeText, { color: theme.colors.text }]}>
-                {formatTime(end)}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Title Input Trigger - Replaced TextInput with TouchableOpacity */}
-          <TouchableOpacity
-            onPress={() => setRenameVisible(true)}
-            style={[
-              styles.inputContainer,
-              {
-                backgroundColor: theme.colors.background,
-                borderColor: theme.colors.border,
-              },
-            ]}
-          >
             <View
-              style={[styles.inputIcon, { backgroundColor: theme.colors.card }]}
+              style={[styles.footer, { borderTopColor: theme.colors.border }]}
             >
-              <HugeiconsIcon
-                icon={PencilEdit02Icon}
-                size={18}
-                color={theme.colors.textSecondary}
+              <Button
+                title="Cancel"
+                variant="neutral"
+                onPress={onClose}
+                style={{ flex: 1 }}
+              />
+              <View style={{ width: 16 }} />
+              <Button
+                title="Add Break"
+                variant="primary"
+                onPress={handleConfirm}
+                style={{ flex: 1 }}
               />
             </View>
-            <Text
-              style={[
-                styles.input,
-                {
-                  color: title ? theme.colors.text : theme.colors.textSecondary,
-                },
-              ]}
-            >
-              {title || "Break Name (Optional)"}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Footer */}
-          <View
-            style={[styles.footer, { borderTopColor: theme.colors.border }]}
-          >
-            <Button
-              title="Cancel"
-              variant="ghost"
-              onPress={onClose}
-              style={{ flex: 1 }}
-            />
-            <View style={{ width: 12 }} />
-            <Button
-              title="Add Break"
-              variant="primary"
-              onPress={handleConfirm}
-              style={{ flex: 1 }}
-            />
           </View>
         </Animated.View>
       </KeyboardAvoidingView>
@@ -273,17 +258,6 @@ export default function AddBreakModal({
           activePicker === "start" ? start.getMinutes() : end.getMinutes()
         }
         title={activePicker === "start" ? "Break Start" : "Break End"}
-      />
-
-      {/* Renaming Input Modal */}
-      <InputModal
-        visible={renameVisible}
-        onClose={() => setRenameVisible(false)}
-        onConfirm={(text) => setTitle(text)}
-        title="Break Name"
-        initialValue={title}
-        placeholder="Enter break name"
-        confirmLabel="Set Name"
       />
     </Modal>
   );
@@ -305,7 +279,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 360,
     borderRadius: 28,
-    padding: 24,
+    padding: 0,
     overflow: "hidden",
     elevation: 10,
     shadowColor: "#000",
@@ -313,23 +287,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 20,
   },
-  header: {
-    alignItems: "center",
-    marginBottom: 24,
-  },
-  iconWrapper: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 16,
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: "800",
-    letterSpacing: -0.5,
-    marginBottom: 4,
+  content: {
+    padding: 24,
+    paddingTop: 0,
   },
   subtitle: {
     fontSize: 14,
@@ -379,7 +339,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     fontWeight: "600",
-    paddingVertical: 10, // Added padding for better touch area
+    height: "100%",
   },
   footer: {
     flexDirection: "row",

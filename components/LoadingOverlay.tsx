@@ -1,17 +1,14 @@
-import { Loading03Icon } from '@hugeicons/core-free-icons';
-import { HugeiconsIcon } from '@hugeicons/react-native';
+import { BlurView } from 'expo-blur';
+import LottieView from 'lottie-react-native';
 import { useColorScheme } from 'nativewind';
-import React, { useEffect } from 'react';
-import { Modal, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Modal, StyleSheet, View } from 'react-native';
 import Animated, {
-    cancelAnimation,
-    Easing,
-    FadeIn,
-    FadeOut,
-    useAnimatedStyle,
-    useSharedValue,
-    withRepeat,
-    withTiming
+  Layout,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming
 } from 'react-native-reanimated';
 
 interface LoadingOverlayProps {
@@ -19,64 +16,136 @@ interface LoadingOverlayProps {
   message?: string;
 }
 
+const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
+
+// --- REMOTE LOTTIE URLS ---
+const LOADING_SOURCE = { uri: 'https://lottie.host/98c09d52-6622-4217-9154-206256947726/D1j4y8q1d7.json' }; 
+const SUCCESS_SOURCE = { uri: 'https://lottie.host/58753882-bb6a-49f5-bb20-9550460061d6/ExWDpU1s6k.json' };
+
 export default function LoadingOverlay({ visible, message = "Loading..." }: LoadingOverlayProps) {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
+  
+  const loadingRef = useRef<LottieView>(null);
+  const successRef = useRef<LottieView>(null);
 
-  // Animation Shared Values
-  const rotation = useSharedValue(0);
+  const [internalVisible, setInternalVisible] = useState(false);
+  const [isSuccessState, setIsSuccessState] = useState(false);
+
+  // Animation Values for Crossfade
+  const loadingOpacity = useSharedValue(1);
+  const successOpacity = useSharedValue(0);
 
   useEffect(() => {
     if (visible) {
-      // Start infinite rotation
-      rotation.value = withRepeat(
-        withTiming(360, { duration: 1000, easing: Easing.linear }),
-        -1 // Infinite
-      );
+      setInternalVisible(true);
+      setIsSuccessState(false);
+      
+      loadingOpacity.value = 1;
+      successOpacity.value = 0;
+
+      requestAnimationFrame(() => {
+        loadingRef.current?.reset();
+        loadingRef.current?.play();
+        successRef.current?.reset(); 
+      });
     } else {
-      cancelAnimation(rotation);
-      rotation.value = 0;
+      if (internalVisible && !isSuccessState) {
+        triggerSuccess();
+      }
     }
   }, [visible]);
 
-  const animatedIconStyle = useAnimatedStyle(() => ({
-    transform: [{ rotateZ: `${rotation.value}deg` }],
-  }));
+  const triggerSuccess = () => {
+    setIsSuccessState(true);
 
-  if (!visible) return null;
+    // Crossfade Animations
+    loadingOpacity.value = withTiming(0, { duration: 300 });
+    successOpacity.value = withTiming(1, { duration: 300 });
+
+    successRef.current?.play();
+  };
+
+  const onSuccessFinish = () => {
+    setInternalVisible(false);
+    setIsSuccessState(false);
+  };
+
+  const loadingStyle = useAnimatedStyle(() => ({ opacity: loadingOpacity.value }));
+  const successStyle = useAnimatedStyle(() => ({ opacity: successOpacity.value }));
+
+  if (!internalVisible) return null;
 
   return (
-    <Modal transparent animationType="none" visible={visible} statusBarTranslucent>
-      <Animated.View 
-        entering={FadeIn.duration(200)}
-        exiting={FadeOut.duration(200)}
-        style={styles.container}
-      >
-        {/* Backdrop */}
-        <View style={[styles.backdrop, { backgroundColor: isDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.6)' }]} />
+    <Modal 
+        transparent 
+        visible={internalVisible} 
+        animationType="none" 
+        statusBarTranslucent
+    >
+        <View style={styles.container}>
+            {/* Background Blur - NO ANIMATION */}
+            <AnimatedBlurView 
+                style={StyleSheet.absoluteFill}
+                intensity={isDark ? 30 : 20}
+                tint={isDark ? 'dark' : 'light'}
+            >
+                <View style={[
+                    StyleSheet.absoluteFill, 
+                    { backgroundColor: isDark ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.3)' } 
+                ]} />
+            </AnimatedBlurView>
 
-        {/* Loading Card */}
-        <View style={[
-            styles.card, 
-            isDark ? styles.cardDark : styles.cardLight
-        ]}>
-          <Animated.View style={[styles.iconWrapper, animatedIconStyle]}>
-            <HugeiconsIcon 
-                icon={Loading03Icon} 
-                size={32} 
-                color={isDark ? '#818cf8' : '#4f46e5'} // Indigo-400 (Dark) / Indigo-600 (Light)
-                strokeWidth={2.5}
-            />
-          </Animated.View>
-          
-          <Text style={[
-              styles.text, 
-              isDark ? styles.textDark : styles.textLight
-          ]}>
-            {message}
-          </Text>
+            {/* Content Card - NO ANIMATION */}
+            <View 
+                style={[
+                    styles.card,
+                    { 
+                        backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                        borderColor: isDark ? '#334155' : '#f1f5f9'
+                    }
+                ]}
+            >
+                <View style={styles.iconContainer}>
+                    {/* 1. LOADING SPINNER */}
+                    <Animated.View style={[StyleSheet.absoluteFill, loadingStyle]}>
+                        <LottieView
+                            ref={loadingRef}
+                            source={LOADING_SOURCE}
+                            autoPlay
+                            loop={true}
+                            style={styles.lottie}
+                            resizeMode="contain"
+                        />
+                    </Animated.View>
+
+                    {/* 2. SUCCESS CHECK */}
+                    <Animated.View style={[StyleSheet.absoluteFill, successStyle]}>
+                        <LottieView
+                            ref={successRef}
+                            source={SUCCESS_SOURCE}
+                            autoPlay={false}
+                            loop={false}
+                            onAnimationFinish={() => runOnJS(onSuccessFinish)()}
+                            style={styles.lottie}
+                            resizeMode="contain"
+                        />
+                    </Animated.View>
+                </View>
+                
+                {/* Dynamic Message */}
+                <Animated.Text 
+                    layout={Layout.springify()} 
+                    key={isSuccessState ? 'success' : 'loading'} 
+                    style={[
+                        styles.text,
+                        { color: isDark ? '#f8fafc' : '#0f172a' }
+                    ]}
+                >
+                    {isSuccessState ? "Done!" : message}
+                </Animated.Text>
+            </View>
         </View>
-      </Animated.View>
     </Modal>
   );
 }
@@ -86,51 +155,36 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    position: 'relative',
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
   },
   card: {
-    flexDirection: 'row',
+    width: 160,
+    height: 160,
+    borderRadius: 32,
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 20,
-    borderRadius: 20,
+    justifyContent: 'center',
+    borderWidth: 1,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
+    shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 10,
-    gap: 16,
-    minWidth: 200,
-    justifyContent: 'center',
+    shadowRadius: 24,
+    elevation: 12,
   },
-  cardLight: {
-    backgroundColor: '#ffffff',
-    borderWidth: 1,
-    borderColor: '#f1f5f9',
-  },
-  cardDark: {
-    backgroundColor: '#1e293b', // Slate 800
-    borderWidth: 1,
-    borderColor: '#334155', // Slate 700
-  },
-  iconWrapper: {
-    width: 32,
-    height: 32,
+  iconContainer: {
+    width: 80,
+    height: 80,
+    marginBottom: 16,
     justifyContent: 'center',
     alignItems: 'center',
+    position: 'relative', 
+  },
+  lottie: {
+    width: '100%',
+    height: '100%',
   },
   text: {
     fontSize: 16,
-    fontWeight: '600',
-    fontFamily: 'System', // Or your custom font
+    fontWeight: '700',
+    textAlign: 'center',
+    letterSpacing: 0.5,
   },
-  textLight: {
-    color: '#0f172a', // Slate 900
-  },
-  textDark: {
-    color: '#f8fafc', // Slate 50
-  }
 });

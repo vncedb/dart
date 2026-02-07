@@ -1,4 +1,3 @@
-// Footer Fixed Bottom, Outside Keyboard Avoiding View
 import {
     InformationCircleIcon,
     LockKeyIcon,
@@ -30,7 +29,7 @@ import { useAppTheme } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
 
-// ... (Tooltip and Validate functions same as before) ...
+// --- Tooltip Component ---
 const Tooltip = ({ message, theme }: { message: string, theme: any }) => (
     <View style={{ position: 'absolute', right: 0, zIndex: 100, width: 220, marginTop: 8, top: '100%' }}>
         <View style={{ width: '100%' }}>
@@ -62,6 +61,7 @@ export default function UpdatePasswordScreen() {
     const [showConfirm, setShowConfirm] = useState(false);
 
     const [loading, setLoading] = useState(false);
+    const [loadingMessage, setLoadingMessage] = useState('Updating Password...');
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
     
     const [errors, setErrors] = useState<any>({});
@@ -88,6 +88,7 @@ export default function UpdatePasswordScreen() {
         setVisibleTooltip(null);
         if (!validate() || !user?.email) return;
 
+        setLoadingMessage('Updating Password...');
         setLoading(true);
         try {
             const { error: signInError } = await supabase.auth.signInWithPassword({ 
@@ -130,6 +131,35 @@ export default function UpdatePasswordScreen() {
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleForgotPassword = async () => {
+        Keyboard.dismiss();
+        if (!user?.email) return;
+
+        setAlertConfig({
+            visible: true,
+            type: 'confirm',
+            title: 'Reset Password',
+            message: `Send password reset instructions to ${user.email}?`,
+            confirmText: 'Send Email',
+            onConfirm: async () => {
+                setAlertConfig((p: any) => ({ ...p, visible: false }));
+                setLoadingMessage('Sending Email...');
+                setLoading(true);
+                
+                const { error } = await supabase.auth.resetPasswordForEmail(user.email);
+                
+                setLoading(false);
+                
+                if (error) {
+                     setAlertConfig({ visible: true, type: 'error', title: 'Error', message: error.message, onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false })) });
+                } else {
+                     setAlertConfig({ visible: true, type: 'success', title: 'Email Sent', message: 'Check your inbox for password reset instructions.', onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false })) });
+                }
+            },
+            onCancel: () => setAlertConfig((prev: any) => ({ ...prev, visible: false }))
+        });
     };
 
     const PasswordInput = ({ label, value, onChange, show, toggleShow, errorKey, placeholder }: any) => {
@@ -179,7 +209,7 @@ export default function UpdatePasswordScreen() {
         <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setVisibleTooltip(null); }}>
             <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
                 <Header title="Change Password" showBack />
-                <LoadingOverlay visible={loading} message="Updating Password..." />
+                <LoadingOverlay visible={loading} message={loadingMessage} />
                 <ModernAlert {...alertConfig} />
 
                 <KeyboardAvoidingView 
@@ -203,7 +233,7 @@ export default function UpdatePasswordScreen() {
                             />
 
                             <View style={{ alignItems: 'flex-end', marginTop: -12, marginBottom: 20 }}>
-                                <TouchableOpacity onPress={() => router.push('/auth/forgot-password')} style={{ paddingVertical: 4 }}>
+                                <TouchableOpacity onPress={handleForgotPassword} style={{ paddingVertical: 4 }}>
                                     <Text style={{ color: theme.colors.primary, fontWeight: '600', fontSize: 13 }}>Forgot Password?</Text>
                                 </TouchableOpacity>
                             </View>
