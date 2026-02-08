@@ -17,6 +17,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import BiometricLockScreen from "../components/BiometricLockScreen";
+import LoadingScreen from "../components/LoadingScreen"; // Ensure this component exists
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { SyncProvider } from "../context/SyncContext";
 import "../global.css";
@@ -29,7 +30,6 @@ LogBox.ignoreLogs([
 
 SplashScreen.preventAutoHideAsync();
 
-// [FIX] Removed deprecated 'shouldShowAlert'
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldPlaySound: true,
@@ -57,7 +57,7 @@ function RootLayoutNav() {
     Nunito_700Bold,
   });
 
-  // 1. Initialization
+  // 1. App Initialization (DB, Theme, Biometrics)
   useEffect(() => {
     if (isInitialized.current) return;
     
@@ -87,7 +87,7 @@ function RootLayoutNav() {
     prepare();
   }, []); 
 
-  // 2. Notifications
+  // 2. Notification Listeners
   useEffect(() => {
     if (Platform.OS === 'android') {
       Notifications.setNotificationChannelAsync('default', {
@@ -109,35 +109,30 @@ function RootLayoutNav() {
 
   // 3. Navigation Guard
   useEffect(() => {
-    if (!rootNavigationState?.key || !isReady || !fontsLoaded || isAuthLoading) return;
+    // STRICT CHECK: Do not route until Auth is fully loaded and fonts are ready
+    if (isAuthLoading || !isReady || !fontsLoaded || !rootNavigationState?.key) return;
 
     const currentSegments = segments as string[];
     const isRoot = currentSegments.length === 0;
-    
-    // Define Route Groups
     const inAuthGroup = currentSegments[0] === 'auth';
     const inTabsGroup = currentSegments[0] === '(tabs)';
     const inOnboarding = currentSegments[0] === 'onboarding';
     
-    // Exception: Allow logged-in users to access these specific auth screens
-    const isProtectedAuthRoute = 
-        currentSegments.join('/') === 'auth/update-password';
+    const isProtectedAuthRoute = currentSegments.join('/') === 'auth/update-password';
 
     const checkNavigation = async () => {
       if (user) {
-        // --- LOGGED IN ---
         if (!isOnboarded) {
-          // Force Onboarding
+          // Force Onboarding for new users
           if (!inOnboarding) router.replace('/onboarding');
         } else {
-          // Authenticated & Onboarded
+          // Authenticated & Onboarded -> Home
           if (isRoot || inOnboarding || (inAuthGroup && !isProtectedAuthRoute)) {
              router.replace('/(tabs)/home');
           }
         }
       } else {
-        // --- UNAUTHENTICATED ---
-        // Redirect to Index if trying to access Protected pages
+        // Unauthenticated -> Auth/Index
         if (inTabsGroup || inOnboarding || isProtectedAuthRoute) {
            router.replace('/');
         }
@@ -149,21 +144,23 @@ function RootLayoutNav() {
     checkNavigation();
   }, [isReady, fontsLoaded, isAuthLoading, user, isOnboarded, segments, rootNavigationState?.key]);
 
+  // --- LOADING SCREEN ---
+  // Show this until EVERYTHING (Auth + Fonts + DB) is ready.
   if (!isReady || !fontsLoaded || isAuthLoading) {
-    return null; 
+    return <LoadingScreen />;
   }
 
   return (
     <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <View style={{ flex: 1 }}>
         <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="auth" />
-          <Stack.Screen name="auth/update-password" options={{ animation: "slide_from_right" }} />
-          <Stack.Screen name="auth/forgot-password" options={{ animation: "slide_from_right" }} />
-          
+          <Stack.Screen name="index" options={{ gestureEnabled: false }} />
+          <Stack.Screen name="auth" options={{ gestureEnabled: false }} />
           <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
           <Stack.Screen name="(tabs)" options={{ gestureEnabled: false }} />
+          
+          <Stack.Screen name="auth/update-password" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="auth/forgot-password" options={{ animation: "slide_from_right" }} />
           
           <Stack.Screen name="settings" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/account-security" options={{ animation: "slide_from_right" }} />

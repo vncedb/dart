@@ -6,7 +6,6 @@ const LOGO_URL = "https://ytvfitmcwpyjbklrquyi.supabase.co/storage/v1/object/pub
 const GMAIL_USER = Deno.env.get("GMAIL_USER");
 const GMAIL_APP_PASSWORD = Deno.env.get("GMAIL_APP_PASSWORD");
 
-// --- NODEMAILER SETUP ---
 const transporter = nodemailer.createTransport({
   service: "gmail",
   auth: {
@@ -15,39 +14,54 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// --- HTML TEMPLATES ---
-const getHtmlHead = (title: string) => `
+// --- REUSABLE HTML GENERATOR ---
+const generateHtml = (title: string, message: string, code?: string, buttonText?: string, buttonUrl?: string, isDanger = false) => {
+  const brandColor = isDanger ? "#ef4444" : "#4f46e5"; // Red for danger, Indigo for normal
+  const bgSoft = isDanger ? "#fef2f2" : "#F8FAFC";
+  const borderSoft = isDanger ? "#fee2e2" : "#E2E8F0";
+
+  return `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title}</title>
-  <style>
-    body { margin: 0; padding: 0; background-color: #F1F5F9; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; }
-    .wrapper { width: 100%; background-color: #F1F5F9; padding-bottom: 40px; }
-    .content { max-width: 480px; margin: 0 auto; background-color: #ffffff; border-radius: 24px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); text-align: center; padding: 40px; }
-    .logo { width: 80px; height: auto; display: block; margin: 0 auto; }
-    .header { padding: 40px 0 24px; text-align: center; }
-    .title { font-size: 24px; font-weight: 700; color: #0f172a; margin: 0 0 16px; }
-    .text { font-size: 16px; color: #64748b; line-height: 24px; margin: 0 0 24px; }
-    .btn { display: inline-block; background-color: #4f46e5; color: #ffffff; padding: 14px 32px; border-radius: 12px; text-decoration: none; font-weight: 600; font-size: 16px; }
-    .footer { padding: 24px; color: #94a3b8; font-size: 12px; text-align: center; }
-    .icon { font-size: 32px; color: #4f46e5; }
-    .icon-container { width: 64px; height: 64px; background-color: #EEF2FF; border-radius: 50%; margin: 0 auto 20px auto; line-height: 64px; }
-  </style>
 </head>
-<body>
-  <table class="wrapper">
+<body style="margin:0; padding:0; background-color:#F1F5F9; font-family:'Helvetica Neue', Helvetica, Arial, sans-serif;">
+  <table style="width:100%; background-color:#F1F5F9; padding-bottom:40px;">
     <tr>
       <td align="center">
-        <div class="header">
-          <img src="${LOGO_URL}" alt="DART" class="logo">
+        <div style="padding:40px 0 24px;">
+          <img src="${LOGO_URL}" alt="DART" style="width:80px; height:auto; display:block;">
         </div>
-`;
+        
+        <div style="max-width:480px; width:90%; background-color:#ffffff; border-radius:24px; overflow:hidden; box-shadow:0 4px 6px rgba(0,0,0,0.05); text-align:center; padding:40px;">
+          <h1 style="font-size:24px; font-weight:700; color:#0f172a; margin:0 0 16px;">${title}</h1>
+          <p style="font-size:16px; color:#64748b; line-height:24px; margin:0 0 24px;">
+            ${message}
+          </p>
+          
+          ${code ? `
+          <div style="background-color:${bgSoft}; border:1px solid ${borderSoft}; border-radius:12px; padding:20px; margin:0 0 24px;">
+            <span style="font-family:'Courier New', monospace; font-size:32px; font-weight:700; color:${brandColor}; letter-spacing:8px;">${code}</span>
+          </div>
+          <p style="font-size:13px; color:#94a3b8; margin:0;">
+            This code expires in 10 minutes.
+          </p>
+          ` : ''}
 
-const getHtmlFooter = (year: number) => `
-        <div class="footer">
-          <p>&copy; ${year} DART. All rights reserved.</p>
+          ${buttonText && buttonUrl ? `
+          <div style="margin:24px 0;">
+             <a href="${buttonUrl}" style="display:inline-block; background-color:${brandColor}; color:#ffffff; padding:14px 32px; border-radius:50px; text-decoration:none; font-weight:600; font-size:16px;">${buttonText}</a>
+          </div>
+          ` : ''}
+
+        </div>
+
+        <div style="padding:24px; color:#94a3b8; font-size:12px; text-align:center;">
+          <p style="margin:0;">&copy; ${new Date().getFullYear()} DART (Beta). All rights reserved.</p>
+          <p style="margin:8px 0 0;">Powered by Project Vdb</p>
         </div>
       </td>
     </tr>
@@ -55,97 +69,78 @@ const getHtmlFooter = (year: number) => `
 </body>
 </html>
 `;
-
-const buildNotifTemplate = (type: string, siteUrl: string, year: number) => {
-  let title = '', desc = '', btnText = 'Open App', icon = '&#10003;'; // Checkmark
-
-  switch (type) {
-    case 'WELCOME':
-      title = 'Account Ready!';
-      desc = 'Your DART account has been successfully created. You can now access all features and start managing your reports.';
-      break;
-    case 'SUBSCRIPTION':
-      title = 'Upgrade Complete';
-      desc = 'Thank you for subscribing! Your premium features have been unlocked and are ready to use.';
-      icon = '&#9733;'; // Star
-      btnText = 'View Plan';
-      break;
-    case 'PASSWORD_CHANGED':
-      title = 'Password Updated';
-      desc = 'Your account password has been successfully changed. If you did not perform this action, please contact support immediately.';
-      icon = '&#128274;'; // Lock
-      btnText = 'Login Now';
-      break;
-    default:
-      title = 'Notification';
-      desc = 'You have a new notification from DART.';
-  }
-
-  return `
-    ${getHtmlHead(title)}
-    <div class="content">
-      <div class="icon-container"><span class="icon">${icon}</span></div>
-      <h1 class="title">${title}</h1>
-      <p class="text">${desc}</p>
-      <a href="${siteUrl}" class="btn">${btnText}</a>
-    </div>
-    ${getHtmlFooter(year)}
-  `;
 };
 
-// --- MAIN HANDLER ---
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type' } });
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: { 'Access-Control-Allow-Origin': '*' } });
 
   try {
-    const { email, type, siteUrl = 'https://dartapp.com' } = await req.json();
-    const year = new Date().getFullYear();
-    let html = '';
+    // We expect 'otp' in the body for Delete Account
+    const { email, type, data, otp } = await req.json();
     let subject = '';
+    let html = '';
 
-    console.log(`Sending email type: ${type} to ${email}`);
+    // Consolidated OTP: Support 'data.code' or top-level 'otp'
+    const codeValue = otp || (data && data.code);
 
     switch (type) {
+      // --- NEW: DELETE ACCOUNT (DANGER) ---
+      case 'DELETE_ACCOUNT':
+        subject = "Confirm Account Deletion";
+        html = generateHtml(
+          "Delete Account Request",
+          "We received a request to permanently delete your DART account. This action cannot be undone. Enter the code below to confirm.",
+          codeValue, 
+          undefined, 
+          undefined,
+          true // isDanger = true (Red styling)
+        );
+        break;
+
       case 'WELCOME':
-        subject = "You're all set!";
-        html = buildNotifTemplate('WELCOME', siteUrl, year);
+        subject = "Welcome to DART Beta!";
+        html = generateHtml(
+          "Welcome Aboard",
+          "Your account is ready. Thanks for joining our Beta program. You can now track your attendance and help us improve.",
+          undefined,
+          "Open App",
+          "dartapp://home"
+        );
         break;
+
+      case 'VERIFICATION_CODE':
+        subject = `${codeValue} is your verification code`;
+        html = generateHtml(
+          "Verify Action",
+          "Please use the code below to complete your request.",
+          codeValue
+        );
+        break;
+
       case 'SUBSCRIPTION':
-        subject = 'Subscription Confirmed';
-        html = buildNotifTemplate('SUBSCRIPTION', siteUrl, year);
+        subject = "You're now a Pro!";
+        html = generateHtml(
+          "Upgrade Complete",
+          "Thank you for subscribing! Your premium features have been unlocked.",
+          undefined,
+          "View My Plan",
+          "dartapp://settings"
+        );
         break;
-      case 'PASSWORD_CHANGED':
-        subject = 'Security Alert: Password Changed';
-        html = buildNotifTemplate('PASSWORD_CHANGED', siteUrl, year);
-        break;
+
       default:
-        // Supabase now handles OTP/Delete/Recovery internally via Dashboard SMTP.
-        // We throw here to prevent this function from sending duplicate or unstyled emails if called by mistake.
-        throw new Error(`Type "${type}" is handled by Supabase Dashboard or is invalid.`);
+        throw new Error("Invalid email type");
     }
 
-    // Send via Gmail SMTP
-    const info = await transporter.sendMail({
-      from: `"DART App" <${GMAIL_USER}>`,
+    await transporter.sendMail({
+      from: `"DART Support" <${GMAIL_USER}>`,
       to: email,
-      subject: subject,
-      html: html,
+      subject,
+      html,
     });
 
-    console.log("Email sent: %s", info.messageId);
-
-    return new Response(JSON.stringify({ success: true, messageId: info.messageId }), {
-      headers: { 'Content-Type': 'application/json' },
-      status: 200,
-    });
-
+    return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
   } catch (error: any) {
-    console.error("Email error:", error.message);
-    return new Response(JSON.stringify({ error: error.message }), {
-      headers: { 'Content-Type': 'application/json' },
-      status: 400,
-    });
+    return new Response(JSON.stringify({ error: error.message }), { status: 400 });
   }
 });

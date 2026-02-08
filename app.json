@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "DART",
-    "slug": "dart-app",
+    "name": "DART (Beta)",
+    "slug": "dart-app-beta",
+    "version": "1.0.2-beta",
     "owner": "project-vdb",
-    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "dartapp",
@@ -11,7 +11,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.projectvdb.dart",
+      "bundleIdentifier": "com.projectvdb.dart.beta",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -26,7 +26,7 @@
         "backgroundColor": "#F1F5F9"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.projectvdb.dart",
+      "package": "com.projectvdb.dart.beta",
       "launchMode": "singleTask"
     },
     "web": {

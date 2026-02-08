@@ -17,7 +17,7 @@ type AuthContextType = {
   isLoading: boolean;
   completeOnboarding: () => Promise<void>;
   signOut: () => Promise<void>;
-  refreshProfile: () => Promise<void>; // New: Force refresh profile data
+  refreshProfile: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType>({
@@ -41,71 +41,83 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const segments = useSegments();
   const router = useRouter();
 
-  // Helper: Check DB for onboarding status
-  const checkDbOnboarding = async (userId: string) => {
+  // [FIX] Improved Onboarding Check: Local DB -> Fallback to Supabase -> Sync
+  const checkOnboardingStatus = async (userId: string): Promise<boolean> => {
       try {
           const db = await getDB();
-          const profile: any = await db.getFirstAsync(
+          
+          // 1. Check Local DB
+          const localProfile: any = await db.getFirstAsync(
               'SELECT is_onboarded FROM profiles WHERE id = ?', 
               [userId]
           );
-          // If profile exists, return its status. If not (rare), assume false.
-          return profile ? Boolean(profile.is_onboarded) : false;
+
+          if (localProfile) {
+              // If we have a local record that says TRUE, trust it.
+              if (localProfile.is_onboarded) return true;
+          }
+
+          // 2. Fallback: Check Supabase (Crucial for fresh installs/logins)
+          // If local is false/missing, verify with server before forcing onboarding
+          const { data: remoteProfile, error } = await supabase
+              .from('profiles')
+              .select('is_onboarded')
+              .eq('id', userId)
+              .single();
+
+          if (remoteProfile && remoteProfile.is_onboarded) {
+              // Server says TRUE. Sync Local DB and return TRUE.
+              await db.runAsync(
+                  `INSERT OR REPLACE INTO profiles (id, is_onboarded) VALUES (?, 1)`,
+                  [userId]
+              );
+              return true;
+          }
+
+          return false;
       } catch (e) {
-          console.log("DB Check Error:", e);
+          console.log("Onboarding Check Error:", e);
           return false;
       }
   };
 
   const refreshProfile = useCallback(async () => {
       if (!user) return;
-      // 1. Fetch latest from Supabase to ensure local DB is fresh
-      const { data: remoteProfile } = await supabase.from('profiles').select('is_onboarded').eq('id', user.id).single();
-      
-      let status = false;
-      if (remoteProfile) {
-          status = remoteProfile.is_onboarded;
-          // Sync to Local DB
-          const db = await getDB();
-          await db.runAsync('UPDATE profiles SET is_onboarded = ? WHERE id = ?', [status ? 1 : 0, user.id]);
-      } else {
-          // Fallback to local DB check
-          status = await checkDbOnboarding(user.id);
-      }
-
-      // 2. Update State & Storage
+      const status = await checkOnboardingStatus(user.id);
       setIsOnboarded(status);
       await AsyncStorage.setItem(ONBOARDED_KEY, status ? 'true' : 'false');
   }, [user]);
 
   const completeOnboarding = useCallback(async () => {
     try {
+      if (user) {
+          // 1. Update Supabase
+          await supabase.from('profiles').update({ is_onboarded: true }).eq('id', user.id);
+          
+          // 2. Update Local DB
+          const db = await getDB();
+          await db.runAsync(
+              `UPDATE profiles SET is_onboarded = 1 WHERE id = ?`, 
+              [user.id]
+          );
+      }
+      // 3. Update State
       await AsyncStorage.setItem(ONBOARDED_KEY, 'true');
       setIsOnboarded(true);
-      if (user) {
-          // Update DB
-          await supabase.from('profiles').update({ is_onboarded: true }).eq('id', user.id);
-          const db = await getDB();
-          await db.runAsync('UPDATE profiles SET is_onboarded = 1 WHERE id = ?', [user.id]);
-      }
     } catch (error) {
       console.error('Failed to complete onboarding:', error);
     }
   }, [user]);
 
-  // [SMART SIGN OUT]
   const signOut = useCallback(async () => {
     setIsLoading(true);
     try {
-      // 1. Stop Background Processes
       await clearAttendanceNotification();
       await Notifications.cancelAllScheduledNotificationsAsync();
 
-      // 2. Clear All Operational Storage
       const keys = ['active_ot_expiry', 'shift_start_time', 'last_break_time', ONBOARDED_KEY];
       await AsyncStorage.multiRemove(keys);
 
-      // 3. Disable Biometrics
       const settings = await AsyncStorage.getItem(APP_SETTINGS_KEY);
       if (settings) {
           const parsed = JSON.parse(settings);
@@ -113,17 +125,13 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           await AsyncStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(parsed));
       }
 
-      // 4. Supabase Sign Out
-      const { error } = await supabase.auth.signOut();
-      if (error) console.log("Supabase SignOut Warning:", error.message);
-
+      await supabase.auth.signOut();
     } catch (error) {
       console.error("Sign out error:", error);
     } finally {
-      // 5. Hard Reset State (Always happens)
       setSession(null);
       setUser(null);
-      setIsOnboarded(false); // Critical: Reset this so next login checks again
+      setIsOnboarded(false);
       setIsLoading(false);
     }
   }, []);
@@ -131,16 +139,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     const initAuth = async () => {
       try {
-        // 1. Get Session
         const { data: { session: currentSession } } = await supabase.auth.getSession();
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
 
         if (currentSession?.user) {
-            // 2. [FIX] Check DB for Truth (Don't trust just AsyncStorage)
-            const dbStatus = await checkDbOnboarding(currentSession.user.id);
-            setIsOnboarded(dbStatus);
-            await AsyncStorage.setItem(ONBOARDED_KEY, dbStatus ? 'true' : 'false');
+            const status = await checkOnboardingStatus(currentSession.user.id);
+            setIsOnboarded(status);
+            await AsyncStorage.setItem(ONBOARDED_KEY, status ? 'true' : 'false');
         } else {
             setIsOnboarded(false);
         }
@@ -158,9 +164,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setUser(newSession?.user ?? null);
       
       if (newSession?.user) {
-          // On explicit sign-in event, check profile again
-          const dbStatus = await checkDbOnboarding(newSession.user.id);
-          setIsOnboarded(dbStatus);
+          const status = await checkOnboardingStatus(newSession.user.id);
+          setIsOnboarded(status);
       } else {
           setIsOnboarded(false);
       }
@@ -171,25 +176,32 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     return () => subscription.unsubscribe();
   }, []);
 
-  // [ROUTING LOGIC] - The Traffic Cop
+  // [ROUTING GUARD]
   useEffect(() => {
     if (isLoading) return;
 
     const inAuthGroup = segments[0] === 'auth';
     const inOnboarding = segments[0] === 'onboarding';
+    const inTabsGroup = segments[0] === '(tabs)';
 
     if (session && user) {
         // User is logged in
         if (!isOnboarded) {
-            // Must go to onboarding
+            // Force Onboarding
             if (!inOnboarding) router.replace('/onboarding');
         } else {
-            // Must go to home
-            if (inAuthGroup || inOnboarding) router.replace('/');
+            // User is Ready -> Go Home
+            // If they are in Auth or Onboarding or Root, send to Home
+            if (inAuthGroup || inOnboarding || segments.length === 0) {
+                router.replace('/(tabs)/home');
+            }
         }
     } else {
-        // User is logged out
-        if (!inAuthGroup) router.replace('/auth');
+        // User is NOT logged in
+        // If they try to access Tabs or Onboarding, send to Auth (or Index)
+        if (inTabsGroup || inOnboarding) {
+            router.replace('/'); 
+        }
     }
   }, [session, user, isOnboarded, segments, isLoading]);
 

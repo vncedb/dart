@@ -135,6 +135,9 @@ export default function AccountSecurityScreen() {
     
     const [deleteModalVisible, setDeleteModalVisible] = useState(false);
     const [otpVisible, setOtpVisible] = useState(false);
+    
+    // [FIX] State to hold the locally generated code
+    const [generatedCode, setGeneratedCode] = useState<string | null>(null);
 
     const isGoogleUser = user?.app_metadata?.provider === 'google' || user?.app_metadata?.providers?.includes('google');
 
@@ -199,35 +202,44 @@ export default function AccountSecurityScreen() {
         setDeleteModalVisible(true);
     };
 
+    // [FIX] Helper to Send Custom OTP
+    const sendDeleteOtp = async () => {
+        if (!user?.email) throw new Error("No user email found.");
+        
+        // 1. Generate 6-digit code
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+        setGeneratedCode(code);
+
+        // 2. Call Edge Function with 'DELETE_ACCOUNT' type
+        const { error } = await supabase.functions.invoke('send-email', {
+            body: { 
+                type: 'DELETE_ACCOUNT', 
+                email: user.email, 
+                otp: code 
+            }
+        });
+
+        if (error) throw error;
+    };
+
     const handleConfirmDelete = async () => {
         setDeleteModalVisible(false);
         setLoading(true);
         setLoadingMsg("Sending Verification Code...");
         try {
-            if (!user?.email) throw new Error("No user email found.");
-            // Send OTP to confirm deletion intent
-            const { error } = await supabase.auth.signInWithOtp({ 
-                email: user.email,
-                options: { shouldCreateUser: false } 
-            });
-            if (error) throw error;
+            await sendDeleteOtp();
             setOtpVisible(true);
         } catch (error: any) {
-            setAlertConfig({ visible: true, type: 'error', title: 'Error', message: error.message, onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) });
+            setAlertConfig({ visible: true, type: 'error', title: 'Error', message: error.message || "Failed to send code.", onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) });
         } finally { setLoading(false); }
     };
 
-    const handleVerifyOtp = async (code: string) => {
-        // 1. Verify OTP first
-        const { error: verifyError } = await supabase.auth.verifyOtp({ 
-            email: user?.email || '', 
-            token: code, 
-            type: 'email' 
-        });
-        
-        if (verifyError) {
-            const { error: retryError } = await supabase.auth.verifyOtp({ email: user?.email || '', token: code, type: 'recovery' });
-            if (retryError) return false;
+    const handleVerifyOtp = async (inputCode: string) => {
+        // [FIX] Verify against local code instead of Supabase Auth
+        if (inputCode !== generatedCode) {
+            // Optional: You could allow a small mismatch or retry logic here, but strict is safer
+            // Returning false keeps the modal open and shows error
+            return false;
         }
 
         setOtpVisible(false);
@@ -238,7 +250,7 @@ export default function AccountSecurityScreen() {
             const userId = user?.id;
             if (!userId) throw new Error("User ID missing.");
 
-            // 2. Wipe Local Data
+            // 1. Wipe Local Data
             const db = await getDB();
             await db.runAsync('DELETE FROM attendance WHERE user_id = ?', [userId]);
             await db.runAsync('DELETE FROM accomplishments WHERE user_id = ?', [userId]);
@@ -247,16 +259,16 @@ export default function AccountSecurityScreen() {
             await db.runAsync('DELETE FROM profiles WHERE id = ?', [userId]);
             await db.runAsync('DELETE FROM sync_queue', []);
 
-            // 3. Reset Onboarding
+            // 2. Reset Onboarding
             await AsyncStorage.removeItem('isOnboarded');
 
-            // 4. Cloud Delete (Edge Function)
+            // 3. Cloud Delete (Edge Function)
             const { error: fnError } = await supabase.functions.invoke('delete-user');
             if (fnError) console.error("Cloud delete warning:", fnError);
 
             setLoading(false);
             
-            // 5. Success Alert & Sign Out
+            // 4. Success Alert & Sign Out
             setAlertConfig({
                 visible: true, 
                 type: 'success', 
@@ -300,7 +312,8 @@ export default function AccountSecurityScreen() {
                 email={user?.email || ''} 
                 onClose={() => setOtpVisible(false)} 
                 onVerify={handleVerifyOtp} 
-                onResend={async () => { await supabase.auth.signInWithOtp({ email: user?.email || '', options: { shouldCreateUser: false } }) }} 
+                // [FIX] Resend calls our custom sender
+                onResend={sendDeleteOtp} 
                 title="Verify Deletion" 
                 message="Enter code to confirm permanent deletion" 
             />
