@@ -1,4 +1,3 @@
-// Aligned UI with Settings: Modern animations, removed redundant divider
 import {
     Alert02Icon,
     ArrowRight01Icon,
@@ -32,7 +31,7 @@ import { useAuth } from '../../context/AuthContext';
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 
-// --- Modern Settings Item (Standardized) ---
+// --- Modern Settings Item ---
 const ModernSettingsItem = ({ icon, label, desc, onPress, rightElement, destructive, isLast, theme }: any) => {
     const scaleValue = useRef(new Animated.Value(1)).current;
 
@@ -137,6 +136,8 @@ export default function AccountSecurityScreen() {
     const [deleteModalVisible, setDeleteModalVisible] = useState(false);
     const [otpVisible, setOtpVisible] = useState(false);
 
+    const isGoogleUser = user?.app_metadata?.provider === 'google' || user?.app_metadata?.providers?.includes('google');
+
     useEffect(() => { checkBiometrics(); }, []);
 
     const checkBiometrics = async () => {
@@ -176,7 +177,6 @@ export default function AccountSecurityScreen() {
         } catch (e) { console.error(e); }
     };
 
-    // --- Biometric Guard for Password Change ---
     const handleChangePassword = async () => {
         if (biometricEnabled && biometricSupported) {
             const result = await LocalAuthentication.authenticateAsync({
@@ -205,7 +205,11 @@ export default function AccountSecurityScreen() {
         setLoadingMsg("Sending Verification Code...");
         try {
             if (!user?.email) throw new Error("No user email found.");
-            const { error } = await supabase.auth.signInWithOtp({ email: user.email });
+            // Send OTP to confirm deletion intent
+            const { error } = await supabase.auth.signInWithOtp({ 
+                email: user.email,
+                options: { shouldCreateUser: false } 
+            });
             if (error) throw error;
             setOtpVisible(true);
         } catch (error: any) {
@@ -214,42 +218,92 @@ export default function AccountSecurityScreen() {
     };
 
     const handleVerifyOtp = async (code: string) => {
-        const { error: verifyError } = await supabase.auth.verifyOtp({ email: user?.email || '', token: code, type: 'magiclink' });
-        if (verifyError) return false;
+        // 1. Verify OTP first
+        const { error: verifyError } = await supabase.auth.verifyOtp({ 
+            email: user?.email || '', 
+            token: code, 
+            type: 'email' 
+        });
+        
+        if (verifyError) {
+            const { error: retryError } = await supabase.auth.verifyOtp({ email: user?.email || '', token: code, type: 'recovery' });
+            if (retryError) return false;
+        }
+
         setOtpVisible(false);
         setLoading(true);
         setLoadingMsg("Deleting Account...");
+
         try {
             const userId = user?.id;
             if (!userId) throw new Error("User ID missing.");
+
+            // 2. Wipe Local Data
             const db = await getDB();
             await db.runAsync('DELETE FROM attendance WHERE user_id = ?', [userId]);
             await db.runAsync('DELETE FROM accomplishments WHERE user_id = ?', [userId]);
             await db.runAsync('DELETE FROM saved_reports WHERE user_id = ?', [userId]);
             await db.runAsync('DELETE FROM job_positions WHERE user_id = ?', [userId]);
             await db.runAsync('DELETE FROM profiles WHERE id = ?', [userId]);
+            await db.runAsync('DELETE FROM sync_queue', []);
+
+            // 3. Reset Onboarding
+            await AsyncStorage.removeItem('isOnboarded');
+
+            // 4. Cloud Delete (Edge Function)
             const { error: fnError } = await supabase.functions.invoke('delete-user');
-            if (fnError) console.error("Cloud delete failed, local data wiped.");
+            if (fnError) console.error("Cloud delete warning:", fnError);
+
             setLoading(false);
+            
+            // 5. Success Alert & Sign Out
             setAlertConfig({
-                visible: true, type: 'success', title: 'Account Deleted', message: 'Your account has been permanently removed.', confirmText: 'Done',
-                onConfirm: async () => { setAlertConfig((prev: any) => ({ ...prev, visible: false })); await signOut(); router.replace('/'); }
+                visible: true, 
+                type: 'success', 
+                title: 'Account Deleted', 
+                message: 'Your account has been permanently removed.', 
+                confirmText: 'Done',
+                onConfirm: async () => { 
+                    setAlertConfig((prev: any) => ({ ...prev, visible: false })); 
+                    await signOut(); 
+                    router.replace('/'); 
+                }
             });
             return true;
-        } catch (error: any) {
+        } catch (_) {
             setLoading(false);
-            setAlertConfig({ visible: true, type: 'error', title: 'Deletion Incomplete', message: 'Local data cleared, cloud error. Contact support.', onConfirm: () => { setAlertConfig((p:any) => ({...p, visible: false})); router.replace('/'); } });
+            setAlertConfig({ 
+                visible: true, 
+                type: 'error', 
+                title: 'Deletion Incomplete', 
+                message: 'Local data cleared, but server error occurred. You will be signed out.', 
+                onConfirm: async () => { 
+                    setAlertConfig((p:any) => ({...p, visible: false})); 
+                    await signOut(); 
+                    router.replace('/'); 
+                } 
+            });
             return true;
         }
     };
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
-            <Header title="Account & Security" showBack />
+            <Header title="Account & Security" showBack={true} />
             <LoadingOverlay visible={loading} message={loadingMsg} />
             <ModernAlert {...alertConfig} />
+            
             <DeleteConfirmationModal visible={deleteModalVisible} onClose={() => setDeleteModalVisible(false)} onConfirm={handleConfirmDelete} />
-            <OtpVerificationModal visible={otpVisible} email={user?.email || ''} onClose={() => setOtpVisible(false)} onVerify={handleVerifyOtp} onResend={async () => { await supabase.auth.signInWithOtp({ email: user?.email || '' }) }} title="Verify Deletion" message="Enter code to confirm deletion" />
+            
+            <OtpVerificationModal 
+                visible={otpVisible} 
+                email={user?.email || ''} 
+                onClose={() => setOtpVisible(false)} 
+                onVerify={handleVerifyOtp} 
+                onResend={async () => { await supabase.auth.signInWithOtp({ email: user?.email || '', options: { shouldCreateUser: false } }) }} 
+                title="Verify Deletion" 
+                message="Enter code to confirm permanent deletion" 
+            />
 
             <ScrollView contentContainerStyle={{ padding: 24 }}>
                 <View style={{ marginBottom: 24 }}>
@@ -261,19 +315,23 @@ export default function AccountSecurityScreen() {
                                 label="Biometric Unlock" 
                                 desc="Use FaceID/TouchID to open app" 
                                 theme={theme}
+                                isLast={isGoogleUser} 
                                 rightElement={
                                     <Switch value={biometricEnabled} onValueChange={toggleBiometric} trackColor={{ false: theme.colors.border, true: theme.colors.success }} thumbColor={'#fff'} style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }} />
                                 } 
                             />
                         )}
-                        <ModernSettingsItem 
-                            icon={LockKeyIcon} 
-                            label="Change Password" 
-                            desc="Update your login credentials" 
-                            onPress={handleChangePassword} 
-                            isLast 
-                            theme={theme} 
-                        />
+                        
+                        {!isGoogleUser && (
+                            <ModernSettingsItem 
+                                icon={LockKeyIcon} 
+                                label="Change Password" 
+                                desc="Update your login credentials" 
+                                onPress={handleChangePassword} 
+                                isLast 
+                                theme={theme} 
+                            />
+                        )}
                     </View>
                 </View>
 

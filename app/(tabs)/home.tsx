@@ -15,7 +15,6 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
-    Alert,
     Dimensions,
     RefreshControl,
     ScrollView,
@@ -246,6 +245,7 @@ export default function Home() {
     const [notifications, setNotifications] = useState<any[]>([]);
     const [notifModalVisible, setNotifModalVisible] = useState(false);
     const notificationListener = useRef<any>(null);
+    const lastUpdateMinute = useRef<number | null>(null);
 
     // Modals & Alerts
     const [timelinePickerVisible, setTimelinePickerVisible] = useState(false);
@@ -479,7 +479,9 @@ export default function Home() {
             setAlertVisible(true);
             await loadData();
             triggerSync(); 
-        } catch (e: any) { Alert.alert("Error", e.message); } finally { setLoading(false); }
+        } catch (e: any) { 
+             setModernAlertConfig({ visible: true, type: 'error', title: 'Error', message: e.message, confirmText: 'OK', onConfirm: () => setModernAlertConfig((prev: any) => ({ ...prev, visible: false })) });
+        } finally { setLoading(false); }
     }, [activeJobId, isClockedIn, latestRecord, appSettings, loadData, triggerSync, successPlayer, router]);
 
     const handleClockButtonPress = () => {
@@ -554,28 +556,41 @@ export default function Home() {
     // Main Timer Loop
     useEffect(() => {
         const timer = setInterval(async () => {
+            const now = new Date();
+            const currentMinute = now.getMinutes();
+
+            // 1. Calculate Minutes (Throttle State Update)
             if (!isBreakMode) {
                 let totalMs = 0;
                 todaysRecords.forEach((record) => {
                     const start = new Date(record.clock_in).getTime();
-                    const end = record.clock_out ? new Date(record.clock_out).getTime() : new Date().getTime();
+                    const end = record.clock_out ? new Date(record.clock_out).getTime() : now.getTime();
                     totalMs += Math.max(0, end - start);
                 });
+                
+                // Only update state if the value has actually changed significantly (e.g. integer minutes)
+                // or keep exact precision but be aware of re-renders. 
+                // For smoother UI, we might keep it, but the notification MUST be throttled.
                 setWorkedMinutes(totalMs / (1000 * 60));
             }
 
+            // 2. Notifications (THROTTLED)
+            // Only update notification when the minute changes or it's the first time
             if (isClockedIn && latestRecord?.clock_in) {
                 if (appSettings.notificationsEnabled !== false) {
-                    const shouldBanner = !hasShownInitialNotif;
-                    
-                    await updateAttendanceNotification(
-                        latestRecord.clock_in, 
-                        isSessionOvertime, 
-                        isBreakMode, 
-                        shouldBanner 
-                    );
+                    if (currentMinute !== lastUpdateMinute.current || !hasShownInitialNotif) {
+                        const shouldBanner = !hasShownInitialNotif;
+                        
+                        await updateAttendanceNotification(
+                            latestRecord.clock_in, 
+                            isSessionOvertime, 
+                            isBreakMode, 
+                            shouldBanner 
+                        );
 
-                    if (shouldBanner) setHasShownInitialNotif(true);
+                        if (shouldBanner) setHasShownInitialNotif(true);
+                        lastUpdateMinute.current = currentMinute;
+                    }
                 }
             }
 

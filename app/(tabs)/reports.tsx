@@ -1,4 +1,3 @@
-// ... imports same as before ...
 import {
   Cancel01Icon,
   Delete02Icon,
@@ -15,7 +14,6 @@ import { endOfMonth, format } from "date-fns";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   BackHandler,
   Platform,
   RefreshControl,
@@ -40,6 +38,7 @@ import ActionMenu from "../../components/ActionMenu";
 import DatePicker from "../../components/DatePicker";
 import FloatingAlert from "../../components/FloatingAlert";
 import LoadingOverlay from "../../components/LoadingOverlay";
+import LoadingScreen from "../../components/LoadingScreen";
 import ModernAlert from "../../components/ModernAlert";
 import ReportFilterBar from "../../components/ReportFilterBar";
 import ReportFilterModal, {
@@ -111,7 +110,7 @@ export default function ReportsScreen() {
   const [filteredSections, setFilteredSections] = useState<any[]>([]);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [markedDates, setMarkedDates] = useState<string[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0); // ADDED
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -250,7 +249,6 @@ export default function ReportsScreen() {
         return;
       }
 
-      // ADDED: Fetch Unread Count
       const count = await ReportService.getUnreadCount(userId);
       setUnreadCount(count);
 
@@ -346,8 +344,6 @@ export default function ReportsScreen() {
     if (lastSyncedAt) fetchReports();
   }, [lastSyncedAt, fetchReports]);
 
-  // ... handleExactDateSelect, handleRangeSelect, handleDeleteSelected, toggleSelection ...
-  // Same as original file
   const handleExactDateSelect = (date: Date) => {
     if (date) {
       const dateStr = format(date, "yyyy-MM-dd");
@@ -456,6 +452,8 @@ export default function ReportsScreen() {
         onHide={() => setFloatingAlert({ ...floatingAlert, visible: false })}
       />
       <ModernAlert {...alertConfig} />
+      
+      {/* Loading Overlay for Actions */}
       <LoadingOverlay visible={loadingAction} message="Processing..." />
 
       <ReportFilterModal
@@ -522,7 +520,7 @@ export default function ReportsScreen() {
         title={selectionMode ? `${selectedIds.size} Selected` : "Reports"}
         rightElement={
           <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
-            {!selectionMode && (
+            {!selectionMode ? (
               <>
                 <TouchableOpacity
                   onPress={handleManualSync}
@@ -560,7 +558,7 @@ export default function ReportsScreen() {
                       size={20}
                       color={theme.colors.text}
                     />
-                    {unreadCount > 0 && (
+                    {unreadCount > 0 ? (
                       <View
                         style={{
                           position: "absolute",
@@ -587,13 +585,11 @@ export default function ReportsScreen() {
                           {unreadCount > 9 ? "9+" : unreadCount}
                         </Text>
                       </View>
-                    )}
+                    ) : null}
                   </View>
                 </TouchableOpacity>
               </>
-            )}
-            {/* Delete Selection Mode Buttons... */}
-            {selectionMode && (
+            ) : (
               <TouchableOpacity
                 onPress={handleDeleteSelected}
                 disabled={selectedIds.size === 0}
@@ -633,10 +629,9 @@ export default function ReportsScreen() {
 
       <OfflineIndicator isOffline={isOffline} theme={theme} />
 
+      {/* Content Area: Shows LoadingScreen or List */}
       {isLoading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-        </View>
+        <LoadingScreen message="Loading Reports..." />
       ) : (
         <View style={{ flex: 1 }}>
           <View

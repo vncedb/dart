@@ -25,18 +25,18 @@ export default function BiometricLockScreen({ onUnlock }: { onUnlock: () => void
     isScanning.current = true;
 
     try {
+      // Check hardware capability
       const hasHardware = await LocalAuthentication.hasHardwareAsync();
       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
 
-      // If no hardware/enrollment, unlock automatically to prevent getting stuck
-      if (!hasHardware || !isEnrolled) {
-        unlockApp();
-        return;
-      }
-
+      // [SECURITY FIX] 
+      // If hardware/enrollment is missing but the app expects a lock, 
+      // do NOT auto-unlock. Force the OS authentication prompt 
+      // which will naturally fallback to PIN/Pattern if biometrics aren't available.
+      
       const result = await LocalAuthentication.authenticateAsync({
         promptMessage: 'Unlock DART',
-        fallbackLabel: 'Use Passcode',
+        fallbackLabel: 'Use Passcode', // This triggers the device PIN fallback
         disableDeviceFallback: false,
         cancelLabel: 'Cancel'
       });
@@ -53,6 +53,9 @@ export default function BiometricLockScreen({ onUnlock }: { onUnlock: () => void
       }
     } catch (error) {
       console.log("Biometric Error:", error);
+      // In a real security context, you might want to show an error message 
+      // and prevent access entirely rather than unlocking or looping.
+      setStatus('Error'); 
       isScanning.current = false; 
     }
   };

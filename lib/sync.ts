@@ -217,17 +217,24 @@ export const syncPull = async (userId: string) => {
       }
     }
     
-    // 5. PULL Reports
+    // 5. PULL Reports (CRITICAL FIX: UPSERT TO PRESERVE LOCAL FILE PATHS)
     const { data: reportsData } = await supabase.from("saved_reports").select("*").eq("user_id", userId).gt("created_at", lastSyncedAt);
     if (reportsData) {
         for (const row of reportsData) {
             await db.runAsync(
-                `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, remote_url, created_at, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+                `INSERT INTO saved_reports (id, user_id, title, file_path, file_type, file_size, remote_url, created_at, updated_at, is_synced) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                 ON CONFLICT(id) DO UPDATE SET
+                    title = excluded.title,
+                    remote_url = excluded.remote_url,
+                    updated_at = excluded.updated_at,
+                    is_synced = 1
+                 `,
                 [
                   row.id, 
                   row.user_id, 
                   row.title, 
-                  "", // Empty string ensures we don't overwrite local path if we had one, and satisfies NOT NULL
+                  "", // Default for NEW records. Ignored on update due to Upsert logic above
                   row.file_type, 
                   row.file_size, 
                   row.remote_url, 

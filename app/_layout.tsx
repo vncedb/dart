@@ -1,4 +1,3 @@
-// Fixed Navigation Guard to allow 'update-password' for logged-in users
 import {
   Nunito_400Regular,
   Nunito_500Medium,
@@ -30,13 +29,13 @@ LogBox.ignoreLogs([
 
 SplashScreen.preventAutoHideAsync();
 
+// [FIX] Removed deprecated 'shouldShowAlert'
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
+    shouldShowBanner: true, 
+    shouldShowList: true, 
   }),
 });
 
@@ -132,14 +131,12 @@ function RootLayoutNav() {
           if (!inOnboarding) router.replace('/onboarding');
         } else {
           // Authenticated & Onboarded
-          // Redirect to Home IF trying to access Guest pages (Index, Login, Signup)
-          // BUT allow if they are on a 'Protected' auth route like Change Password
           if (isRoot || inOnboarding || (inAuthGroup && !isProtectedAuthRoute)) {
              router.replace('/(tabs)/home');
           }
         }
       } else {
-        // --- GUEST ---
+        // --- UNAUTHENTICATED ---
         // Redirect to Index if trying to access Protected pages
         if (inTabsGroup || inOnboarding || isProtectedAuthRoute) {
            router.replace('/');

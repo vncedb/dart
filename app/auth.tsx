@@ -8,6 +8,7 @@ import {
     ViewOffSlashIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { makeRedirectUri } from 'expo-auth-session';
 import * as QueryParams from 'expo-auth-session/build/QueryParams';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -15,7 +16,6 @@ import * as WebBrowser from 'expo-web-browser';
 import { useColorScheme } from 'nativewind';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
     BackHandler,
     Image,
     ImageBackground,
@@ -29,13 +29,15 @@ import {
     View
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ModernAlert, ModernToast } from '../components/ModernUI';
+
+import LoadingOverlay from '../components/LoadingOverlay';
+import ModernAlert from '../components/ModernAlert';
+import { ModernToast } from '../components/ModernUI';
 import OtpVerificationModal from '../components/OtpVerificationModal';
 import { supabase } from '../lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
 
-// Static Tooltip (No Animation)
 const Tooltip = ({ message, isDark }: { message: string, isDark: boolean }) => (
     <View className="absolute right-0 z-50 w-64 mt-2 top-full">
         <View className="w-full">
@@ -63,6 +65,7 @@ export default function AuthScreen() {
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [successMode, setSuccessMode] = useState(false);
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -82,10 +85,7 @@ export default function AuthScreen() {
   }, [routeParams.mode]);
 
   useEffect(() => {
-    const backAction = () => {
-        router.replace('/');
-        return true;
-    };
+    const backAction = () => { router.replace('/'); return true; };
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => backHandler.remove();
   }, []);
@@ -108,51 +108,69 @@ export default function AuthScreen() {
   const handleValidation = () => {
     const newErrors: any = {};
     let valid = true;
-
-    if (!email.includes('@') || !email.includes('.')) { 
-        newErrors.email = "Please enter a valid email address."; 
-        valid = false; 
-    }
-    
-    if (!password) { 
-        newErrors.password = "Password is required."; 
-        valid = false; 
-    } else if (authMode === 'signup') {
+    if (!email.includes('@') || !email.includes('.')) { newErrors.email = "Please enter a valid email address."; valid = false; }
+    if (!password) { newErrors.password = "Password is required."; valid = false; } 
+    else if (authMode === 'signup') {
         const missingReq = getPasswordRequirementMissing(password);
         if (missingReq) { newErrors.password = missingReq; valid = false; }
         if (password !== confirmPassword) { newErrors.confirmPassword = "Passwords do not match."; valid = false; }
     }
-
     setErrors(newErrors);
-    
     if (newErrors.email) setVisibleTooltip('email');
     else if (newErrors.password) setVisibleTooltip('password');
     else if (newErrors.confirmPassword) setVisibleTooltip('confirmPassword');
     else setVisibleTooltip(null);
-
     return valid;
   };
 
-  const checkAppRegistration = async (user: any) => {
-      const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-      
-      if (!profile) {
-          let fullName = '';
-          if (user.user_metadata?.full_name) {
-              fullName = user.user_metadata.full_name;
-          } else {
-              const randomNum = Math.floor(1000 + Math.random() * 9000);
-              fullName = `User${randomNum}`;
-          }
+  // Returns TRUE if onboarded, FALSE if new
+  const checkAppRegistration = async (user: any): Promise<boolean> => {
+      try {
+          const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+          if (!profile) {
+              const meta = user.user_metadata || {};
+              let fullName = meta.full_name || '';
+              if (!fullName) {
+                  const randomNum = Math.floor(1000 + Math.random() * 9000);
+                  fullName = `User${randomNum}`;
+              }
+              const avatarUrl = meta.avatar_url || meta.picture || null;
 
-          await supabase.from('profiles').insert([{ 
-              id: user.id, 
-              email: user.email, 
-              full_name: fullName,
-              updated_at: new Date()
-          }]);
+              await supabase.from('profiles').insert([{ 
+                  id: user.id, 
+                  email: user.email, 
+                  full_name: fullName,
+                  avatar_url: avatarUrl,
+                  is_onboarded: false, 
+                  updated_at: new Date()
+              }]);
+              await AsyncStorage.setItem('isOnboarded', 'false');
+              return false; 
+          } else {
+              if (profile.is_onboarded) {
+                  await AsyncStorage.setItem('isOnboarded', 'true');
+                  return true; 
+              } else {
+                  await AsyncStorage.setItem('isOnboarded', 'false');
+                  return false; 
+              }
+          }
+      } catch (e) {
+          console.log("Registration Check Error", e);
+          return false;
       }
-      return true;
+  };
+
+  const onLoginSuccess = (isUserOnboarded: boolean) => {
+      setSuccessMode(true); 
+      setTimeout(() => {
+          if (isUserOnboarded) {
+              router.replace('/'); 
+          } else {
+              // Pass 'welcome' param to trigger the alert in Onboarding
+              router.replace({ pathname: '/onboarding', params: { welcome: 'true' } });
+          }
+      }, 800);
   };
 
   const handleAuthAction = async () => {
@@ -166,7 +184,6 @@ export default function AuthScreen() {
     try {
         if (authMode === 'login') {
             const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-            
             if (error) {
                 setLoading(false);
                 const msg = error.message.toLowerCase();
@@ -183,17 +200,13 @@ export default function AuthScreen() {
                 }
             } else {
                 if (data.user) {
-                    await checkAppRegistration(data.user);
-                    // NOTE: Do not set loading false. 
-                    // Let the AuthContext and RootLayout handle the redirect to Onboarding.
-                    // This prevents the form from flashing back before navigation.
+                    const isUserOnboarded = await checkAppRegistration(data.user);
+                    onLoginSuccess(isUserOnboarded);
                 }
             }
         } 
         else if (authMode === 'signup') {
-            // 1. Pre-check: Try to see if this email exists in profiles
             const { data: existingProfile } = await supabase.from('profiles').select('id').eq('email', email).single();
-            
             if (existingProfile) {
                 setLoading(false);
                 setErrors({ email: 'This email is already registered. Please sign in.' });
@@ -201,23 +214,17 @@ export default function AuthScreen() {
                 return;
             }
 
-            // 2. Proceed with Supabase Signup
             const { data: { session, user }, error } = await supabase.auth.signUp({ email, password });
-            
             if (error) {
                 setLoading(false);
-                if (error.message.toLowerCase().includes('already registered') || error.message.includes('unique constraint')) {
-                    setErrors({ email: 'This email is already registered.' });
-                    setVisibleTooltip('email');
-                } else {
-                    setAlertConfig({ visible: true, type: 'error', title: 'Sign Up Failed', message: error.message, onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) });
-                }
+                setAlertConfig({ visible: true, type: 'error', title: 'Sign Up Failed', message: error.message, onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) });
             } else {
                 if (session && user) {
+                     // Auto Sign-in logic for Signup
                      await checkAppRegistration(user);
-                     // Success: Do not set loading false. Redirect pending.
+                     setLoading(false);
+                     onLoginSuccess(false); // New user = not onboarded
                 } else {
-                    // Success, but requires verification
                     setLoading(false); 
                     setShowOtp(true);
                 }
@@ -246,15 +253,26 @@ export default function AuthScreen() {
         if (authParams['access_token'] && authParams['refresh_token']) {
             const { data: { user }, error: sessionError } = await supabase.auth.setSession({ access_token: authParams['access_token'], refresh_token: authParams['refresh_token'] });
             if (sessionError) throw sessionError;
-            if (user) await checkAppRegistration(user);
+            if (user) {
+                const isUserOnboarded = await checkAppRegistration(user);
+                onLoginSuccess(isUserOnboarded);
+            }
         }
+      } else {
+          setGoogleLoading(false);
       }
     } catch (error: any) {
+        setGoogleLoading(false);
         if (error.message !== 'User cancelled the auth session') {
             setAlertConfig({ visible: true, type: 'error', title: 'Google Sign In Failed', message: error.message || "Could not sign in.", onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) });
         }
-    } finally { setGoogleLoading(false); }
+    }
   };
+
+  let loadingMessage = "";
+  if (successMode) loadingMessage = "Success!";
+  else if (googleLoading) loadingMessage = "Connecting...";
+  else loadingMessage = authMode === 'login' ? "Signing In..." : "Creating Account...";
 
   return (
     <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setVisibleTooltip(null); }}>
@@ -263,6 +281,8 @@ export default function AuthScreen() {
         <ModernToast visible={toastVisible} message="Success!" type="success" />
         <ModernAlert {...alertConfig} />
         
+        <LoadingOverlay visible={loading || googleLoading} message={loadingMessage} />
+        
         <OtpVerificationModal 
             visible={showOtp} 
             email={email} 
@@ -270,16 +290,13 @@ export default function AuthScreen() {
             onVerify={async (code: string) => {
                 const { data: { session }, error } = await supabase.auth.verifyOtp({ email, token: code, type: 'signup' });
                 if(error) return false;
-                
                 if (session?.user) {
                     supabase.functions.invoke('send-email', { body: { email: session.user.email, type: 'WELCOME' } });
                     await checkAppRegistration(session.user);
-                    // Set loading TRUE on the main screen to prevent UI flash when modal closes
-                    setLoading(true);
                     setShowOtp(false);
+                    onLoginSuccess(false); // Signup verified = new user = not onboarded
                     return true;
                 }
-                // If verify worked but no session (edge case), just close
                 setShowOtp(false);
                 return true;
             }}
@@ -287,19 +304,15 @@ export default function AuthScreen() {
         />
 
         <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom }}>
-            {/* HEADER */}
             <View className="absolute left-0 right-0 z-50 flex-row items-center justify-between px-6" style={{ top: insets.top + 16 }}>
-                <TouchableOpacity onPress={() => router.replace('/')} className={`items-center justify-center w-10 h-10 rounded-full ${isDark ? 'bg-slate-800' : 'bg-white'}`}>
+                <TouchableOpacity onPress={() => router.replace('/')} disabled={loading || googleLoading} className={`items-center justify-center w-10 h-10 rounded-full ${isDark ? 'bg-slate-800' : 'bg-white'}`}>
                     <HugeiconsIcon icon={ArrowLeft02Icon} size={20} color={isDark ? '#94a3b8' : '#64748b'} />
                 </TouchableOpacity>
                 <Image source={isDark ? require('../assets/images/icon-transparent-white.png') : require('../assets/images/icon-transparent.png')} style={{ width: 40, height: 40 }} resizeMode="contain" />
             </View>
 
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} className="justify-center flex-1 px-8">
-                {/* CONTAINER - Flex 1 & Center to hold position */}
                 <View className="justify-center flex-1 w-full">
-                    
-                    {/* TITLE */}
                     <View className="mb-10">
                         <Text className={`text-3xl font-bold text-center ${isDark ? 'text-white' : 'text-slate-900'}`}>
                             {authMode === 'login' ? 'Welcome Back' : 'Create Account'}
@@ -309,9 +322,7 @@ export default function AuthScreen() {
                         </Text>
                     </View>
 
-                    {/* FORM */}
                     <View className="justify-center">
-                        {/* EMAIL */}
                         <View className="relative z-50 mb-5">
                             <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} ${errors.email ? 'border-red-500' : ''}`}>
                                 <HugeiconsIcon icon={Mail01Icon} color={errors.email ? "#ef4444" : "#94a3b8"} size={22} />
@@ -331,7 +342,6 @@ export default function AuthScreen() {
                             {errors.email && visibleTooltip === 'email' && <Tooltip message={errors.email} isDark={isDark} />}
                         </View>
 
-                        {/* PASSWORD */}
                         <View className="relative z-40 mb-5">
                             <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} ${errors.password ? 'border-red-500' : ''}`}>
                                 <HugeiconsIcon icon={LockKeyIcon} color={errors.password ? "#ef4444" : "#94a3b8"} size={22} />
@@ -348,7 +358,6 @@ export default function AuthScreen() {
                             </View>
                             {errors.password && visibleTooltip === 'password' && <Tooltip message={errors.password} isDark={isDark} />}
                             
-                            {/* FORGOT PASSWORD - Only in Login Mode */}
                             {authMode === 'login' && (
                                 <View className="absolute right-0 -bottom-8">
                                     <TouchableOpacity onPress={() => router.push('/auth/forgot-password')}>
@@ -358,8 +367,6 @@ export default function AuthScreen() {
                             )}
                         </View>
 
-                        {/* CONFIRM PASSWORD (Ghost Element) */}
-                        {/* We use opacity 0 instead of removing it to keep layout height consistent */}
                         <View className="relative z-30" style={{ opacity: authMode === 'signup' ? 1 : 0 }} pointerEvents={authMode === 'signup' ? 'auto' : 'none'}>
                             <View className={`flex-row items-center border rounded-2xl px-4 h-14 ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'} ${errors.confirmPassword ? 'border-red-500' : ''}`}>
                                 <HugeiconsIcon icon={LockKeyIcon} color={errors.confirmPassword ? "#ef4444" : "#94a3b8"} size={22} />
@@ -378,18 +385,15 @@ export default function AuthScreen() {
                         </View>
                     </View>
 
-                    {/* ACTIONS */}
                     <View className="mt-8">
                         <View>
-                            <TouchableOpacity onPress={handleAuthAction} disabled={loading} className="flex-row items-center justify-center w-full gap-2 bg-indigo-600 shadow-lg h-14 rounded-2xl shadow-indigo-500/30 active:opacity-90">
-                                {loading ? (
-                                    <ActivityIndicator color="white" />
-                                ) : (
-                                    <>
-                                        <Text className="text-lg font-bold text-white">{authMode === 'login' ? 'Sign In' : 'Create Account'}</Text>
-                                        <HugeiconsIcon icon={ArrowRight01Icon} color="white" size={20} strokeWidth={2.5} />
-                                    </>
-                                )}
+                            <TouchableOpacity 
+                                onPress={handleAuthAction} 
+                                disabled={loading || googleLoading} 
+                                className="flex-row items-center justify-center w-full gap-2 bg-indigo-600 shadow-lg h-14 rounded-2xl shadow-indigo-500/30 active:opacity-90"
+                            >
+                                <Text className="text-lg font-bold text-white">{authMode === 'login' ? 'Sign In' : 'Create Account'}</Text>
+                                <HugeiconsIcon icon={ArrowRight01Icon} color="white" size={20} strokeWidth={2.5} />
                             </TouchableOpacity>
                         </View>
 
@@ -400,21 +404,19 @@ export default function AuthScreen() {
                                 <View className={`flex-1 h-[1px] ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
                             </View>
 
-                            <TouchableOpacity onPress={handleGoogleLogin} disabled={googleLoading} className={`flex-row items-center justify-center gap-3 border h-14 rounded-2xl active:opacity-90 ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-                                {googleLoading ? (
-                                    <Text className="font-bold text-slate-500">Connecting...</Text>
-                                ) : (
-                                    <>
-                                        <Image source={require('../assets/images/google-logo.png')} style={{ width: 24, height: 24 }} resizeMode="contain" />
-                                        <Text className={`font-bold ${isDark ? 'text-white' : 'text-slate-700'}`}>Continue with Google</Text>
-                                    </>
-                                )}
+                            <TouchableOpacity 
+                                onPress={handleGoogleLogin} 
+                                disabled={loading || googleLoading} 
+                                className={`flex-row items-center justify-center gap-3 border h-14 rounded-2xl active:opacity-90 ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}
+                            >
+                                <Image source={require('../assets/images/google-logo.png')} style={{ width: 24, height: 24 }} resizeMode="contain" />
+                                <Text className={`font-bold ${isDark ? 'text-white' : 'text-slate-700'}`}>Continue with Google</Text>
                             </TouchableOpacity>
                         </View>
 
                         <View className="flex-row justify-center mt-6">
                             <Text className="text-slate-500">{authMode === 'login' ? "Don't have an account? " : "Already have an account? "}</Text>
-                            <TouchableOpacity onPress={toggleAuthMode}>
+                            <TouchableOpacity onPress={toggleAuthMode} disabled={loading || googleLoading}>
                                 <Text className="ml-1 font-bold text-indigo-500">{authMode === 'login' ? 'Sign Up' : 'Log In'}</Text>
                             </TouchableOpacity>
                         </View>

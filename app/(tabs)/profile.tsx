@@ -1,4 +1,3 @@
-// Profile: Fixed Buttons (Top Only), Removed Guest Logic & Redundancy
 import {
     Briefcase01Icon,
     Briefcase02Icon,
@@ -26,7 +25,6 @@ import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
     Image,
     Platform,
     RefreshControl,
@@ -42,6 +40,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import EditAvatarModal from '../../components/EditAvatarModal';
 import EditDisplayModal, { AVAILABLE_JOB_FIELDS } from '../../components/EditDisplayModal';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import LoadingScreen from '../../components/LoadingScreen';
 import ModernAlert from '../../components/ModernAlert';
 import { useAppTheme } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
@@ -188,7 +187,7 @@ export default function ProfileScreen() {
             const jobsData = await db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ?', [userId]);
             setHasJobs(jobsData && (jobsData as any[]).length > 0);
 
-            const localProfile = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [userId]);
+            const localProfile: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [userId]);
             
             let tempProfile = localProfile;
             let tempJob = null;
@@ -372,10 +371,13 @@ export default function ProfileScreen() {
             
             <ModernAlert {...alertConfig} />
             
-            <EditDisplayModal visible={modalVisible} onClose={() => setModalVisible(false)} selectedKeys={visibleDetailKeys} onSave={(newKeys) => setVisibleDetailKeys(newKeys)} />
-            <EditAvatarModal visible={avatarModalVisible} onClose={() => setAvatarModalVisible(false)} onPickImage={pickAvatar} onRemoveImage={removeAvatar} />
+            {/* LoadingOverlay for BLOCKING actions (saving/updating) */}
             <LoadingOverlay visible={isUpdating} message={loadingMessage} />
             
+            <EditDisplayModal visible={modalVisible} onClose={() => setModalVisible(false)} selectedKeys={visibleDetailKeys} onSave={(newKeys) => setVisibleDetailKeys(newKeys)} />
+            <EditAvatarModal visible={avatarModalVisible} onClose={() => setAvatarModalVisible(false)} onPickImage={pickAvatar} onRemoveImage={removeAvatar} />
+            
+            {/* Header always visible */}
             <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
                 <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Profile</Text>
                 <TouchableOpacity onPress={() => router.push('/settings')} style={[styles.settingsButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
@@ -383,8 +385,9 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
             </View>
 
-            {isLoading && !userProfile ? (
-                <View style={styles.loadingContainer}><ActivityIndicator size="large" color={theme.colors.primary} /></View>
+            {/* Content Area: Shows LoadingScreen or ScrollView */}
+            {isLoading ? (
+                <LoadingScreen message="Loading Profile..." />
             ) : (
                 <ScrollView contentContainerStyle={styles.scrollContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} />} showsVerticalScrollIndicator={false}>
                     
@@ -417,7 +420,6 @@ export default function ProfileScreen() {
                             </View>
                         </View>
 
-                        {/* Top Action Buttons - Manage Jobs Kept Here */}
                         <View style={styles.actionButtonsRow}>
                             <TouchableOpacity onPress={() => router.push('/edit-profile')} style={[styles.actionButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                                 <HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.text} />

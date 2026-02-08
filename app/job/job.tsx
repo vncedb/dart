@@ -15,8 +15,6 @@ import NetInfo from '@react-native-community/netinfo';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
     FlatList,
     RefreshControl,
     Text,
@@ -27,6 +25,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import ModernAlert from '../../components/ModernAlert';
 import { useAppTheme } from '../../constants/theme';
 import { useSync } from '../../context/SyncContext';
 import { deleteJobLocal, queueSyncItem } from '../../lib/database';
@@ -228,36 +227,29 @@ export default function MyJobsScreen() {
     const [processing, setProcessing] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState('');
     const [isOffline, setIsOffline] = useState(false);
+    const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
     // --- DATA FETCHING ---
     const fetchJobs = useCallback(async () => {
         try {
-            // 1. Get Session
             const { data: { session } } = await supabase.auth.getSession();
-            
-            // CRITICAL FIX: Ensure valid string ID. 
-            // If session.user.id is undefined, we use an empty string or return early.
             const rawUserId = session?.user?.id;
             
             if (!rawUserId) {
-                console.log("No User ID found, skipping fetch.");
                 setLoading(false);
                 return;
             }
 
-            const userId = String(rawUserId); // Double ensure it's a string
+            const userId = String(rawUserId); 
 
             const db = await getDB();
             if (!db) throw new Error("Database not ready");
 
-            // 2. Fetch Jobs (Safe Param Check)
-            // Explicitly verify userId is not null/undefined before passing to DB
             const localJobs = await db.getAllAsync(
                 'SELECT * FROM job_positions WHERE user_id = ? ORDER BY created_at DESC', 
                 [userId]
             );
 
-            // 3. Fetch Active Profile
             const profile: any = await db.getFirstAsync(
                 'SELECT current_job_id FROM profiles WHERE id = ?', 
                 [userId]
@@ -266,7 +258,6 @@ export default function MyJobsScreen() {
             const currentId = profile?.current_job_id;
             setActiveJobId(currentId || null);
 
-            // 4. Sort: Active Job First
             let parsedJobs = (localJobs as JobPosition[]);
             if (currentId) {
                 parsedJobs = parsedJobs.sort((a, b) => {
@@ -276,13 +267,11 @@ export default function MyJobsScreen() {
 
             setJobs(parsedJobs);
 
-            // 5. Check Network
             const netInfo = await NetInfo.fetch();
             setIsOffline(!netInfo.isConnected);
 
         } catch (error) {
             console.error('Fetch Jobs Error:', error);
-            // Don't alert loop on error, just log
         } finally {
             setLoading(false);
         }
@@ -313,68 +302,66 @@ export default function MyJobsScreen() {
             
             const db = await getDB();
             
-            // Local DB Update
             await db.runAsync('UPDATE profiles SET current_job_id = ? WHERE id = ?', [jobId, userId]);
             
-            // Queue Sync
             const updates = { id: userId, current_job_id: jobId, updated_at: new Date().toISOString() };
             await queueSyncItem('profiles', userId, 'UPDATE', updates);
             
-            // UI Update
             setActiveJobId(jobId);
             setJobs(prev => [...prev].sort((a, b) => a.id === jobId ? -1 : b.id === jobId ? 1 : 0));
             
             triggerSync();
         } catch (e) {
-            Alert.alert("Error", "Failed to update active job.");
+            setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Failed to update active job.', onConfirm: () => setAlertConfig((p:any)=>({...p, visible: false})) });
         } finally {
             setProcessing(false);
         }
     };
 
     const handleDelete = async (jobId: string) => {
-        Alert.alert(
-            "Delete Job?", 
-            "This action cannot be undone.",
-            [
-                { text: "Cancel", style: "cancel" },
-                { 
-                    text: "Delete", 
-                    style: "destructive", 
-                    onPress: async () => {
-                        setLoadingMessage('Deleting...');
-                        setProcessing(true);
-                        try {
-                            const { data: { session } } = await supabase.auth.getSession();
-                            if (!session?.user?.id) return;
+        setAlertConfig({
+            visible: true,
+            type: 'confirm',
+            title: 'Delete Job?',
+            message: 'This action cannot be undone.',
+            confirmText: 'Delete',
+            cancelText: 'Cancel',
+            confirmType: 'destructive',
+            onConfirm: async () => {
+                setAlertConfig((p:any)=>({...p, visible: false}));
+                setLoadingMessage('Deleting...');
+                setProcessing(true);
+                try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    if (!session?.user?.id) return;
 
-                            // If deleting active job, clear profile reference first
-                            if (activeJobId === jobId) {
-                                const db = await getDB();
-                                await db.runAsync('UPDATE profiles SET current_job_id = NULL WHERE id = ?', [session.user.id]);
-                                await queueSyncItem('profiles', session.user.id, 'UPDATE', { current_job_id: null });
-                                setActiveJobId(null);
-                            }
+                    if (activeJobId === jobId) {
+                        const db = await getDB();
+                        await db.runAsync('UPDATE profiles SET current_job_id = NULL WHERE id = ?', [session.user.id]);
+                        await queueSyncItem('profiles', session.user.id, 'UPDATE', { current_job_id: null });
+                        setActiveJobId(null);
+                    }
 
-                            await deleteJobLocal(jobId);
-                            triggerSync();
-                            fetchJobs();
-                        } catch(e) {
-                            Alert.alert("Error", "Could not delete job.");
-                        } finally {
-                            setProcessing(false);
-                        }
-                    } 
+                    await deleteJobLocal(jobId);
+                    triggerSync();
+                    fetchJobs();
+                } catch(e) {
+                    setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Could not delete job.', onConfirm: () => setAlertConfig((p:any)=>({...p, visible: false})) });
+                } finally {
+                    setProcessing(false);
                 }
-            ]
-        );
+            },
+            onCancel: () => setAlertConfig((p:any)=>({...p, visible: false}))
+        });
     };
 
     // --- RENDER ---
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
-            <LoadingOverlay visible={processing} message={loadingMessage} />
+            <ModernAlert {...alertConfig} />
+            {/* Loading Overlay handles both initial loading and action processing */}
+            <LoadingOverlay visible={loading || processing} message={loading ? "Loading Jobs..." : loadingMessage} />
             
             <Header 
                 title="My Jobs" 
@@ -390,32 +377,26 @@ export default function MyJobsScreen() {
                 } 
             />
             
-            {loading ? (
-                <View className="items-center justify-center flex-1">
-                    <ActivityIndicator size="large" color={theme.colors.primary} />
-                </View>
-            ) : (
-                <FlatList 
-                    data={jobs} 
-                    keyExtractor={(item) => item.id} 
-                    contentContainerStyle={{ padding: 24, paddingBottom: 100, flexGrow: 1 }} 
-                    showsVerticalScrollIndicator={false} 
-                    refreshControl={
-                        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.colors.primary} />
-                    }
-                    ListEmptyComponent={<EmptyState isOffline={isOffline} onAdd={() => router.push('/job/form')} />}
-                    renderItem={({ item }) => (
-                        <JobCard 
-                            item={item} 
-                            isActive={item.id === activeJobId}
-                            onSetActive={handleSetActive}
-                            onEdit={(id) => router.push({ pathname: '/job/form', params: { id } })}
-                            onDelete={handleDelete}
-                            theme={theme}
-                        />
-                    )}
-                />
-            )}
+            <FlatList 
+                data={jobs} 
+                keyExtractor={(item) => item.id} 
+                contentContainerStyle={{ padding: 24, paddingBottom: 100, flexGrow: 1 }} 
+                showsVerticalScrollIndicator={false} 
+                refreshControl={
+                    <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.colors.primary} />
+                }
+                ListEmptyComponent={!loading ? <EmptyState isOffline={isOffline} onAdd={() => router.push('/job/form')} /> : null}
+                renderItem={({ item }) => (
+                    <JobCard 
+                        item={item} 
+                        isActive={item.id === activeJobId}
+                        onSetActive={handleSetActive}
+                        onEdit={(id) => router.push({ pathname: '/job/form', params: { id } })}
+                        onDelete={handleDelete}
+                        theme={theme}
+                    />
+                )}
+            />
         </SafeAreaView>
     );
 }
