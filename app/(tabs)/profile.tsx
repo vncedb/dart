@@ -428,6 +428,10 @@ export default function ProfileScreen() {
                             <TouchableOpacity onPress={() => router.push('/job/job')} style={[styles.actionButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                                 <HugeiconsIcon icon={Layers01Icon} size={16} color={theme.colors.primary} />
                                 <Text style={[styles.actionButtonText, { color: theme.colors.primary }]}>Manage Jobs</Text>
+                                {/* Added Indicator */}
+                                {!hasJobs && (
+                                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444', marginLeft: 6 }} />
+                                )}
                             </TouchableOpacity>
                         </View>
                     </View>

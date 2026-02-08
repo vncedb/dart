@@ -25,6 +25,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import LoadingScreen from '../../components/LoadingScreen';
 import ModernAlert from '../../components/ModernAlert';
 import { useAppTheme } from '../../constants/theme';
 import { useSync } from '../../context/SyncContext';
@@ -46,7 +47,7 @@ type JobPosition = {
 
 // --- HELPER COMPONENTS ---
 
-const EmptyState = ({ isOffline, onAdd }: { isOffline: boolean; onAdd: () => void }) => {
+const EmptyState = ({ isOffline }: { isOffline: boolean }) => {
     const theme = useAppTheme();
     return (
         <View className="items-center justify-center flex-1 px-8 pt-10">
@@ -68,16 +69,6 @@ const EmptyState = ({ isOffline, onAdd }: { isOffline: boolean; onAdd: () => voi
                     ? 'You can view locally saved jobs. Connect to internet to sync changes.' 
                     : 'Add a job position to start tracking your attendance and earnings.'}
             </Text>
-            {!isOffline && (
-                <TouchableOpacity 
-                    onPress={onAdd} 
-                    style={{ backgroundColor: theme.colors.primary }}
-                    className="flex-row items-center px-8 py-4 rounded-full shadow-lg"
-                >
-                    <HugeiconsIcon icon={PlusSignIcon} size={20} color="#FFF" strokeWidth={3} />
-                    <Text className="ml-2 text-base font-bold text-white">Add Your First Job</Text>
-                </TouchableOpacity>
-            )}
         </View>
     );
 };
@@ -360,8 +351,8 @@ export default function MyJobsScreen() {
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
             <ModernAlert {...alertConfig} />
-            {/* Loading Overlay handles both initial loading and action processing */}
-            <LoadingOverlay visible={loading || processing} message={loading ? "Loading Jobs..." : loadingMessage} />
+            {/* Loading Overlay handles action processing */}
+            <LoadingOverlay visible={processing} message={loadingMessage} />
             
             <Header 
                 title="My Jobs" 
@@ -369,34 +360,56 @@ export default function MyJobsScreen() {
                     !isOffline ? (
                         <TouchableOpacity 
                             onPress={() => router.push('/job/form')} 
-                            style={{ backgroundColor: theme.colors.primaryLight, padding: 8, borderRadius: 20 }}
+                            style={{ backgroundColor: theme.colors.primaryLight, padding: 8, borderRadius: 20, position: 'relative' }}
                         >
                             <HugeiconsIcon icon={PlusSignIcon} size={24} color={theme.colors.primary} />
+                            
+                            {/* Dot Indicator for Empty State */}
+                            {!loading && jobs.length === 0 && (
+                                <View style={{ 
+                                    position: 'absolute', 
+                                    top: 5, 
+                                    right: 5, 
+                                    width: 10, 
+                                    height: 10, 
+                                    borderRadius: 5, 
+                                    backgroundColor: '#ef4444', 
+                                    borderWidth: 2, 
+                                    borderColor: theme.colors.primaryLight 
+                                }} />
+                            )}
                         </TouchableOpacity>
                     ) : null
                 } 
             />
             
-            <FlatList 
-                data={jobs} 
-                keyExtractor={(item) => item.id} 
-                contentContainerStyle={{ padding: 24, paddingBottom: 100, flexGrow: 1 }} 
-                showsVerticalScrollIndicator={false} 
-                refreshControl={
-                    <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.colors.primary} />
-                }
-                ListEmptyComponent={!loading ? <EmptyState isOffline={isOffline} onAdd={() => router.push('/job/form')} /> : null}
-                renderItem={({ item }) => (
-                    <JobCard 
-                        item={item} 
-                        isActive={item.id === activeJobId}
-                        onSetActive={handleSetActive}
-                        onEdit={(id) => router.push({ pathname: '/job/form', params: { id } })}
-                        onDelete={handleDelete}
-                        theme={theme}
-                    />
-                )}
-            />
+            {/* Show Loading Screen below Header OR Content */}
+            {loading ? (
+                <View style={{ flex: 1 }}>
+                    <LoadingScreen message="Loading Jobs..." />
+                </View>
+            ) : (
+                <FlatList 
+                    data={jobs} 
+                    keyExtractor={(item) => item.id} 
+                    contentContainerStyle={{ padding: 24, paddingBottom: 100, flexGrow: 1 }} 
+                    showsVerticalScrollIndicator={false} 
+                    refreshControl={
+                        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.colors.primary} />
+                    }
+                    ListEmptyComponent={<EmptyState isOffline={isOffline} />}
+                    renderItem={({ item }) => (
+                        <JobCard 
+                            item={item} 
+                            isActive={item.id === activeJobId}
+                            onSetActive={handleSetActive}
+                            onEdit={(id) => router.push({ pathname: '/job/form', params: { id } })}
+                            onDelete={handleDelete}
+                            theme={theme}
+                        />
+                    )}
+                />
+            )}
         </SafeAreaView>
     );
 }
