@@ -1,13 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Session, User } from '@supabase/supabase-js';
 import * as Notifications from 'expo-notifications';
-import { useRouter, useSegments } from 'expo-router';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { getDB } from '../lib/db-client';
 import { supabase } from '../lib/supabase';
 import { clearAttendanceNotification } from '../utils/NotificationService';
 
-const ONBOARDED_KEY = 'isOnboarded';
 const APP_SETTINGS_KEY = 'appSettings';
 
 type AuthContextType = {
@@ -37,56 +35,60 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isOnboarded, setIsOnboarded] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  
-  const segments = useSegments();
-  const router = useRouter();
 
-  // [FIX] Improved Onboarding Check: Local DB -> Fallback to Supabase -> Sync
-  const checkOnboardingStatus = async (userId: string): Promise<boolean> => {
+  // Helper to get the specific key for a user
+  const getUserOnboardKey = useCallback((userId: string) => `onboarded_${userId}`, []);
+
+  // 1. IMPROVED CHECK: Per-User Offline Support
+  // Wrapped in useCallback to fix dependency warnings
+  const checkOnboardingStatus = useCallback(async (userId: string): Promise<boolean> => {
       try {
+          const userKey = getUserOnboardKey(userId);
+
+          // STEP A: Check Phone Storage (User Specific)
+          const localStatus = await AsyncStorage.getItem(userKey);
+          if (localStatus === 'true') return true;
+
+          // STEP B: Check SQLite (Local DB)
           const db = await getDB();
-          
-          // 1. Check Local DB
           const localProfile: any = await db.getFirstAsync(
               'SELECT is_onboarded FROM profiles WHERE id = ?', 
               [userId]
           );
-
-          if (localProfile) {
-              // If we have a local record that says TRUE, trust it.
-              if (localProfile.is_onboarded) return true;
+          if (localProfile?.is_onboarded) {
+              await AsyncStorage.setItem(userKey, 'true'); // Sync to AsyncStorage
+              return true;
           }
 
-          // 2. Fallback: Check Supabase (Crucial for fresh installs/logins)
-          // If local is false/missing, verify with server before forcing onboarding
-          const { data: remoteProfile, error } = await supabase
+          // STEP C: Check Server (Only if online)
+          const { data: remoteProfile } = await supabase
               .from('profiles')
               .select('is_onboarded')
               .eq('id', userId)
               .single();
 
-          if (remoteProfile && remoteProfile.is_onboarded) {
-              // Server says TRUE. Sync Local DB and return TRUE.
-              await db.runAsync(
-                  `INSERT OR REPLACE INTO profiles (id, is_onboarded) VALUES (?, 1)`,
-                  [userId]
-              );
+          if (remoteProfile?.is_onboarded) {
+              // Sync Server -> Local DB & Storage
+              await db.runAsync(`UPDATE profiles SET is_onboarded = 1 WHERE id = ?`, [userId]);
+              await AsyncStorage.setItem(userKey, 'true');
               return true;
           }
 
           return false;
-      } catch (e) {
-          console.log("Onboarding Check Error:", e);
+      } catch (_) {
+          // Default to false (show onboarding) if checks fail
           return false;
       }
-  };
+  }, [getUserOnboardKey]);
 
   const refreshProfile = useCallback(async () => {
       if (!user) return;
       const status = await checkOnboardingStatus(user.id);
       setIsOnboarded(status);
-      await AsyncStorage.setItem(ONBOARDED_KEY, status ? 'true' : 'false');
-  }, [user]);
+      if (status) {
+          await AsyncStorage.setItem(getUserOnboardKey(user.id), 'true');
+      }
+  }, [user, checkOnboardingStatus, getUserOnboardKey]);
 
   const completeOnboarding = useCallback(async () => {
     try {
@@ -100,14 +102,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               `UPDATE profiles SET is_onboarded = 1 WHERE id = ?`, 
               [user.id]
           );
+
+          // 3. Update User-Specific Storage
+          await AsyncStorage.setItem(getUserOnboardKey(user.id), 'true');
       }
-      // 3. Update State
-      await AsyncStorage.setItem(ONBOARDED_KEY, 'true');
       setIsOnboarded(true);
     } catch (error) {
       console.error('Failed to complete onboarding:', error);
     }
-  }, [user]);
+  }, [user, getUserOnboardKey]);
 
   const signOut = useCallback(async () => {
     setIsLoading(true);
@@ -115,7 +118,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       await clearAttendanceNotification();
       await Notifications.cancelAllScheduledNotificationsAsync();
 
-      const keys = ['active_ot_expiry', 'shift_start_time', 'last_break_time', ONBOARDED_KEY];
+      const keys = ['active_ot_expiry', 'shift_start_time', 'last_break_time'];
       await AsyncStorage.multiRemove(keys);
 
       const settings = await AsyncStorage.getItem(APP_SETTINGS_KEY);
@@ -146,7 +149,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (currentSession?.user) {
             const status = await checkOnboardingStatus(currentSession.user.id);
             setIsOnboarded(status);
-            await AsyncStorage.setItem(ONBOARDED_KEY, status ? 'true' : 'false');
         } else {
             setIsOnboarded(false);
         }
@@ -174,36 +176,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
-
-  // [ROUTING GUARD]
-  useEffect(() => {
-    if (isLoading) return;
-
-    const inAuthGroup = segments[0] === 'auth';
-    const inOnboarding = segments[0] === 'onboarding';
-    const inTabsGroup = segments[0] === '(tabs)';
-
-    if (session && user) {
-        // User is logged in
-        if (!isOnboarded) {
-            // Force Onboarding
-            if (!inOnboarding) router.replace('/onboarding');
-        } else {
-            // User is Ready -> Go Home
-            // If they are in Auth or Onboarding or Root, send to Home
-            if (inAuthGroup || inOnboarding || segments.length === 0) {
-                router.replace('/(tabs)/home');
-            }
-        }
-    } else {
-        // User is NOT logged in
-        // If they try to access Tabs or Onboarding, send to Auth (or Index)
-        if (inTabsGroup || inOnboarding) {
-            router.replace('/'); 
-        }
-    }
-  }, [session, user, isOnboarded, segments, isLoading]);
+  }, [checkOnboardingStatus]);
 
   return (
     <AuthContext.Provider value={{ session, user, isOnboarded, completeOnboarding, signOut, refreshProfile, isLoading }}>

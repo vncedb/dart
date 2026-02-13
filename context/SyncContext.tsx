@@ -1,7 +1,7 @@
 import NetInfo from '@react-native-community/netinfo';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-import { initDatabase } from '../lib/database';
+// initDatabase import removed - handled in _layout.tsx
 import { getDB } from '../lib/db-client';
 import { syncPull, syncPush } from '../lib/sync';
 import { useAuth } from './AuthContext';
@@ -11,7 +11,7 @@ type SyncStatus = 'idle' | 'syncing' | 'success' | 'error';
 type SyncContextType = {
   syncStatus: SyncStatus;
   lastSyncedAt: string | null;
-  triggerSync: () => Promise<boolean>; // Changed return type
+  triggerSync: () => Promise<boolean>;
 };
 
 const SyncContext = createContext<SyncContextType>({
@@ -26,27 +26,24 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
-  const [dbReady, setDbReady] = useState(false);
   
   const isSyncing = useRef(false);
 
   useEffect(() => {
-    const startDB = async () => {
+    const loadSettings = async () => {
       try {
-        await initDatabase();
         const db = await getDB();
         const res: any = await db.getFirstAsync('SELECT value FROM app_settings WHERE key = ?', ['last_synced_at']);
         if (res?.value) setLastSyncedAt(res.value);
-        setDbReady(true);
       } catch (e) {
-        console.error("DB Init Failed:", e);
+        console.error("Sync Settings Load Failed:", e);
       }
     };
-    startDB();
+    loadSettings();
   }, []);
 
   const triggerSync = async (): Promise<boolean> => {
-    if (!user || !dbReady || isSyncing.current) return false;
+    if (!user || isSyncing.current) return false;
     
     const state = await NetInfo.fetch();
     if (!state.isConnected || !state.isInternetReachable) {
@@ -90,18 +87,18 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
       if (nextAppState === 'active') triggerSync();
     });
     return () => subscription.remove();
-  }, [user, dbReady]);
+  }, [user]);
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
       if (state.isConnected && state.isInternetReachable) triggerSync();
     });
     return () => unsubscribe();
-  }, [user, dbReady]);
+  }, [user]);
 
   useEffect(() => {
-    if (user && dbReady) triggerSync();
-  }, [user, dbReady]);
+    if (user) triggerSync();
+  }, [user]);
 
   return (
     <SyncContext.Provider value={{ syncStatus, lastSyncedAt, triggerSync }}>

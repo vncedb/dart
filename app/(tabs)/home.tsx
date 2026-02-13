@@ -7,6 +7,7 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useNetInfo } from '@react-native-community/netinfo';
 import { addHours, addSeconds, format, isAfter, isToday } from 'date-fns';
 import { useAudioPlayer } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
@@ -214,7 +215,12 @@ export default function Home() {
     const insets = useSafeAreaInsets();
     const router = useRouter();
     const theme = useAppTheme();
-    const { triggerSync, syncStatus } = useSync(); 
+    const { triggerSync, syncStatus } = useSync();
+    
+    // NEW: Real-time network check
+    const netInfo = useNetInfo();
+    const isOffline = netInfo.isConnected === false;
+    
     const successPlayer = useAudioPlayer(require('../../assets/success.mp3'));
 
     // Loading & Refresh States
@@ -568,9 +574,6 @@ export default function Home() {
                     totalMs += Math.max(0, end - start);
                 });
                 
-                // Only update state if the value has actually changed significantly (e.g. integer minutes)
-                // or keep exact precision but be aware of re-renders. 
-                // For smoother UI, we might keep it, but the notification MUST be throttled.
                 setWorkedMinutes(totalMs / (1000 * 60));
             }
 
@@ -739,7 +742,7 @@ export default function Home() {
                                     otExpiry={otExpiry}
                                 />
                             ) : (
-                                <JobSetupCard theme={theme} router={router} isOffline={false} />
+                                <JobSetupCard theme={theme} router={router} isOffline={isOffline} />
                             )}
                         </View>
 
