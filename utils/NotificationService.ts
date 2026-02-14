@@ -2,20 +2,40 @@ import { differenceInSeconds } from 'date-fns';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
-// 1. Configure Handler (Fixed Deprecation Warning)
+// 1. Configure Handler (Dynamic Sound)
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true, // Replaces shouldShowAlert
-    shouldShowList: true,   // Replaces shouldShowAlert
-    shouldPlaySound: false,
-    shouldSetBadge: true,
-  }),
+  handleNotification: async (notification) => {
+    // Check if this is the silent persistent timer
+    const data = notification.request.content.data || {};
+    const isSilent = data.type === 'attendance_update' || data.type === 'ongoing_job';
+
+    return {
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: !isSilent, // Play sound only if it's NOT the timer
+      shouldSetBadge: true,
+    };
+  },
 });
 
 // 2. Setup Categories & Channels
 export async function initNotificationSystem() {
+  // [FIX] Request Permissions on Init
+  const { status: existingStatus } = await Notifications.getPermissionsAsync();
+  let finalStatus = existingStatus;
+  if (existingStatus !== 'granted') {
+    const { status } = await Notifications.requestPermissionsAsync();
+    finalStatus = status;
+  }
+  
+  if (finalStatus !== 'granted') {
+    console.log('Notification permissions not granted!');
+    return;
+  }
+
   if (Platform.OS === 'android') {
     // [CRITICAL] Delete old channel to force settings update (like Importance level)
+    // You can comment this out after the first successful run to avoid recreating it every time
     await Notifications.deleteNotificationChannelAsync('attendance_persistent');
     
     await setupChannels();
@@ -57,7 +77,15 @@ async function setupChannels() {
       vibrationPattern: [0], // Silent vibration to prevent buzzing every second
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       showBadge: true,
-      sound: null, 
+      sound: null, // Keep channel silent, let the Handler manage sound
+    });
+
+    // Ensure default channel exists for other notifications
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'Default',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#FF231F7C',
     });
 }
 
@@ -106,7 +134,7 @@ export async function updateAttendanceNotification(
       sticky: true,
       autoDismiss: false,
       categoryIdentifier: category,
-      data: { type: 'attendance_update' },
+      data: { type: 'attendance_update' }, // Used by Handler to silence sound
       color: color, 
       // HIGH priority is needed for the banner to slide down
       priority: Notifications.AndroidNotificationPriority.HIGH, 

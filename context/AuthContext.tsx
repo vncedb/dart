@@ -139,7 +139,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       await clearAttendanceNotification();
       await Notifications.cancelAllScheduledNotificationsAsync();
 
-      const keys = ['active_ot_expiry', 'shift_start_time', 'last_break_time'];
+      const keys = ['active_ot_expiry', 'shift_start_time', 'last_break_time', 'local_notifications'];
       await AsyncStorage.multiRemove(keys);
 
       const settings = await AsyncStorage.getItem(APP_SETTINGS_KEY);

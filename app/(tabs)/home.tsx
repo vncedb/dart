@@ -51,7 +51,7 @@ import ScaleButton from '../../components/ScaleButton';
 // Context & Utils
 import { useAppTheme } from '../../constants/theme';
 import { useSync } from '../../context/SyncContext';
-import { generateUUID } from '../../lib/database';
+import { generateUUID, getNotificationsLocal, markAllNotificationsReadLocal, saveNotificationLocal } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 import {
@@ -316,18 +316,25 @@ export default function Home() {
 
     const handleHideAlert = useCallback(() => { setAlertVisible(false); }, []);
 
+    // [UPDATED] Load from DB filtered by User
     const loadNotifications = useCallback(async () => {
         try {
-            const json = await AsyncStorage.getItem('local_notifications');
-            if (json) setNotifications(JSON.parse(json));
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session?.user) return;
+            
+            // Fetch from SQLite DB
+            const data = await getNotificationsLocal(session.user.id);
+            setNotifications(data);
         } catch (e) { console.log('Err loading notifs', e); }
     }, []);
 
-    const saveNotifications = useCallback(async (newNotifs: any[]) => {
+    // [UPDATED] Save to DB when receiving new
+    const saveNotifications = useCallback(async (newNotif: any) => {
         try {
-            await AsyncStorage.setItem('local_notifications', JSON.stringify(newNotifs.slice(0, 50))); 
+             await saveNotificationLocal(newNotif);
+             await loadNotifications();
         } catch (e) { console.log('Err saving notifs', e); }
-    }, []);
+    }, [loadNotifications]);
 
     const loadData = useCallback(async () => {
         if (!isInitialLoading) setTimelineLoading(true);
@@ -589,10 +596,24 @@ export default function Home() {
 
     useEffect(() => {
         loadNotifications();
-        notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
+        notificationListener.current = Notifications.addNotificationReceivedListener(async (notification) => {
             if (notification.request.identifier === 'attendance_persistent') return;
-            const newNotif = { id: notification.request.identifier, title: notification.request.content.title || 'Notification', body: notification.request.content.body || '', date: Date.now(), read: false };
-            setNotifications(prev => { const updated = [newNotif, ...prev.filter(n => n.id !== newNotif.id)]; saveNotifications(updated); return updated; });
+            
+            const { data: { session } } = await supabase.auth.getSession();
+            const userId = session?.user?.id;
+            if (!userId) return;
+
+            const newNotif = { 
+                id: notification.request.identifier, 
+                user_id: userId,
+                title: notification.request.content.title || 'Notification', 
+                body: notification.request.content.body || '', 
+                created_at: new Date().toISOString(),
+                is_read: false,
+                type: 'system'
+            };
+
+            await saveNotifications(newNotif);
         });
         const subscription = Notifications.addNotificationResponseReceivedListener(response => {
             const actionId = response.actionIdentifier;
@@ -603,10 +624,17 @@ export default function Home() {
         return () => { if (subscription) subscription.remove(); };
     }, [loadNotifications, saveNotifications, processClockAction]);
 
-    const markAllNotificationsRead = () => {
-        const updated = notifications.map(n => ({ ...n, read: true }));
-        setNotifications(updated);
-        saveNotifications(updated);
+    const markAllNotificationsRead = async () => {
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session?.user) return;
+            
+            await markAllNotificationsReadLocal(session.user.id);
+            
+            // Optimistic UI Update
+            const updated = notifications.map(n => ({ ...n, read: true }));
+            setNotifications(updated);
+        } catch (e) { console.log('Err marking read', e); }
     };
 
     useEffect(() => {

@@ -199,7 +199,7 @@ export const syncPull = async (userId: string) => {
        }
     }
 
-    // 4. PULL Accomplishments (FIXED: 8 '?' for 8 variables)
+    // 4. PULL Accomplishments
     const { data: taskData } = await supabase.from("accomplishments").select("*").eq("user_id", userId).gt("created_at", lastSyncedAt);
     if (taskData) {
       for (const row of taskData) {
@@ -236,6 +236,32 @@ export const syncPull = async (userId: string) => {
                 ]
             );
         }
+    }
+
+    // 6. [NEW] PULL NOTIFICATIONS
+    const { data: notifData } = await supabase
+      .from("notifications")
+      .select("*")
+      .eq("user_id", userId)
+      .gt("created_at", lastSyncedAt);
+
+    if (notifData) {
+      for (const row of notifData) {
+         await db.runAsync(
+           `INSERT OR REPLACE INTO notifications (id, user_id, title, body, type, is_read, created_at, updated_at, is_synced) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+           [
+             row.id, 
+             row.user_id, 
+             row.title, 
+             row.body, 
+             row.type, 
+             row.is_read ? 1 : 0, 
+             row.created_at, 
+             row.updated_at
+           ]
+         );
+      }
     }
 
     await db.runAsync("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)", ["last_synced_at", newSyncTime]);

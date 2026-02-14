@@ -48,6 +48,19 @@ export const initDatabase = async () => {
       period_key TEXT
     );
 
+    -- [NEW] Notifications Table
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      type TEXT, 
+      is_read INTEGER DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      is_synced INTEGER DEFAULT 0
+    );
+
     CREATE TABLE IF NOT EXISTS sync_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, table_name TEXT NOT NULL, row_id TEXT, action TEXT NOT NULL, data TEXT, status TEXT DEFAULT 'PENDING', retry_count INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT);
 
@@ -71,6 +84,8 @@ export const initDatabase = async () => {
     
     CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance(user_id, date);
     CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
+    CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at);
   `);
 
   // --- MIGRATIONS ---
@@ -134,7 +149,7 @@ export const queueSyncItem = async (
   const db = await getDB();
   if (!rowId) return;
   try {
-    if (["attendance", "accomplishments", "saved_reports"].includes(tableName)) {
+    if (["attendance", "accomplishments", "saved_reports", "notifications"].includes(tableName)) {
       try {
         await db.runAsync(
           `UPDATE ${tableName} SET is_synced = 0 WHERE id = ?`,
@@ -252,7 +267,6 @@ export const deleteReportLocal = async (id: string) => {
   await db.runAsync("DELETE FROM saved_reports WHERE id = ?", [id]);
 };
 
-// UPDATED: Now supports optional newPath to update file_path column
 export const renameReportLocal = async (id: string, newTitle: string, newPath?: string) => {
   const db = await getDB();
   if (newPath) {
@@ -297,4 +311,80 @@ export const getUnreadReportsCount = async (userId: string) => {
     [userId]
   );
   return res?.count || 0;
+};
+
+// --- [NEW] NOTIFICATION FUNCTIONS ---
+
+export const saveNotificationLocal = async (notif: any) => {
+  const db = await getDB();
+  const now = new Date().toISOString();
+  
+  await db.runAsync(
+    `INSERT OR REPLACE INTO notifications (id, user_id, title, body, type, is_read, created_at, updated_at, is_synced) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [
+      notif.id,
+      notif.user_id,
+      notif.title,
+      notif.body,
+      notif.type || 'general',
+      notif.is_read ? 1 : 0,
+      notif.created_at || now,
+      now
+    ]
+  );
+
+  await queueSyncItem('notifications', notif.id, 'INSERT', {
+    id: notif.id,
+    user_id: notif.user_id,
+    title: notif.title,
+    body: notif.body,
+    type: notif.type,
+    is_read: notif.is_read,
+    created_at: notif.created_at || now
+  });
+};
+
+export const getNotificationsLocal = async (userId: string) => {
+  const db = await getDB();
+  const rows = await db.getAllAsync(
+    `SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`,
+    [userId]
+  );
+  
+  return rows.map((r: any) => ({
+    id: r.id,
+    title: r.title,
+    body: r.body,
+    read: !!r.is_read,
+    date: new Date(r.created_at).getTime(),
+    type: r.type
+  }));
+};
+
+export const markNotificationReadLocal = async (id: string) => {
+  const db = await getDB();
+  await db.runAsync(
+    `UPDATE notifications SET is_read = 1, is_synced = 0, updated_at = ? WHERE id = ?`,
+    [new Date().toISOString(), id]
+  );
+  await queueSyncItem('notifications', id, 'UPDATE', { is_read: true });
+};
+
+export const markAllNotificationsReadLocal = async (userId: string) => {
+  const db = await getDB();
+  
+  const unread: any[] = await db.getAllAsync(
+    `SELECT id FROM notifications WHERE user_id = ? AND is_read = 0`, 
+    [userId]
+  );
+
+  await db.runAsync(
+    `UPDATE notifications SET is_read = 1, is_synced = 0, updated_at = ? WHERE user_id = ? AND is_read = 0`,
+    [new Date().toISOString(), userId]
+  );
+
+  for (const item of unread) {
+    await queueSyncItem('notifications', item.id, 'UPDATE', { is_read: true });
+  }
 };
