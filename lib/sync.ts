@@ -86,7 +86,6 @@ export const syncPush = async () => {
         payload = data ? JSON.parse(data) : {};
         if ("is_synced" in payload) delete payload.is_synced;
 
-        // File Upload Handlers
         if (table_name === "accomplishments") {
           if (payload.image_url && payload.image_url.startsWith("file://") && action !== "DELETE") {
              const remoteUrl = await uploadFileToSupabase(payload.image_url, payload.user_id || "unknown", "accomplishments");
@@ -126,8 +125,7 @@ export const syncPush = async () => {
 
         if (!error || error.code === "PGRST116" || error.code === "23505") {
            await db.runAsync("DELETE FROM sync_queue WHERE id = ?", [id]);
-           // Mark as synced locally if it's one of the trackable tables
-           if (action !== 'DELETE' && ['attendance', 'accomplishments', 'saved_reports', 'notifications'].includes(table_name)) {
+           if (action !== 'DELETE') {
              try { await db.runAsync(`UPDATE ${table_name} SET is_synced = 1 WHERE id = ?`, [row_id]); } catch(e) {}
            }
            successCount++;
@@ -160,12 +158,11 @@ export const syncPull = async (userId: string) => {
     if (jobsData && jobsData.length > 0) {
       for (const job of jobsData) {
         await db.runAsync(
-          `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, payout_type, period_target, work_schedule, break_schedule, created_at, updated_at) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, payout_type, work_schedule, break_schedule, created_at, updated_at) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             job.id, job.user_id, job.title, job.company, job.department, job.employment_status, 
             job.rate, job.rate_type, job.payout_type, 
-            job.period_target || null,
             typeof job.work_schedule === 'object' ? JSON.stringify(job.work_schedule) : job.work_schedule,
             typeof job.break_schedule === 'object' ? JSON.stringify(job.break_schedule) : job.break_schedule,
             job.created_at, job.updated_at
@@ -202,7 +199,7 @@ export const syncPull = async (userId: string) => {
        }
     }
 
-    // 4. PULL Accomplishments
+    // 4. PULL Accomplishments (FIXED: 8 '?' for 8 variables)
     const { data: taskData } = await supabase.from("accomplishments").select("*").eq("user_id", userId).gt("created_at", lastSyncedAt);
     if (taskData) {
       for (const row of taskData) {
@@ -236,37 +233,6 @@ export const syncPull = async (userId: string) => {
                   row.remote_url, 
                   row.created_at, 
                   row.updated_at
-                ]
-            );
-        }
-    }
-
-    // 6. PULL Notifications (NEW)
-    // Ensures notifications read on one device are marked read on this one, and history syncs.
-    const { data: notifData } = await supabase
-        .from("notifications")
-        .select("*")
-        .eq("user_id", userId)
-        .gt("updated_at", lastSyncedAt);
-
-    if (notifData) {
-        for (const row of notifData) {
-            await db.runAsync(
-                `INSERT INTO notifications (id, user_id, title, body, date, is_read, type, data, updated_at) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                 ON CONFLICT(id) DO UPDATE SET
-                    is_read = excluded.is_read,
-                    updated_at = excluded.updated_at`,
-                [
-                    row.id, 
-                    row.user_id, 
-                    row.title, 
-                    row.body, 
-                    row.date, 
-                    row.is_read, 
-                    row.type, 
-                    typeof row.data === 'object' ? JSON.stringify(row.data) : row.data,
-                    row.updated_at
                 ]
             );
         }

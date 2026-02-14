@@ -1,8 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import { saveNotificationLocal } from './database';
-import { supabase } from './supabase';
 
 type NotificationType = 'checkInOut' | 'reportGen' | 'cutoff' | 'general';
 
@@ -11,21 +9,6 @@ export async function sendLocalNotification(title: string, body: string, type: N
     // 1. Get User Preferences
     const jsonSettings = await AsyncStorage.getItem('appSettings');
     const settings = jsonSettings ? JSON.parse(jsonSettings) : {};
-    
-    // Get Current User for DB persistence
-    const { data: { session } } = await supabase.auth.getSession();
-    const userId = session?.user?.id;
-
-    // PERSISTENCE: Save to Local DB if user exists
-    if (userId) {
-        await saveNotificationLocal({
-            user_id: userId,
-            title,
-            body,
-            type,
-            data
-        });
-    }
 
     const isEnabled = (key: string) => settings[key] !== false;
 
@@ -42,6 +25,7 @@ export async function sendLocalNotification(title: string, body: string, type: N
     }
 
     // 2. Schedule
+    // Note: On Android 8.0+, sound/vibration are controlled by the Channel, not these properties.
     await Notifications.scheduleNotificationAsync({
       content: {
         title,
@@ -49,6 +33,7 @@ export async function sendLocalNotification(title: string, body: string, type: N
         data, 
         sound: settings.soundEnabled !== false, 
         vibrate: settings.vibrationEnabled !== false ? [0, 250, 250, 250] : [],
+        // Attach to the 'default' channel created in _layout.tsx
         ...(Platform.OS === 'android' ? { channelId: 'default' } : {}),
       },
       trigger: null, // Immediate
