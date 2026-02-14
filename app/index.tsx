@@ -9,10 +9,10 @@ import {
     ImageBackground,
     StatusBar,
     Text,
-    TouchableOpacity,
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ScaleButton from '../components/ScaleButton';
 import { useAuth } from '../context/AuthContext';
 
 export default function Index() {
@@ -80,24 +80,20 @@ export default function Index() {
         {/* ACTIONS */}
         <View className="w-full gap-4 pb-6">
             <View>
-                <TouchableOpacity 
-                    onPress={() => router.push('/auth?mode=signup')}
-                    activeOpacity={0.9} 
-                    className="flex-row items-center justify-center w-full gap-3 bg-indigo-600 shadow-lg h-14 rounded-2xl shadow-indigo-500/30"
-                >
-                    <Text className="text-lg font-bold text-white">Get Started</Text>
-                    <HugeiconsIcon icon={ArrowRight01Icon} size={20} color="white" strokeWidth={2.5} />
-                </TouchableOpacity>
+                <ScaleButton onPress={() => router.push('/auth?mode=signup')}>
+                    <View className="flex-row items-center justify-center w-full gap-3 bg-indigo-600 shadow-lg h-14 rounded-2xl shadow-indigo-500/30">
+                        <Text className="text-lg font-bold text-white">Get Started</Text>
+                        <HugeiconsIcon icon={ArrowRight01Icon} size={20} color="white" strokeWidth={2.5} />
+                    </View>
+                </ScaleButton>
             </View>
 
             <View>
-                <TouchableOpacity 
-                    onPress={() => router.push('/auth?mode=login')}
-                    activeOpacity={0.9}
-                    className={`flex-row items-center justify-center w-full gap-3 border h-14 rounded-2xl ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}
-                >
-                    <Text className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-700'}`}>I have an account</Text>
-                </TouchableOpacity>
+                <ScaleButton onPress={() => router.push('/auth?mode=login')}>
+                    <View className={`flex-row items-center justify-center w-full gap-3 border h-14 rounded-2xl ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}>
+                        <Text className={`text-lg font-bold ${isDark ? 'text-white' : 'text-slate-700'}`}>I have an account</Text>
+                    </View>
+                </ScaleButton>
             </View>
 
             <View className="items-center mt-2">

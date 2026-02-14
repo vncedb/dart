@@ -24,7 +24,7 @@ import {
 
 const { width } = Dimensions.get('window');
 
-// --- IMAGE COMPONENTS ---
+// ... (ActivityImageContent and ActivityGallery components remain same) ...
 const ActivityImageContent = ({ uri, theme }: { uri: string, theme: any }) => {
     const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
     const [key, setKey] = useState(0);
@@ -139,9 +139,18 @@ interface ActivityTimelineProps {
     theme: any;
     onEditTask: (task: any) => void;
     onDeleteTask: (task: any) => void;
+    isLoading?: boolean; // Added optional property
 }
 
-export default function ActivityTimeline({ timelineData, theme, onEditTask, onDeleteTask }: ActivityTimelineProps) {
+export default function ActivityTimeline({ timelineData, theme, onEditTask, onDeleteTask, isLoading }: ActivityTimelineProps) {
+    if (isLoading) {
+        return (
+            <View style={{ padding: 20, alignItems: 'center' }}>
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+            </View>
+        );
+    }
+
     if (timelineData.length === 0) {
         return (
             <View style={{ alignItems: 'center', padding: 20, opacity: 0.5 }}>

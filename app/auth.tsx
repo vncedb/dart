@@ -34,10 +34,12 @@ import LoadingOverlay from '../components/LoadingOverlay';
 import ModernAlert from '../components/ModernAlert';
 import { ModernToast } from '../components/ModernUI';
 import OtpVerificationModal from '../components/OtpVerificationModal';
+import { getDB, queueSyncItem, saveProfileLocal } from '../lib/database';
 import { supabase } from '../lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
 
+// ... (Tooltip component remains the same) ...
 const Tooltip = ({ message, isDark }: { message: string, isDark: boolean }) => (
     <View className="absolute right-0 z-50 w-64 mt-2 top-full">
         <View className="w-full">
@@ -123,38 +125,76 @@ export default function AuthScreen() {
     return valid;
   };
 
-  // Returns TRUE if onboarded, FALSE if new
+  // --- UPDATED: Robust Profile & Metadata Handling ---
   const checkAppRegistration = async (user: any): Promise<boolean> => {
       try {
-          const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-          if (!profile) {
-              const meta = user.user_metadata || {};
-              let fullName = meta.full_name || '';
-              if (!fullName) {
-                  const randomNum = Math.floor(1000 + Math.random() * 9000);
-                  fullName = `User${randomNum}`;
-              }
-              const avatarUrl = meta.avatar_url || meta.picture || null;
+          const userId = user.id;
+          const db = await getDB();
 
-              await supabase.from('profiles').insert([{ 
-                  id: user.id, 
-                  email: user.email, 
-                  full_name: fullName,
-                  avatar_url: avatarUrl,
-                  is_onboarded: false, 
-                  updated_at: new Date()
-              }]);
-              await AsyncStorage.setItem('isOnboarded', 'false');
-              return false; 
-          } else {
-              if (profile.is_onboarded) {
-                  await AsyncStorage.setItem('isOnboarded', 'true');
-                  return true; 
-              } else {
-                  await AsyncStorage.setItem('isOnboarded', 'false');
-                  return false; 
-              }
+          // 1. Force check for local profile
+          const localProfile: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [userId]);
+          
+          // If we have a local profile, we trust it (it's the source of truth for offline)
+          if (localProfile) {
+              const isOnboarded = Boolean(localProfile.is_onboarded);
+              await AsyncStorage.setItem('isOnboarded', isOnboarded ? 'true' : 'false');
+              return isOnboarded;
           }
+
+          // 2. If no local profile, check Supabase (maybe they logged in on another device)
+          const { data: remoteProfile } = await supabase.from('profiles').select('*').eq('id', userId).single();
+          
+          if (remoteProfile) {
+              await saveProfileLocal(remoteProfile);
+              const isOnboarded = Boolean(remoteProfile.is_onboarded);
+              await AsyncStorage.setItem('isOnboarded', isOnboarded ? 'true' : 'false');
+              return isOnboarded;
+          }
+
+          // 3. NEW USER (or Re-Registering User)
+          // Aggressively extract Google Metadata
+          const meta = user.user_metadata || {};
+          console.log("Processing New User Metadata:", JSON.stringify(meta)); // Debug log
+
+          // Google often sends 'picture' or 'avatar_url'. We check both.
+          const avatarUrl = meta.avatar_url || meta.picture || meta.avatar || null;
+          
+          // Google sends 'full_name' or 'name'. We check both.
+          // Sometimes it splits into given_name / family_name.
+          let fullName = meta.full_name || meta.name || '';
+          const firstName = meta.given_name || meta.first_name || '';
+          const lastName = meta.family_name || meta.last_name || '';
+
+          if (!fullName && (firstName || lastName)) {
+              fullName = `${firstName} ${lastName}`.trim();
+          }
+          if (!fullName) {
+             // Fallback if metadata is completely empty (rare)
+             fullName = user.email ? user.email.split('@')[0] : 'User';
+          }
+
+          const newProfile = { 
+              id: userId, 
+              email: user.email, 
+              full_name: fullName,
+              first_name: firstName,
+              last_name: lastName,
+              avatar_url: avatarUrl, // This will now catch 'picture' from Google
+              is_onboarded: 0,
+              updated_at: new Date().toISOString()
+          };
+
+          // A. Save Locally Immediately
+          await saveProfileLocal(newProfile);
+
+          // B. Queue Sync to Server (UPSERT handles if the row was secretly there)
+          // We convert 0 -> false for boolean columns in Postgres
+          const remotePayload = { ...newProfile, is_onboarded: false };
+          await queueSyncItem('profiles', userId, 'UPSERT', remotePayload);
+
+          await AsyncStorage.setItem('isOnboarded', 'false');
+          return false; 
+
       } catch (e) {
           console.log("Registration Check Error", e);
           return false;
@@ -167,7 +207,6 @@ export default function AuthScreen() {
           if (isUserOnboarded) {
               router.replace('/'); 
           } else {
-              // Pass 'welcome' param to trigger the alert in Onboarding
               router.replace({ pathname: '/onboarding', params: { welcome: 'true' } });
           }
       }, 800);
@@ -220,10 +259,9 @@ export default function AuthScreen() {
                 setAlertConfig({ visible: true, type: 'error', title: 'Sign Up Failed', message: error.message, onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) });
             } else {
                 if (session && user) {
-                     // Auto Sign-in logic for Signup
                      await checkAppRegistration(user);
                      setLoading(false);
-                     onLoginSuccess(false); // New user = not onboarded
+                     onLoginSuccess(false); 
                 } else {
                     setLoading(false); 
                     setShowOtp(true);
@@ -239,21 +277,41 @@ export default function AuthScreen() {
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     try {
+      // 1. Start OAuth Flow
       const redirectTo = makeRedirectUri({ scheme: 'dartapp', path: 'auth/callback' });
-      const { data, error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo, skipBrowserRedirect: true } });
+      const { data, error } = await supabase.auth.signInWithOAuth({ 
+          provider: 'google', 
+          options: { 
+              redirectTo, 
+              skipBrowserRedirect: true,
+              // Requesting these scopes ensures we get the profile/email data
+              scopes: 'openid profile email' 
+          } 
+      });
+      
       if (error) throw error;
       if (!data?.url) throw new Error('No auth URL returned from Supabase');
 
+      // 2. Open Web Browser
       const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+      
       if (res.type === 'success' && res.url) {
+        // 3. Extract Tokens
         const paramsStr = res.url.includes('#') ? res.url.split('#')[1] : res.url.split('?')[1];
         const result = QueryParams.getQueryParams('?' + paramsStr);
         const authParams = result.params;
         
         if (authParams['access_token'] && authParams['refresh_token']) {
-            const { data: { user }, error: sessionError } = await supabase.auth.setSession({ access_token: authParams['access_token'], refresh_token: authParams['refresh_token'] });
+            // 4. Set Session in Supabase
+            const { data: { user }, error: sessionError } = await supabase.auth.setSession({ 
+                access_token: authParams['access_token'], 
+                refresh_token: authParams['refresh_token'] 
+            });
+            
             if (sessionError) throw sessionError;
+            
             if (user) {
+                // 5. Run Registration Check (Extraction happens here)
                 const isUserOnboarded = await checkAppRegistration(user);
                 onLoginSuccess(isUserOnboarded);
             }
@@ -294,7 +352,7 @@ export default function AuthScreen() {
                     supabase.functions.invoke('send-email', { body: { email: session.user.email, type: 'WELCOME' } });
                     await checkAppRegistration(session.user);
                     setShowOtp(false);
-                    onLoginSuccess(false); // Signup verified = new user = not onboarded
+                    onLoginSuccess(false); 
                     return true;
                 }
                 setShowOtp(false);

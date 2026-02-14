@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Session, User } from '@supabase/supabase-js';
 import * as Notifications from 'expo-notifications';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { queueSyncItem } from '../lib/database'; // Added import for offline sync
 import { getDB } from '../lib/db-client';
 import { supabase } from '../lib/supabase';
 import { clearAttendanceNotification } from '../utils/NotificationService';
@@ -40,7 +41,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const getUserOnboardKey = useCallback((userId: string) => `onboarded_${userId}`, []);
 
   // 1. IMPROVED CHECK: Per-User Offline Support
-  // Wrapped in useCallback to fix dependency warnings
   const checkOnboardingStatus = useCallback(async (userId: string): Promise<boolean> => {
       try {
           const userKey = getUserOnboardKey(userId);
@@ -90,25 +90,46 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
   }, [user, checkOnboardingStatus, getUserOnboardKey]);
 
+  // UPDATED: Offline-First Complete Onboarding
   const completeOnboarding = useCallback(async () => {
-    try {
-      if (user) {
-          // 1. Update Supabase
-          await supabase.from('profiles').update({ is_onboarded: true }).eq('id', user.id);
-          
-          // 2. Update Local DB
-          const db = await getDB();
-          await db.runAsync(
-              `UPDATE profiles SET is_onboarded = 1 WHERE id = ?`, 
-              [user.id]
-          );
+    if (!user) return;
 
-          // 3. Update User-Specific Storage
-          await AsyncStorage.setItem(getUserOnboardKey(user.id), 'true');
-      }
+    try {
+      // STEP 1: PRIORITIZE OFFLINE STORAGE
+      // We save locally first so the user is immediately "Onboarded" in the app
+      
+      // A. Update User-Specific AsyncStorage (The "Specific User" Tag)
+      const userKey = getUserOnboardKey(user.id);
+      await AsyncStorage.setItem(userKey, 'true');
+
+      // B. Update Local SQLite Database
+      const db = await getDB();
+      await db.runAsync(
+          `UPDATE profiles SET is_onboarded = 1 WHERE id = ?`, 
+          [user.id]
+      );
+
+      // STEP 2: UPDATE APP STATE
+      // Do this immediately so the UI navigates to Home
       setIsOnboarded(true);
+
+      // STEP 3: ATTEMPT SERVER SYNC (Non-blocking)
+      // We try to update Supabase. If it fails, we queue it for later.
+      const { error } = await supabase
+          .from('profiles')
+          .update({ is_onboarded: true })
+          .eq('id', user.id);
+
+      if (error) {
+          console.log("Online update failed, queuing sync...");
+          // Queue the sync so it happens when internet returns
+          await queueSyncItem('profiles', user.id, 'UPDATE', { is_onboarded: true });
+      }
+
     } catch (error) {
-      console.error('Failed to complete onboarding:', error);
+      console.error('Local onboarding update error:', error);
+      // Fallback: Force state update so user isn't stuck
+      setIsOnboarded(true); 
     }
   }, [user, getUserOnboardKey]);
 

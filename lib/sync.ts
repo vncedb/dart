@@ -37,7 +37,6 @@ const uploadFileToSupabase = async (
     if (!localUri || !localUri.startsWith("file://")) return localUri;
 
     const ext = localUri.split(".").pop();
-    // Unique name for storage
     const fileName = `${userId}/${Date.now()}_${Math.floor(Math.random() * 1000)}.${ext}`;
 
     const base64 = await FileSystem.readAsStringAsync(localUri, {
@@ -87,7 +86,6 @@ export const syncPush = async () => {
         payload = data ? JSON.parse(data) : {};
         if ("is_synced" in payload) delete payload.is_synced;
 
-        // File Upload Handlers
         if (table_name === "accomplishments") {
           if (payload.image_url && payload.image_url.startsWith("file://") && action !== "DELETE") {
              const remoteUrl = await uploadFileToSupabase(payload.image_url, payload.user_id || "unknown", "accomplishments");
@@ -96,13 +94,10 @@ export const syncPush = async () => {
         }
         
         if (table_name === "saved_reports") {
-           // We ONLY upload if we have a local file path.
            if (payload.file_path && payload.file_path.startsWith("file://") && action !== "DELETE") {
              const remoteUrl = await uploadFileToSupabase(payload.file_path, payload.user_id, "reports");
              if (remoteUrl) {
                payload.remote_url = remoteUrl;
-               // IMPORTANT: Delete file_path before sending to Supabase DB, 
-               // because Supabase DB shouldn't know about local paths.
                delete payload.file_path; 
              }
            }
@@ -112,7 +107,6 @@ export const syncPush = async () => {
         continue;
       }
 
-      // EXECUTE SUPABASE ACTION
       let error = null;
       try {
         if (action === "INSERT") {
@@ -122,7 +116,6 @@ export const syncPush = async () => {
           const { error: err } = await supabase.from(table_name).update(payload).eq("id", row_id);
           error = err;
         } else if (action === "DELETE") {
-          // If deleting report, try to delete file from storage too
           if (table_name === 'saved_reports' && payload.remote_url) {
              await deleteFileFromSupabase(payload.remote_url, "reports");
           }
@@ -206,18 +199,18 @@ export const syncPull = async (userId: string) => {
        }
     }
 
-    // 4. PULL Accomplishments
+    // 4. PULL Accomplishments (FIXED: 8 '?' for 8 variables)
     const { data: taskData } = await supabase.from("accomplishments").select("*").eq("user_id", userId).gt("created_at", lastSyncedAt);
     if (taskData) {
       for (const row of taskData) {
          await db.runAsync(
-           `INSERT OR REPLACE INTO accomplishments (id, user_id, job_id, date, description, remarks, image_url, created_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+           `INSERT OR REPLACE INTO accomplishments (id, user_id, job_id, date, description, remarks, image_url, created_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
            [row.id, row.user_id, row.job_id, row.date, row.description, row.remarks, row.image_url, row.created_at]
          );
       }
     }
     
-    // 5. PULL Reports (CRITICAL FIX: UPSERT TO PRESERVE LOCAL FILE PATHS)
+    // 5. PULL Reports
     const { data: reportsData } = await supabase.from("saved_reports").select("*").eq("user_id", userId).gt("created_at", lastSyncedAt);
     if (reportsData) {
         for (const row of reportsData) {
@@ -234,7 +227,7 @@ export const syncPull = async (userId: string) => {
                   row.id, 
                   row.user_id, 
                   row.title, 
-                  "", // Default for NEW records. Ignored on update due to Upsert logic above
+                  "", 
                   row.file_type, 
                   row.file_size, 
                   row.remote_url, 

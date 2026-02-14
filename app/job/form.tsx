@@ -1,4 +1,3 @@
-// Footer Fixed Bottom, Outside Keyboard Avoiding View
 import {
     ArrowDown01Icon,
     Briefcase01Icon,
@@ -10,6 +9,7 @@ import {
     InformationCircleIcon,
     PencilEdit02Icon,
     PlusSignIcon,
+    Target02Icon,
     Tick01Icon,
     UserGroupIcon,
     UserIcon
@@ -34,6 +34,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AddBreakModal from '../../components/AddBreakModal';
 import DatePicker from '../../components/DatePicker';
+import DurationPicker from '../../components/DurationPicker';
 import Footer from '../../components/Footer';
 import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
@@ -48,7 +49,7 @@ import { generateUUID, queueSyncItem, saveJobLocal } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 
-// ... (Helpers and Options retained) ...
+// --- HELPERS ---
 const formatCurrency = (val: string) => {
     const numericValue = val.replace(/[^0-9.]/g, '');
     if (!numericValue) return '';
@@ -91,6 +92,7 @@ const PAYOUT_GRID_OPTIONS = [
     { label: 'Monthly', value: 'Monthly', desc: 'End of month' },
 ];
 
+// --- COMPONENTS ---
 const Tooltip = ({ message, theme }: { message: string, theme: any }) => (
     <View style={{ position: 'absolute', right: 0, zIndex: 100, width: 220, marginTop: 8, top: '100%' }}>
         <View style={{ width: '100%' }}>
@@ -108,10 +110,10 @@ const Tooltip = ({ message, theme }: { message: string, theme: any }) => (
     </View>
 );
 
-// --- MOVED OUTSIDE ---
 const StyledInput = ({ label, value, onChange, placeholder, icon, required, errorKey, readonly, onPress, theme, errors, setErrors, visibleTooltip, setVisibleTooltip }: any) => {
     const isError = errorKey && errors[errorKey];
     const showTooltip = errorKey && visibleTooltip === errorKey;
+    const hasValue = value && value.length > 0;
     
     return (
         <View style={{ marginBottom: 20, zIndex: showTooltip ? 50 : 1 }}>
@@ -127,9 +129,11 @@ const StyledInput = ({ label, value, onChange, placeholder, icon, required, erro
                         borderColor: isError ? '#ef4444' : theme.colors.border,
                         height: 56, paddingHorizontal: 16 
                     }}>
-                        <HugeiconsIcon icon={icon} size={22} color={isError ? "#ef4444" : (readonly ? theme.colors.primary : theme.colors.textSecondary)} />
+                        <HugeiconsIcon icon={icon} size={22} color={isError ? "#ef4444" : (readonly && hasValue ? theme.colors.primary : theme.colors.textSecondary)} />
                         {readonly ? (
-                            <Text numberOfLines={1} style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text }}>{value}</Text>
+                            <Text numberOfLines={1} style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: hasValue ? theme.colors.text : theme.colors.textSecondary }}>
+                                {hasValue ? value : placeholder}
+                            </Text>
                         ) : (
                             <TextInput 
                                 value={value} 
@@ -176,15 +180,21 @@ export default function JobForm() {
     const [salaryDisplay, setSalaryDisplay] = useState('');
     const [rateType, setRateType] = useState<'hourly' | 'daily' | 'monthly'>('hourly');
     const [payoutType, setPayoutType] = useState('Semi-Monthly'); 
+    
+    // Period Target State (Nullable by default)
+    const [targetHours, setTargetHours] = useState<number | null>(null);
+    const [targetMinutes, setTargetMinutes] = useState<number | null>(null);
+
     const [startDate, setStartDate] = useState(new Date());
     const [workStart, setWorkStart] = useState<Date>(() => { const d = new Date(); d.setHours(9, 0, 0, 0); return d; });
     const [workEnd, setWorkEnd] = useState<Date>(() => { const d = new Date(); d.setHours(17, 0, 0, 0); return d; });
     const [breaks, setBreaks] = useState<{ id: string, start: Date, end: Date, title?: string }[]>([]);
     
-    const [errors, setErrors] = useState<{ position?: string; company?: string; salary?: string }>({});
-    const [visibleTooltip, setVisibleTooltip] = useState<'position' | 'company' | 'salary' | null>(null);
+    const [errors, setErrors] = useState<any>({});
+    const [visibleTooltip, setVisibleTooltip] = useState<string | null>(null);
 
     const [pickerVisible, setPickerVisible] = useState(false);
+    const [durationPickerVisible, setDurationPickerVisible] = useState(false);
     const [calendarVisible, setCalendarVisible] = useState(false);
     const [jobSelectorVisible, setJobSelectorVisible] = useState(false);
     const [statusSelectorVisible, setStatusSelectorVisible] = useState(false);
@@ -201,7 +211,7 @@ export default function JobForm() {
     const handleSalaryChange = (text: string) => { 
         const formatted = formatCurrency(text); 
         setSalaryDisplay(formatted); 
-        if (errors.salary) { setErrors(p => ({...p, salary: undefined})); setVisibleTooltip(null); }
+        if (errors.salary) { setErrors((p:any) => ({...p, salary: undefined})); setVisibleTooltip(null); }
         setIsDirty(true); 
     };
 
@@ -215,7 +225,18 @@ export default function JobForm() {
         const exists = jobOptions.some(o => o.value === val);
         if (!exists) setJobOptions(prev => [{ label: val, value: val }, ...prev]);
         markDirty(setPosition, val);
-        if (errors.position) { setErrors(p => ({...p, position: undefined})); setVisibleTooltip(null); }
+        if (errors.position) { setErrors((p:any) => ({...p, position: undefined})); setVisibleTooltip(null); }
+    };
+
+    const handleDurationConfirm = (h: number, m: number) => {
+        setTargetHours(h);
+        setTargetMinutes(m);
+        setIsDirty(true);
+    };
+
+    const getPeriodTargetDisplay = () => {
+        if (targetHours === null && targetMinutes === null) return '';
+        return `${targetHours || 0}h ${targetMinutes || 0}m`;
     };
 
     useEffect(() => {
@@ -258,6 +279,20 @@ export default function JobForm() {
                 setSalaryDisplay(data.rate ? formatCurrency(data.rate.toString()) : '');
                 setRateType(data.rate_type || 'hourly');
                 setPayoutType(data.payout_type || 'Semi-Monthly'); 
+
+                if (data.period_target) {
+                    const totalMins = parseInt(data.period_target, 10);
+                    if (!isNaN(totalMins) && totalMins > 0) {
+                        setTargetHours(Math.floor(totalMins / 60));
+                        setTargetMinutes(totalMins % 60);
+                    } else {
+                        setTargetHours(null);
+                        setTargetMinutes(null);
+                    }
+                } else {
+                    setTargetHours(null);
+                    setTargetMinutes(null);
+                }
 
                 if (data.start_date) setStartDate(new Date(data.start_date));
                 if (workSched) { setWorkStart(parseTimeStringToDate(workSched.start)); setWorkEnd(parseTimeStringToDate(workSched.end)); }
@@ -332,6 +367,16 @@ export default function JobForm() {
             const salaryValue = parseCurrency(salaryDisplay);
             const finalJobId = jobId || generateUUID();
             const now = new Date().toISOString();
+            
+            // Calculate Period Target
+            let periodTargetMins = null;
+            if (targetHours !== null || targetMinutes !== null) {
+                const h = targetHours || 0;
+                const m = targetMinutes || 0;
+                if (h > 0 || m > 0) {
+                    periodTargetMins = (h * 60) + m;
+                }
+            }
 
             const payload = {
                 id: finalJobId,
@@ -344,6 +389,7 @@ export default function JobForm() {
                 salary: salaryValue, 
                 rate_type: rateType, 
                 payout_type: payoutType, 
+                period_target: periodTargetMins,
                 start_date: startDate.toISOString().split('T')[0],
                 work_schedule: { start: formatDBTime(workStart), end: formatDBTime(workEnd) },
                 break_schedule: breaks.map(b => ({ start: formatDBTime(b.start), end: formatDBTime(b.end), title: b.title })),
@@ -381,10 +427,21 @@ export default function JobForm() {
                 <LoadingOverlay visible={saving} message="Saving Job..." />
                 <ModernAlert {...alertConfig} />
                 <TimePickerModal visible={pickerVisible} onClose={() => setPickerVisible(false)} onConfirm={handleTimeConfirm} initialHours={pickerConfig.currentValue?.getHours()} initialMinutes={pickerConfig.currentValue?.getMinutes()} initialPeriod={pickerConfig.currentValue && pickerConfig.currentValue.getHours() >= 12 ? 'PM' : 'AM'} title={pickerConfig.mode.includes('Start') ? "Start Time" : "End Time"} />
+                
+                <DurationPicker 
+                    visible={durationPickerVisible}
+                    onClose={() => setDurationPickerVisible(false)}
+                    onConfirm={handleDurationConfirm}
+                    initialHours={targetHours || 0}
+                    initialMinutes={targetMinutes || 0}
+                />
+
                 <AddBreakModal visible={addBreakModalVisible} onClose={() => setAddBreakModalVisible(false)} onAdd={handleAddBreak} />
                 <SearchableSelectionModal visible={jobSelectorVisible} onClose={() => setJobSelectorVisible(false)} onSelect={handleJobSelect} title="Select Job Title" options={jobOptions} placeholder="Search job title..." currentValue={position} />
                 <SearchableSelectionModal visible={statusSelectorVisible} onClose={() => setStatusSelectorVisible(false)} onSelect={(val) => markDirty(setEmploymentStatus, val)} title="Employment Status" options={EMPLOYMENT_STATUS_OPTIONS} placeholder="Select Status" currentValue={employmentStatus} />
                 <DatePicker visible={calendarVisible} onClose={() => setCalendarVisible(false)} onSelect={(date) => { markDirty(setStartDate, date); setCalendarVisible(false); }} selectedDate={startDate} />
+                
+                {/* Break Rename Modal */}
                 <Modal transparent={true} visible={breakTitleModalVisible} animationType="fade" onRequestClose={() => setBreakTitleModalVisible(false)}>
                     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }}>
                         <View style={{ width: '85%', backgroundColor: theme.colors.card, borderRadius: 24, padding: 24, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 5 }}>
@@ -402,13 +459,16 @@ export default function JobForm() {
 
                 <Header title={jobId ? 'Edit Job' : 'Add New Job'} />
 
+                {/* REFINED SCROLLING */}
                 <KeyboardAvoidingView 
                     behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
                     style={{ flex: 1 }}
                 >
                     <ScrollView 
-                        contentContainerStyle={{ padding: 24, paddingBottom: 100 }} 
+                        contentContainerStyle={{ padding: 24, paddingBottom: 100, flexGrow: 1 }} 
                         showsVerticalScrollIndicator={false}
+                        keyboardShouldPersistTaps="handled"
+                        removeClippedSubviews={false}
                     >
                         <View style={{ marginBottom: 24 }}>
                             <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Job Details</Text>
@@ -416,8 +476,8 @@ export default function JobForm() {
                                 <StyledInput label="Job Title" value={position || 'Select Title'} onPress={() => setJobSelectorVisible(true)} readonly icon={Briefcase01Icon} required errorKey="position" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
                                 <StyledInput label="Company Name" value={company} onChange={(t:string) => markDirty(setCompany, t)} placeholder="Enter Company" icon={Building03Icon} required errorKey="company" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
                                 <StyledInput label="Department" value={department} onChange={(t:string) => markDirty(setDepartment, t)} placeholder="Optional" icon={UserGroupIcon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
-                                <StyledInput label="Employment Status" value={employmentStatus} onPress={() => setStatusSelectorVisible(true)} readonly icon={UserIcon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
-                                <StyledInput label="Date Started" value={startDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} onPress={() => setCalendarVisible(true)} readonly icon={Calendar03Icon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                                <StyledInput label="Employment Status" value={employmentStatus} onPress={() => setStatusSelectorVisible(true)} readonly icon={UserIcon} required theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                                <StyledInput label="Date Started" value={startDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} onPress={() => setCalendarVisible(true)} readonly icon={Calendar03Icon} required theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
                             </View>
                         </View>
                         
@@ -432,8 +492,10 @@ export default function JobForm() {
                                         </TouchableOpacity>
                                     ))}
                                 </View>
-                                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>Payout Schedule</Text>
-                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>
+                                    Payout Schedule <Text style={{ color: '#ef4444' }}>*</Text>
+                                </Text>
+                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 }}>
                                     {PAYOUT_GRID_OPTIONS.map((opt) => {
                                         const isSelected = payoutType === opt.value;
                                         return (
@@ -444,11 +506,25 @@ export default function JobForm() {
                                         );
                                     })}
                                 </View>
+
+                                {/* Period Target Input */}
+                                <StyledInput 
+                                    label={`${payoutType} Target`} 
+                                    value={getPeriodTargetDisplay()} 
+                                    placeholder="Set Target Duration"
+                                    onPress={() => setDurationPickerVisible(true)} 
+                                    readonly 
+                                    icon={Target02Icon} 
+                                    theme={theme} 
+                                    errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip}
+                                />
                             </View>
                         </View>
 
                         <View style={{ marginBottom: 24 }}>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Schedule</Text>
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>
+                                Schedule <Text style={{ color: '#ef4444' }}>*</Text>
+                            </Text>
                             <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
                                 <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
                                     <TouchableOpacity onPress={() => openPicker('workStart')} style={{ flex: 1, backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 16, padding: 12 }}>

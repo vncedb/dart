@@ -1,47 +1,60 @@
-// Implementation of secure user deletion via Supabase Admin API
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+// supabase/functions/delete-user/index.ts
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.0.0"
 
-Deno.serve(async (req) => {
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+serve(async (req) => {
+  // Handle CORS
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
   try {
-    // 1. Setup Supabase Admin Client (Requires Service Role Key)
+    const supabaseClient = createClient(
+      Deno.env.get('SUPABASE_URL') ?? '',
+      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+      { global: { headers: { Authorization: req.headers.get('Authorization')! } } }
+    )
+
+    // 1. Get the user initiating the request
+    const {
+      data: { user },
+    } = await supabaseClient.auth.getUser()
+
+    if (!user) throw new Error('User not found')
+
+    // 2. Create Admin Client (Needed to delete from auth.users)
+    // Make sure you have SUPABASE_SERVICE_ROLE_KEY in your Edge Function secrets!
     const supabaseAdmin = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    // 2. Get the User ID from the Authorization Header (The JWT of the user requesting deletion)
-    const authHeader = req.headers.get('Authorization')
-    if (!authHeader) {
-      throw new Error('Missing Authorization Header')
-    }
-
-    const token = authHeader.replace('Bearer ', '')
-    const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token)
-
-    if (userError || !user) {
-      return new Response(
-        JSON.stringify({ error: 'Unauthorized', details: userError }),
-        { status: 401, headers: { 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // 3. Delete the user from Auth (This will cascade to public tables if ON DELETE CASCADE is set)
-    const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(user.id)
-
-    if (deleteError) {
-      throw deleteError
-    }
-
-    return new Response(
-      JSON.stringify({ message: 'User account deleted successfully' }),
-      { headers: { 'Content-Type': 'application/json' } }
+    // 3. Delete the user from Auth (This cascades to public.profiles if set up correctly)
+    const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(
+      user.id
     )
 
-  } catch (error: any) {
-    console.error('Delete Function Error:', error)
+    if (deleteError) throw deleteError
+
+    return new Response(
+      JSON.stringify({ message: 'User deleted successfully' }),
+      {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200,
+      }
+    )
+  } catch (error) {
     return new Response(
       JSON.stringify({ error: error.message }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
+      {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 400,
+      }
     )
   }
 })

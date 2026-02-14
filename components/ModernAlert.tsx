@@ -1,5 +1,8 @@
 import {
   Alert01Icon,
+  Cancel01Icon // Added icon
+  ,
+
   CheckmarkCircle02Icon,
   InformationCircleIcon
 } from '@hugeicons/core-free-icons';
@@ -8,7 +11,7 @@ import React from 'react';
 import { Modal, Pressable, Text, TouchableOpacity, View } from 'react-native';
 import { useAppTheme } from '../constants/theme';
 
-type AlertType = 'success' | 'error' | 'confirm' | 'info';
+type AlertType = 'success' | 'error' | 'confirm' | 'info' | 'warning'; // Added warning type if used
 
 interface ModernAlertProps {
   visible: boolean;
@@ -47,6 +50,7 @@ export default function ModernAlert({
       case 'error': return <HugeiconsIcon icon={Alert01Icon} size={48} color={theme.colors.danger} />;
       case 'confirm': return <HugeiconsIcon icon={InformationCircleIcon} size={48} color={theme.colors.primary} />;
       case 'info': return <HugeiconsIcon icon={InformationCircleIcon} size={48} color={theme.colors.icon} />;
+      case 'warning': return <HugeiconsIcon icon={Alert01Icon} size={48} color={theme.colors.warning} />; // Added warning
       default: return <HugeiconsIcon icon={InformationCircleIcon} size={48} color={theme.colors.primary} />;
     }
   };
@@ -55,6 +59,7 @@ export default function ModernAlert({
       switch (type) {
           case 'success': return theme.colors.successLight;
           case 'error': return theme.colors.dangerLight;
+          case 'warning': return theme.colors.warning + '15';
           default: return theme.colors.primaryLight;
       }
   };
@@ -62,14 +67,23 @@ export default function ModernAlert({
   const getButtonColor = () => {
       if (type === 'error') return theme.colors.danger;
       if (type === 'success') return theme.colors.success;
+      if (type === 'warning') return theme.colors.primary; // Or warning color
       return theme.colors.primary;
   };
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleDismiss}>
       <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 }} onPress={handleDismiss}>
-        <View style={{ backgroundColor: theme.colors.card, shadowColor: "#000", shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.25, shadowRadius: 20, elevation: 10 }} className="items-center w-full max-w-sm p-6 scale-100 rounded-3xl">
+        <View style={{ backgroundColor: theme.colors.card, shadowColor: "#000", shadowOffset: {width: 0, height: 10}, shadowOpacity: 0.25, shadowRadius: 20, elevation: 10, position: 'relative' }} className="items-center w-full max-w-sm p-6 scale-100 rounded-3xl">
           
+          {/* Close Button Header */}
+          <TouchableOpacity 
+            onPress={handleDismiss} 
+            style={{ position: 'absolute', top: 16, right: 16, padding: 4, zIndex: 10 }}
+          >
+             <HugeiconsIcon icon={Cancel01Icon} size={20} color={theme.colors.textSecondary} />
+          </TouchableOpacity>
+
           <View style={{ backgroundColor: getBgColor() }} className="p-4 mb-4 rounded-full">
             {getIcon()}
           </View>

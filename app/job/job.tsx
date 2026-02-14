@@ -293,7 +293,18 @@ export default function MyJobsScreen() {
             
             const db = await getDB();
             
-            await db.runAsync('UPDATE profiles SET current_job_id = ? WHERE id = ?', [jobId, userId]);
+            // FIXED: More robust update logic
+            // Try to update existing profile first
+            const result = await db.runAsync('UPDATE profiles SET current_job_id = ? WHERE id = ?', [jobId, userId]);
+            
+            // If no rows were updated (profile missing locally), insert a new profile row
+            if (result.changes === 0) {
+                console.log("Profile not found locally, creating entry...");
+                await db.runAsync(
+                    'INSERT INTO profiles (id, current_job_id, updated_at) VALUES (?, ?, ?)',
+                    [userId, jobId, new Date().toISOString()]
+                );
+            }
             
             const updates = { id: userId, current_job_id: jobId, updated_at: new Date().toISOString() };
             await queueSyncItem('profiles', userId, 'UPDATE', updates);
@@ -303,6 +314,7 @@ export default function MyJobsScreen() {
             
             triggerSync();
         } catch (e) {
+            console.error("Set active job error:", e);
             setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Failed to update active job.', onConfirm: () => setAlertConfig((p:any)=>({...p, visible: false})) });
         } finally {
             setProcessing(false);

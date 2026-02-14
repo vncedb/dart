@@ -1,15 +1,17 @@
 import React from 'react';
-import { Pressable, ViewStyle } from 'react-native';
+import { Pressable, StyleProp, ViewStyle } from 'react-native';
 import Animated, {
+    Easing,
     useAnimatedStyle,
     useSharedValue,
-    withSpring
+    withSpring,
+    withTiming
 } from 'react-native-reanimated';
 
 interface ScaleButtonProps {
     onPress?: () => void;
     children: React.ReactNode;
-    style?: ViewStyle | ViewStyle[];
+    style?: StyleProp<ViewStyle>;
     disabled?: boolean;
     activeScale?: number;
 }
@@ -19,20 +21,25 @@ export default function ScaleButton({
     children, 
     style, 
     disabled = false, 
-    activeScale = 0.96 
+    activeScale = 0.95 
 }: ScaleButtonProps) {
     const scale = useSharedValue(1);
+    const opacity = useSharedValue(1);
 
     const animatedStyle = useAnimatedStyle(() => ({
         transform: [{ scale: scale.value }],
+        opacity: opacity.value
     }));
 
     const handlePressIn = () => {
-        scale.value = withSpring(activeScale, { damping: 10, stiffness: 300 });
+        if (disabled) return;
+        scale.value = withSpring(activeScale, { damping: 15, stiffness: 300 });
+        opacity.value = withTiming(0.9, { duration: 100, easing: Easing.out(Easing.quad) });
     };
 
     const handlePressOut = () => {
-        scale.value = withSpring(1, { damping: 10, stiffness: 300 });
+        scale.value = withSpring(1, { damping: 15, stiffness: 300 });
+        opacity.value = withTiming(1, { duration: 150, easing: Easing.out(Easing.quad) });
     };
 
     return (
@@ -41,9 +48,9 @@ export default function ScaleButton({
             onPressIn={handlePressIn}
             onPressOut={handlePressOut}
             disabled={disabled}
-            style={{ width: '100%' }} // Ensures it takes full width in your layouts
+            style={{ width: '100%' }}
         >
-            <Animated.View style={[style, animatedStyle, { opacity: disabled ? 0.7 : 1 }]}>
+            <Animated.View style={[style, animatedStyle, { opacity: disabled ? 0.6 : 1 }]}>
                 {children}
             </Animated.View>
         </Pressable>

@@ -1,9 +1,9 @@
 import {
     Calendar03Icon,
     Camera01Icon,
-    CheckmarkCircle03Icon,
     Delete02Icon,
-    Image01Icon
+    Image01Icon,
+    Tick01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { format } from 'date-fns';
@@ -23,6 +23,7 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Footer from '../../components/Footer';
 import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
@@ -55,10 +56,8 @@ export default function AddEntry() {
     const [initialLoading, setInitialLoading] = useState(true);
     const [isDirty, setIsDirty] = useState(false);
     
-    // Alert Configuration
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
-    // 1. Navigation Guard
     useEffect(() => {
         const unsubscribe = navigation.addListener('beforeRemove', (e) => {
             if (loading || !isDirty) return;
@@ -81,7 +80,6 @@ export default function AddEntry() {
         return unsubscribe;
     }, [navigation, loading, isDirty]);
 
-    // 2. Data Loading
     useEffect(() => {
         const init = async () => {
             if (entryId) {
@@ -130,7 +128,6 @@ export default function AddEntry() {
         } catch (e) { console.error(e); } finally { setInitialLoading(false); }
     };
 
-    // 3. Image Handling
     const handleImagePick = async (source: 'camera' | 'gallery') => {
         const remaining = MAX_PHOTOS - images.length;
         if (remaining <= 0) {
@@ -148,7 +145,7 @@ export default function AddEntry() {
         try {
             let result: ImagePicker.ImagePickerResult; 
             const options: ImagePicker.ImagePickerOptions = {
-                // FIXED: Using MediaTypeOptions to satisfy current installed version
+                // FIXED: Using MediaTypeOptions to fix Type error (even if deprecated)
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
                 quality: 0.7,
                 allowsEditing: true,
@@ -168,7 +165,7 @@ export default function AddEntry() {
                 setImages(prev => [...prev, newUri]);
                 setIsDirty(true);
             }
-        } catch (_) { // FIXED: Removed unused variable
+        } catch (e) { // FIXED: Changed unused '_' to 'e' or used it
             setAlertConfig({
                 visible: true,
                 type: 'error',
@@ -197,7 +194,6 @@ export default function AddEntry() {
         });
     };
 
-    // 4. Save Entry
     const saveEntry = async () => {
         if (!description.trim()) {
             setErrors({ description: true });
@@ -284,20 +280,6 @@ export default function AddEntry() {
             
             <Header 
                 title={entryId ? 'Edit Task' : 'New Task'} 
-                rightElement={
-                    <TouchableOpacity 
-                        onPress={saveEntry} 
-                        disabled={initialLoading} 
-                        style={{ 
-                            backgroundColor: theme.colors.primary, 
-                            width: 36, height: 36, borderRadius: 18, 
-                            alignItems: 'center', justifyContent: 'center',
-                            shadowColor: theme.colors.primary, shadowOpacity: 0.3, shadowRadius: 4, elevation: 2
-                        }}
-                    >
-                        <HugeiconsIcon icon={CheckmarkCircle03Icon} size={20} color="#fff" />
-                    </TouchableOpacity>
-                }
             />
 
             {initialLoading ? (
@@ -305,7 +287,7 @@ export default function AddEntry() {
                     <ActivityIndicator size="large" color={theme.colors.primary} />
                 </View>
             ) : (
-                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
+                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
                     <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 100 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24, opacity: 0.6 }}>
                             <HugeiconsIcon icon={Calendar03Icon} size={16} color={theme.colors.text} />
@@ -394,6 +376,13 @@ export default function AddEntry() {
                     </ScrollView>
                 </KeyboardAvoidingView>
             )}
+            
+            <Footer>
+                <TouchableOpacity onPress={saveEntry} disabled={loading} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.primary, height: 56, borderRadius: 16, shadowColor: theme.colors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}>
+                    <Text style={{ color: 'white', fontSize: 16, fontWeight: '700', marginRight: 8 }}>{entryId ? 'Update Task' : 'Save Task'}</Text>
+                    <HugeiconsIcon icon={Tick01Icon} size={20} color="white" strokeWidth={2.5} />
+                </TouchableOpacity>
+            </Footer>
         </SafeAreaView>
     );
 }

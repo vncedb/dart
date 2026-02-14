@@ -353,14 +353,47 @@ export default function ProfileScreen() {
     const removeAvatar = () => { handleUpdateProfile({ avatar_url: null }); };
 
     const { profile: userProfile, job: userJob } = viewData;
-    const avatarSource = userProfile?.local_avatar_path ? { uri: userProfile.local_avatar_path } : (userProfile?.avatar_url ? { uri: userProfile.avatar_url } : null);
 
+    // --- UPDATED AVATAR LOGIC (Fallback to Google Metadata) ---
+    const getAvatarSource = () => {
+        if (userProfile?.local_avatar_path) return { uri: userProfile.local_avatar_path };
+        if (userProfile?.avatar_url) return { uri: userProfile.avatar_url };
+        
+        // Fallback: Check User Metadata from Auth
+        if (user?.user_metadata) {
+            const meta = user.user_metadata;
+            const metaAvatar = meta.avatar_url || meta.picture || meta.avatar;
+            if (metaAvatar) return { uri: metaAvatar };
+        }
+        return null;
+    };
+    
+    const avatarSource = getAvatarSource();
+
+    // --- UPDATED NAME LOGIC (Fallback to Google Metadata) ---
     const displayName = (() => {
-        if(!userProfile) return 'User';
-        const titlePart = userProfile.title ? `${userProfile.title.trim()} ` : '';
-        const middleInitial = userProfile.middle_name && userProfile.middle_name.trim().length > 0 ? ` ${userProfile.middle_name.trim().charAt(0).toUpperCase()}.` : '';
-        const namePart = `${userProfile.first_name || ''}${middleInitial} ${userProfile.last_name || ''}`.trim() || userProfile.full_name || 'User';
-        return `${titlePart}${namePart}${userProfile.professional_suffix ? `, ${userProfile.professional_suffix.trim()}` : ''}`;
+        // 1. Try DB Profile
+        if(userProfile) {
+            const titlePart = userProfile.title ? `${userProfile.title.trim()} ` : '';
+            const middleInitial = userProfile.middle_name && userProfile.middle_name.trim().length > 0 ? ` ${userProfile.middle_name.trim().charAt(0).toUpperCase()}.` : '';
+            const namePart = `${userProfile.first_name || ''}${middleInitial} ${userProfile.last_name || ''}`.trim() || userProfile.full_name;
+            
+            if (namePart) {
+                return `${titlePart}${namePart}${userProfile.professional_suffix ? `, ${userProfile.professional_suffix.trim()}` : ''}`;
+            }
+        }
+
+        // 2. Fallback: Try User Metadata (Google/Auth)
+        const meta = user?.user_metadata;
+        if (meta) {
+            if (meta.full_name) return meta.full_name;
+            if (meta.name) return meta.name;
+            if (meta.given_name) {
+                return `${meta.given_name} ${meta.family_name || ''}`.trim();
+            }
+        }
+
+        return 'User';
     })();
 
     const displayJobTitle = userJob ? userJob.title : 'No Job Selected';
@@ -425,12 +458,12 @@ export default function ProfileScreen() {
                                 <HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.text} />
                                 <Text style={[styles.actionButtonText, { color: theme.colors.text }]}>Edit Info</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity onPress={() => router.push('/job/job')} style={[styles.actionButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                            <TouchableOpacity onPress={() => router.push('/job/job')} style={[styles.actionButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, position: 'relative' }]}>
                                 <HugeiconsIcon icon={Layers01Icon} size={16} color={theme.colors.primary} />
                                 <Text style={[styles.actionButtonText, { color: theme.colors.primary }]}>Manage Jobs</Text>
-                                {/* Added Indicator */}
+                                {/* UPDATED INDICATOR POSITION: Top Right of Button */}
                                 {!hasJobs && (
-                                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444', marginLeft: 6 }} />
+                                    <View style={{ position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' }} />
                                 )}
                             </TouchableOpacity>
                         </View>
@@ -504,4 +537,4 @@ const styles = StyleSheet.create({
     emptyDesc: { textAlign: 'center', fontSize: 14, marginBottom: 24, opacity: 0.7 },
     primaryButton: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 100 },
     primaryButtonText: { color: '#fff', fontWeight: '700' },
-});
+}); 
