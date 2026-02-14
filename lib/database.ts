@@ -67,10 +67,39 @@ export const initDatabase = async () => {
       updated_at TEXT
     );
 
-    CREATE TABLE IF NOT EXISTS job_positions (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, title TEXT, company TEXT, department TEXT, employment_status TEXT, rate REAL, rate_type TEXT, payout_type TEXT, work_schedule TEXT, break_schedule TEXT, created_at TEXT, updated_at TEXT);
+    -- UPDATED: Added period_target to schema
+    CREATE TABLE IF NOT EXISTS job_positions (
+      id TEXT PRIMARY KEY NOT NULL, 
+      user_id TEXT, 
+      title TEXT, 
+      company TEXT, 
+      department TEXT, 
+      employment_status TEXT, 
+      rate REAL, 
+      rate_type TEXT, 
+      payout_type TEXT, 
+      period_target INTEGER,
+      work_schedule TEXT, 
+      break_schedule TEXT, 
+      created_at TEXT, 
+      updated_at TEXT
+    );
+
+    -- NEW: Notifications Table
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT,
+      date INTEGER NOT NULL,
+      is_read INTEGER DEFAULT 0,
+      type TEXT,
+      data TEXT
+    );
     
     CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance(user_id, date);
     CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, date);
   `);
 
   // --- MIGRATIONS ---
@@ -103,6 +132,8 @@ export const initDatabase = async () => {
   await addColumn("job_positions", "rate", "REAL");
   await addColumn("job_positions", "rate_type", "TEXT");
   await addColumn("job_positions", "payout_type", "TEXT");
+  // FIX: Ensure period_target column exists
+  await addColumn("job_positions", "period_target", "INTEGER");
   
   await addColumn("accomplishments", "updated_at", "TEXT");
   await addColumn("attendance", "job_id", "TEXT");
@@ -186,8 +217,9 @@ export const saveProfileLocal = async (profile: any) => {
 
 export const saveJobLocal = async (job: any) => {
   const db = await getDB();
+  // FIX: Added period_target to the insert statement
   await db.runAsync(
-    `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, payout_type, work_schedule, break_schedule, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, payout_type, period_target, work_schedule, break_schedule, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       job.id,
       job.user_id,
@@ -198,6 +230,7 @@ export const saveJobLocal = async (job: any) => {
       job.rate || 0,
       job.rate_type || "hourly",
       job.payout_type || "Semi-Monthly",
+      job.period_target || null, // FIX: Saving the target
       typeof job.work_schedule === "string" ? job.work_schedule : JSON.stringify(job.work_schedule),
       typeof job.break_schedule === "string" ? job.break_schedule : JSON.stringify(job.break_schedule),
       job.created_at || new Date().toISOString(),
@@ -223,6 +256,60 @@ export const deleteJobLocal = async (id: string) => {
   }
   await db.runAsync("DELETE FROM job_positions WHERE id = ?", [id]);
   await queueSyncItem("job_positions", id, "DELETE");
+};
+
+// --- NOTIFICATION FUNCTIONS (NEW) ---
+
+export const saveNotificationLocal = async (notif: {
+  id?: string;
+  user_id: string;
+  title: string;
+  body: string;
+  type?: string;
+  data?: any;
+}) => {
+  const db = await getDB();
+  const id = notif.id || generateUUID();
+  const date = Date.now();
+  
+  await db.runAsync(
+    `INSERT INTO notifications (id, user_id, title, body, date, is_read, type, data) VALUES (?, ?, ?, ?, ?, 0, ?, ?)`,
+    [
+      id,
+      notif.user_id,
+      notif.title,
+      notif.body,
+      date,
+      notif.type || 'general',
+      notif.data ? JSON.stringify(notif.data) : null
+    ]
+  );
+};
+
+export const getUserNotifications = async (userId: string) => {
+  const db = await getDB();
+  // Returns raw array, caller should map if types differ
+  return await db.getAllAsync(
+    `SELECT * FROM notifications WHERE user_id = ? ORDER BY date DESC LIMIT 50`,
+    [userId]
+  );
+};
+
+export const markAllNotificationsRead = async (userId: string) => {
+  const db = await getDB();
+  await db.runAsync(
+    `UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0`,
+    [userId]
+  );
+};
+
+export const getUnreadNotificationCount = async (userId: string) => {
+  const db = await getDB();
+  const res: any = await db.getFirstAsync(
+    `SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = 0`,
+    [userId]
+  );
+  return res?.count || 0;
 };
 
 // --- REPORT FUNCTIONS ---
@@ -252,7 +339,6 @@ export const deleteReportLocal = async (id: string) => {
   await db.runAsync("DELETE FROM saved_reports WHERE id = ?", [id]);
 };
 
-// UPDATED: Now supports optional newPath to update file_path column
 export const renameReportLocal = async (id: string, newTitle: string, newPath?: string) => {
   const db = await getDB();
   if (newPath) {

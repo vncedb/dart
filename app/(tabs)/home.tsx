@@ -528,19 +528,22 @@ export default function Home() {
         }
         
         if (!isClockedIn) {
-            if (jobSettings?.work_schedule?.start && jobSettings?.work_schedule?.end) {
-                const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
-                const startMins = timeToMinutes(jobSettings.work_schedule.start);
-                const endMins = timeToMinutes(jobSettings.work_schedule.end);
-                const isEarly = nowMins < (startMins - 30);
-                const isLate = nowMins > endMins;
-                if (isEarly || isLate) {
-                    setOtModalVisible(true);
-                    return;
-                }
-            }
+    if (jobSettings?.work_schedule?.start && jobSettings?.work_schedule?.end) {
+        const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
+        const startMins = timeToMinutes(jobSettings.work_schedule.start);
+        const endMins = timeToMinutes(jobSettings.work_schedule.end);
+        
+        // CHECK IS HERE: 30 minute buffer
+        const isEarly = nowMins < (startMins - 30);
+        const isLate = nowMins > endMins;
+        
+        if (isEarly || isLate) {
+            setOtModalVisible(true); // Triggers the modal
+            return;
         }
-        processClockAction(false);
+    }
+}
+processClockAction(false); // Normal clock in
     };
 
     const handleAutoTimeoutLogic = useCallback(async () => {

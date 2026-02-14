@@ -34,7 +34,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AddBreakModal from '../../components/AddBreakModal';
 import DatePicker from '../../components/DatePicker';
-import DurationPicker from '../../components/DurationPicker';
+// Removed DurationPicker import as we are using manual input
 import Footer from '../../components/Footer';
 import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
@@ -181,9 +181,9 @@ export default function JobForm() {
     const [rateType, setRateType] = useState<'hourly' | 'daily' | 'monthly'>('hourly');
     const [payoutType, setPayoutType] = useState('Semi-Monthly'); 
     
-    // Period Target State (Nullable by default)
-    const [targetHours, setTargetHours] = useState<number | null>(null);
-    const [targetMinutes, setTargetMinutes] = useState<number | null>(null);
+    // Period Target State (Fixed for unlimited hours)
+    const [targetHours, setTargetHours] = useState<string>('');
+    const [targetMinutes, setTargetMinutes] = useState<string>('');
 
     const [startDate, setStartDate] = useState(new Date());
     const [workStart, setWorkStart] = useState<Date>(() => { const d = new Date(); d.setHours(9, 0, 0, 0); return d; });
@@ -194,7 +194,6 @@ export default function JobForm() {
     const [visibleTooltip, setVisibleTooltip] = useState<string | null>(null);
 
     const [pickerVisible, setPickerVisible] = useState(false);
-    const [durationPickerVisible, setDurationPickerVisible] = useState(false);
     const [calendarVisible, setCalendarVisible] = useState(false);
     const [jobSelectorVisible, setJobSelectorVisible] = useState(false);
     const [statusSelectorVisible, setStatusSelectorVisible] = useState(false);
@@ -226,17 +225,6 @@ export default function JobForm() {
         if (!exists) setJobOptions(prev => [{ label: val, value: val }, ...prev]);
         markDirty(setPosition, val);
         if (errors.position) { setErrors((p:any) => ({...p, position: undefined})); setVisibleTooltip(null); }
-    };
-
-    const handleDurationConfirm = (h: number, m: number) => {
-        setTargetHours(h);
-        setTargetMinutes(m);
-        setIsDirty(true);
-    };
-
-    const getPeriodTargetDisplay = () => {
-        if (targetHours === null && targetMinutes === null) return '';
-        return `${targetHours || 0}h ${targetMinutes || 0}m`;
     };
 
     useEffect(() => {
@@ -283,15 +271,12 @@ export default function JobForm() {
                 if (data.period_target) {
                     const totalMins = parseInt(data.period_target, 10);
                     if (!isNaN(totalMins) && totalMins > 0) {
-                        setTargetHours(Math.floor(totalMins / 60));
-                        setTargetMinutes(totalMins % 60);
-                    } else {
-                        setTargetHours(null);
-                        setTargetMinutes(null);
+                        setTargetHours(Math.floor(totalMins / 60).toString());
+                        setTargetMinutes((totalMins % 60).toString());
                     }
                 } else {
-                    setTargetHours(null);
-                    setTargetMinutes(null);
+                    setTargetHours('');
+                    setTargetMinutes('');
                 }
 
                 if (data.start_date) setStartDate(new Date(data.start_date));
@@ -370,12 +355,10 @@ export default function JobForm() {
             
             // Calculate Period Target
             let periodTargetMins = null;
-            if (targetHours !== null || targetMinutes !== null) {
-                const h = targetHours || 0;
-                const m = targetMinutes || 0;
-                if (h > 0 || m > 0) {
-                    periodTargetMins = (h * 60) + m;
-                }
+            const h = parseInt(targetHours || '0', 10);
+            const m = parseInt(targetMinutes || '0', 10);
+            if (h > 0 || m > 0) {
+                periodTargetMins = (h * 60) + m;
             }
 
             const payload = {
@@ -428,14 +411,6 @@ export default function JobForm() {
                 <ModernAlert {...alertConfig} />
                 <TimePickerModal visible={pickerVisible} onClose={() => setPickerVisible(false)} onConfirm={handleTimeConfirm} initialHours={pickerConfig.currentValue?.getHours()} initialMinutes={pickerConfig.currentValue?.getMinutes()} initialPeriod={pickerConfig.currentValue && pickerConfig.currentValue.getHours() >= 12 ? 'PM' : 'AM'} title={pickerConfig.mode.includes('Start') ? "Start Time" : "End Time"} />
                 
-                <DurationPicker 
-                    visible={durationPickerVisible}
-                    onClose={() => setDurationPickerVisible(false)}
-                    onConfirm={handleDurationConfirm}
-                    initialHours={targetHours || 0}
-                    initialMinutes={targetMinutes || 0}
-                />
-
                 <AddBreakModal visible={addBreakModalVisible} onClose={() => setAddBreakModalVisible(false)} onAdd={handleAddBreak} />
                 <SearchableSelectionModal visible={jobSelectorVisible} onClose={() => setJobSelectorVisible(false)} onSelect={handleJobSelect} title="Select Job Title" options={jobOptions} placeholder="Search job title..." currentValue={position} />
                 <SearchableSelectionModal visible={statusSelectorVisible} onClose={() => setStatusSelectorVisible(false)} onSelect={(val) => markDirty(setEmploymentStatus, val)} title="Employment Status" options={EMPLOYMENT_STATUS_OPTIONS} placeholder="Select Status" currentValue={employmentStatus} />
@@ -507,17 +482,35 @@ export default function JobForm() {
                                     })}
                                 </View>
 
-                                {/* Period Target Input */}
-                                <StyledInput 
-                                    label={`${payoutType} Target`} 
-                                    value={getPeriodTargetDisplay()} 
-                                    placeholder="Set Target Duration"
-                                    onPress={() => setDurationPickerVisible(true)} 
-                                    readonly 
-                                    icon={Target02Icon} 
-                                    theme={theme} 
-                                    errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip}
-                                />
+                                {/* UPDATED: Manual Input for > 24 Hours Support */}
+                                <View style={{ marginBottom: 20 }}>
+                                    <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>
+                                        {payoutType} Target Duration
+                                    </Text>
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.card, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, height: 56, paddingHorizontal: 16 }}>
+                                        <HugeiconsIcon icon={Target02Icon} size={22} color={theme.colors.textSecondary} />
+                                        <TextInput 
+                                            value={targetHours}
+                                            onChangeText={(t) => { setTargetHours(t.replace(/[^0-9]/g, '')); setIsDirty(true); }}
+                                            placeholder="0"
+                                            placeholderTextColor={theme.colors.textSecondary}
+                                            keyboardType="number-pad"
+                                            style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text, textAlign: 'right' }}
+                                        />
+                                        <Text style={{ marginLeft: 6, marginRight: 12, color: theme.colors.textSecondary, fontWeight: '600' }}>hrs</Text>
+                                        <View style={{ width: 1, height: 20, backgroundColor: theme.colors.border }} />
+                                        <TextInput 
+                                            value={targetMinutes}
+                                            onChangeText={(t) => { setTargetMinutes(t.replace(/[^0-9]/g, '')); setIsDirty(true); }}
+                                            placeholder="0"
+                                            placeholderTextColor={theme.colors.textSecondary}
+                                            keyboardType="number-pad"
+                                            maxLength={2}
+                                            style={{ width: 40, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text, textAlign: 'right' }}
+                                        />
+                                        <Text style={{ marginLeft: 6, color: theme.colors.textSecondary, fontWeight: '600' }}>min</Text>
+                                    </View>
+                                </View>
                             </View>
                         </View>
 

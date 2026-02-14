@@ -1,7 +1,7 @@
 import { CheckmarkCircle02Icon, Tick02Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { formatDistanceToNow } from 'date-fns';
-import React, { useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { FlatList, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
@@ -17,32 +17,59 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ModalHeader from './ModalHeader';
+// Import DB functions and Auth
+import { useAuth } from '../context/AuthContext';
+import { getUserNotifications, markAllNotificationsRead } from '../lib/database';
 
 interface NotificationItem {
     id: string;
     title: string;
     body: string;
     date: number; // timestamp
-    read: boolean;
+    is_read: number; // 0 or 1 from DB
+    type?: string;
+    data?: string;
 }
 
 interface NotificationModalProps {
     visible: boolean;
     onClose: () => void;
-    notifications: NotificationItem[];
-    onMarkAllRead: () => void;
     theme: any;
+    // Removed 'notifications' prop - component fetches its own data
 }
 
-export default function NotificationModal({ visible, onClose, notifications, onMarkAllRead, theme }: NotificationModalProps) {
+export default function NotificationModal({ visible, onClose, theme }: NotificationModalProps) {
     const insets = useSafeAreaInsets();
     const translateY = useSharedValue(0);
+    const { user } = useAuth();
+    
+    // Local State for notifications
+    const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+    const unreadCount = notifications.filter(n => n.is_read === 0).length;
 
-    const unreadCount = notifications.filter(n => !n.read).length;
+    const fetchNotifications = useCallback(async () => {
+        if (!user?.id) return;
+        try {
+            const data: any = await getUserNotifications(user.id);
+            setNotifications(data || []);
+        } catch (e) {
+            console.error("Failed to fetch notifications", e);
+        }
+    }, [user?.id]);
+
+    const handleMarkAllRead = async () => {
+        if (!user?.id) return;
+        await markAllNotificationsRead(user.id);
+        // Refresh local state to reflect changes immediately
+        setNotifications(prev => prev.map(n => ({ ...n, is_read: 1 })));
+    };
 
     useEffect(() => {
-        if (visible) translateY.value = 0;
-    }, [visible]);
+        if (visible) {
+            translateY.value = 0;
+            fetchNotifications(); // Fetch fresh data every time modal opens
+        }
+    }, [visible, fetchNotifications]);
 
     const close = () => {
         onClose();
@@ -73,7 +100,7 @@ export default function NotificationModal({ visible, onClose, notifications, onM
             style={[
                 styles.itemContainer, 
                 { 
-                    backgroundColor: item.read ? theme.colors.background : theme.colors.primary + '08', // Very subtle tint for unread
+                    backgroundColor: item.is_read ? theme.colors.background : theme.colors.primary + '08', // Very subtle tint for unread
                     borderBottomColor: theme.colors.border 
                 }
             ]}
@@ -82,7 +109,7 @@ export default function NotificationModal({ visible, onClose, notifications, onM
                 {/* Unread Indicator */}
                 <View style={[
                     styles.unreadDot, 
-                    { backgroundColor: item.read ? 'transparent' : theme.colors.primary } 
+                    { backgroundColor: item.is_read ? 'transparent' : theme.colors.primary } 
                 ]} />
                 
                 <View style={{ flex: 1 }}>
@@ -156,7 +183,7 @@ export default function NotificationModal({ visible, onClose, notifications, onM
                         animatedSheetStyle
                     ]}>
                         
-                        {/* Header Area - Draggable (Allows dragging the modal down without blocking list scroll) */}
+                        {/* Header Area - Draggable */}
                         <GestureDetector gesture={pan}>
                             <View style={{ backgroundColor: theme.colors.background }}>
                                 {/* Reusable Header */}
@@ -171,7 +198,7 @@ export default function NotificationModal({ visible, onClose, notifications, onM
                                 {notifications.length > 0 && (
                                     <View style={[styles.actionBar, { borderBottomColor: theme.colors.border }]}>
                                         <TouchableOpacity 
-                                            onPress={onMarkAllRead} 
+                                            onPress={handleMarkAllRead} 
                                             style={[styles.markReadBtn, { backgroundColor: theme.colors.card }]}
                                         >
                                             <HugeiconsIcon icon={Tick02Icon} size={16} color={theme.colors.primary} />

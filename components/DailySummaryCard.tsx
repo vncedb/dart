@@ -81,7 +81,7 @@ const DailySummaryCard = ({
     const showPeriodTarget = !!periodTargetMinutes && periodTargetMinutes > 0;
 
     const periodData = useMemo(() => {
-        if (!showPeriodTarget) return null; // Logic skip if not shown
+        if (!showPeriodTarget) return null; 
 
         let label = `${payoutType} Goal`;
         const targetMins = periodTargetMinutes || 0;
@@ -105,10 +105,15 @@ const DailySummaryCard = ({
 
     const isNearTimeout = remainingSeconds !== null && remainingSeconds > 0 && remainingSeconds <= 300;
     
+    // --- UPDATED: Predicted End Time Logic ---
     const predictedEndTime = useMemo(() => {
+        // 1. If we have a specific target (Overtime expiry or Shift End), use it.
+        if (targetEndTime) return new Date(targetEndTime);
+        
+        // 2. Fallback: Calculate based on Daily Goal
         if (!startTime) return null;
         return addMinutes(new Date(startTime), goalMinutes);
-    }, [startTime, goalMinutes]);
+    }, [startTime, goalMinutes, targetEndTime]);
 
     const countdownStr = useMemo(() => {
         if (remainingSeconds === null) return null;
