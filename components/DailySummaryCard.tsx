@@ -130,7 +130,7 @@ const DailySummaryCard = ({
         if (periodData) {
             periodProgressValue.value = withTiming(periodData.progress, { duration: 1500, easing: Easing.out(Easing.quad) });
         }
-    }, [percentage, periodData]);
+    }, [percentage, periodData, progressValue, periodProgressValue]);
 
     useEffect(() => {
         if (isNearTimeout || (isOvertime && isClockedIn)) {
@@ -138,7 +138,7 @@ const DailySummaryCard = ({
         } else {
             pulseOpacity.value = withTiming(1);
         }
-    }, [isNearTimeout, isOvertime, isClockedIn]);
+    }, [isNearTimeout, isOvertime, isClockedIn, pulseOpacity]);
 
     const handlePress = () => {
         scaleValue.value = withSequence(withSpring(0.98), withSpring(1));
@@ -190,7 +190,7 @@ const DailySummaryCard = ({
     const gradientColors = theme.dark ? [theme.colors.card, "#0f172a"] : ["#ffffff", "#f8fafc"];
 
     return (
-        <Pressable onPress={handlePress} activeOpacity={1}>
+        <Pressable onPress={handlePress}>
             <AnimatedView style={[styles.card, cardAnimatedStyle, { backgroundColor: theme.colors.card, borderColor }]}>
                 {/* Background */}
                 <View style={StyleSheet.absoluteFill}>

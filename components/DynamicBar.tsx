@@ -49,7 +49,6 @@ export default function DynamicBar({
     const [currentQuote, setCurrentQuote] = useState(GREETINGS[0]);
 
     // --- 1. Determine Current Time-Based Content ---
-    // We recalculate this on every render to ensure it's always fresh.
     const timeContent = useMemo(() => {
         if (customGreeting) {
             return { icon: Coffee02Icon, text: customGreeting };
@@ -59,41 +58,36 @@ export default function DynamicBar({
         if (hour < 12) return { icon: Sun03Icon, text: "Good Morning" };
         if (hour < 18) return { icon: Sun03Icon, text: "Good Afternoon" };
         return { icon: Moon02Icon, text: "Good Evening" };
-    }, [customGreeting, mode]); // Recalc when mode changes to keep time fresh
+    }, [customGreeting, mode]); 
 
-    // --- 2. Cycle Logic (Greeting <-> Quote) ---
+    // --- 2. Cycle Logic ---
     useEffect(() => {
         const interval = setInterval(() => {
             if (!alertVisible) {
                 setMode(prev => {
                     if (prev === 'greeting') {
-                        // Switch to Quote
                         setCurrentQuote(GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
                         return 'quote';
                     } else {
-                        // Switch back to Greeting
                         return 'greeting';
                     }
                 });
             }
-        }, 10000); // 10 Seconds per cycle
+        }, 10000); 
         return () => clearInterval(interval);
     }, [alertVisible]);
 
     // --- 3. Alert Auto-Hide ---
     useEffect(() => {
         if (alertVisible && onHideAlert) {
-            // Reset to greeting mode silently when alert appears so it's ready when alert hides
             setMode('greeting'); 
             const timer = setTimeout(onHideAlert, 4000);
             return () => clearTimeout(timer);
         }
     }, [alertVisible, onHideAlert]);
 
-    // --- 4. Determine What to Display ---
     const getDisplayData = () => {
         if (alertVisible) {
-            // ALERT MODE
             let icon, color, bg, title;
             switch (alertType) {
                 case 'error': 
@@ -107,18 +101,16 @@ export default function DynamicBar({
             }
             return { key: 'alert', icon, color, bg, title, subtitle: alertMessage, borderColor: color };
         } else if (mode === 'quote') {
-            // QUOTE MODE
             return { 
                 key: 'quote', 
                 icon: SparklesIcon, 
                 color: theme.colors.primary, 
                 bg: theme.colors.primaryLight, 
-                title: '', // No title for quotes, just the text centered
+                title: '', 
                 subtitle: currentQuote,
                 borderColor: theme.colors.border 
             };
         } else {
-            // GREETING MODE
             return { 
                 key: 'greeting', 
                 icon: timeContent.icon, 
@@ -133,13 +125,11 @@ export default function DynamicBar({
 
     const data = getDisplayData();
 
-    // --- Interaction ---
     const handlePress = () => {
         Haptics.selectionAsync();
         if (alertVisible && onHideAlert) {
             onHideAlert();
         } else {
-            // Manual toggle
             setMode(prev => {
                 if (prev === 'greeting') {
                     setCurrentQuote(GREETINGS[Math.floor(Math.random() * GREETINGS.length)]);
@@ -170,7 +160,7 @@ export default function DynamicBar({
                     layout={LinearTransition.springify()}
                 >
                     <Animated.View 
-                        key={data.key} // Unique key ensures old icon unmounts and new one mounts
+                        key={data.key} 
                         entering={ZoomIn.duration(300)} 
                         exiting={ZoomOut.duration(300)}
                     >
@@ -178,23 +168,21 @@ export default function DynamicBar({
                     </Animated.View>
                 </Animated.View>
 
-                {/* TEXT SECTION */}
+                {/* TEXT SECTION (Refined for spacing) */}
                 <View style={styles.textWrapper}>
                     <Animated.View 
-                        key={data.key + (mode === 'quote' ? currentQuote : '')} // Ensure text updates animate
+                        key={data.key + (mode === 'quote' ? currentQuote : '')} 
                         entering={FadeIn.duration(400).delay(100)} 
                         exiting={FadeOut.duration(300)}
                         style={styles.textContainer}
                     >
                         {data.key === 'quote' ? (
-                            // Quote Layout (Centered)
-                            <View style={{ justifyContent: 'center', height: '100%' }}>
+                            <View style={{ justifyContent: 'center', minHeight: 40, paddingVertical: 4 }}>
                                 <Text style={[styles.quoteText, { color: theme.colors.text }]}>
                                     "{data.subtitle}"
                                 </Text>
                             </View>
                         ) : (
-                            // Standard Layout (Title + Subtitle)
                             <View>
                                 <Text style={[styles.label, { color: alertVisible ? data.color : theme.colors.textSecondary }]}>
                                     {data.title}
@@ -222,12 +210,12 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         padding: 6,
-        borderRadius: 99,
+        paddingRight: 16, 
+        borderRadius: 24, 
         width: '100%',
         maxWidth: 380,
-        height: 60,
+        minHeight: 60, // Flexible height
         borderWidth: 1,
-        // Smooth Shadows
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.08,
         shadowRadius: 12,
@@ -240,11 +228,12 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: 14,
+        alignSelf: 'flex-start' // Anchors icon to top if bar expands
     },
     textWrapper: {
         flex: 1,
-        height: '100%',
         justifyContent: 'center',
+        paddingVertical: 4,
     },
     textContainer: {
         justifyContent: 'center',
@@ -266,5 +255,6 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         lineHeight: 18,
         fontStyle: 'italic',
+        textAlign: 'center'
     }
 });

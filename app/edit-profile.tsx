@@ -51,7 +51,6 @@ const Tooltip = ({ message, theme }: { message: string, theme: any }) => (
     </View>
 );
 
-// --- MOVED OUTSIDE ---
 const AuthInput = ({ label, value, onChange, required, icon, errorKey, theme, errors, setErrors, visibleTooltip, setVisibleTooltip }: any) => {
     const isError = errorKey && errors[errorKey];
     const showTooltip = errorKey && visibleTooltip === errorKey;
@@ -70,7 +69,6 @@ const AuthInput = ({ label, value, onChange, required, icon, errorKey, theme, er
     );
 };
 
-// --- MOVED OUTSIDE ---
 const AuthSelect = ({ label, value, onPress, theme }: any) => (
     <View style={{ marginBottom: 20 }}>
         <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>{label}</Text>
@@ -106,16 +104,45 @@ export default function EditProfileScreen() {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
         const db = await getDB();
+        
         let profileData: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
         if (!profileData) {
              const { data: remoteProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
              if (remoteProfile) { profileData = remoteProfile; await saveProfileLocal(remoteProfile); }
         }
-        if (profileData) {
-            setProfile({
-                id: user.id, first_name: profileData.first_name || '', last_name: profileData.last_name || '', middle_name: profileData.middle_name || '', title: profileData.title || '', professional_suffix: profileData.professional_suffix || '', full_name: profileData.full_name || '', 
-            });
+
+        // Initialize state, try to use Google Meta if DB fields are empty
+        const meta = user.user_metadata || {};
+        let firstName = profileData?.first_name || '';
+        let lastName = profileData?.last_name || '';
+        let fullName = profileData?.full_name || '';
+
+        // Fallback to Google metadata if profile is empty
+        if (!firstName && !lastName) {
+            if (meta.full_name) {
+                const parts = meta.full_name.split(' ');
+                firstName = parts[0];
+                if (parts.length > 1) lastName = parts.slice(1).join(' ');
+                fullName = meta.full_name;
+            } else if (meta.name) {
+                // Some providers use 'name'
+                const parts = meta.name.split(' ');
+                firstName = parts[0];
+                if (parts.length > 1) lastName = parts.slice(1).join(' ');
+                fullName = meta.name;
+            }
         }
+
+        setProfile({
+            id: user.id, 
+            first_name: firstName, 
+            last_name: lastName, 
+            middle_name: profileData?.middle_name || '', 
+            title: profileData?.title || '', 
+            professional_suffix: profileData?.professional_suffix || '', 
+            full_name: fullName || `${firstName} ${lastName}`.trim(), 
+        });
+
       } catch (e) { console.log(e); } finally { setLoading(false); }
   };
 

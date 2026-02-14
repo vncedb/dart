@@ -23,7 +23,6 @@ import {
     Text,
     TouchableOpacity,
     View,
-    ViewStyle
 } from 'react-native';
 import Animated, {
     FadeIn,
@@ -119,13 +118,13 @@ const getPeriodStartDate = (payoutType: string) => {
 };
 
 // --- ANIMATED SKELETON LOADING ---
-const SkeletonItem = ({ style, borderRadius = 8, color }: { style?: ViewStyle, borderRadius?: number, color?: string }) => {
+const SkeletonItem = ({ style, borderRadius = 8, color }: { style?: any, borderRadius?: number, color?: string }) => {
     const theme = useAppTheme();
     const opacity = useSharedValue(0.4);
 
     useEffect(() => {
         opacity.value = withRepeat(withSequence(withTiming(0.8, { duration: 900 }), withTiming(0.4, { duration: 900 })), -1, true);
-    }, [opacity]); // Added dependency
+    }, [opacity]);
 
     const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
 
@@ -202,7 +201,7 @@ const HomeContentSkeleton = () => {
     );
 };
 
-// --- MODERN NO JOB STATE (Refined) ---
+// --- MODERN NO JOB STATE ---
 const NoJobState = ({ theme, router, isOffline }: any) => (
     <Animated.View entering={FadeIn.duration(500)} style={[styles.noJobCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
         <View style={{ flex: 1, alignItems: 'center' }}>
@@ -294,10 +293,19 @@ export default function Home() {
     const isSessionOvertime = latestRecord?.remarks?.includes('Overtime');
     const unreadNotifsCount = notifications.filter(n => !n.read).length;
     
+    // --- DERIVED USER NAME ---
     const displayName = profile ? (() => {
-        const titlePart = profile.title ? `${profile.title.trim()} ` : '';
-        const firstName = profile.first_name ? profile.first_name.trim() : (profile.full_name ? profile.full_name.split(' ')[0] : 'User');
-        return `${titlePart}${firstName}`.trim();
+        // 1. Try Title + First Name
+        if (profile.first_name) {
+            const titlePart = profile.title ? `${profile.title.trim()} ` : '';
+            return `${titlePart}${profile.first_name.trim()}`;
+        }
+        // 2. Try Full Name (DB)
+        if (profile.full_name) {
+            return profile.full_name.split(' ')[0];
+        }
+        // 3. Fallback to 'User' (Metadata is merged into profile in loadData)
+        return 'User';
     })() : 'User';
 
     const activityTitle = isToday(selectedDate) ? "Today's Activity" : `Activity • ${format(selectedDate, 'MMM d')}`;
@@ -330,7 +338,22 @@ export default function Home() {
             const db = await getDB();
             const dateStr = format(selectedDate, 'yyyy-MM-dd');
 
-            const localProfile: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
+            let localProfile: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
+            
+            // --- MERGE GOOGLE METADATA IF LOCAL PROFILE IS INCOMPLETE ---
+            const meta = user.user_metadata || {};
+            if (!localProfile) {
+                localProfile = {
+                    first_name: meta.full_name?.split(' ')[0] || meta.name?.split(' ')[0] || '',
+                    full_name: meta.full_name || meta.name || '',
+                    // other fields blank
+                };
+            } else if (!localProfile.first_name) {
+                // If DB has ID but no name, try to fill from metadata for display
+                const metaName = meta.full_name?.split(' ')[0] || meta.name?.split(' ')[0];
+                if (metaName) localProfile.first_name = metaName;
+            }
+
             setProfile(localProfile);
             
             const currentJobId = localProfile?.current_job_id;
@@ -499,7 +522,7 @@ export default function Home() {
                 message: 'Please select an active job in your profile.', 
                 confirmText: 'Manage Jobs', 
                 onConfirm: () => { setModernAlertConfig((prev:any)=>({...prev, visible:false})); router.push('/job/job'); },
-                onDismiss: () => setModernAlertConfig((prev:any) => ({...prev, visible: false})) // Enables close button action
+                onDismiss: () => setModernAlertConfig((prev:any) => ({...prev, visible: false})) 
             });
             return;
         }
@@ -675,7 +698,7 @@ export default function Home() {
                 </Svg>
             </View>
 
-            <DynamicHeader selectedDate={selectedDate} onSelectDate={(date) => setSelectedDate(date)} isClockedIn={isClockedIn} isOvertime={isSessionOvertime} workedMinutes={workedMinutes} dailyGoal={dailyGoal} isLoading={isInitialLoading} />
+            <DynamicHeader selectedDate={selectedDate} onSelectDate={(date) => setSelectedDate(date)} isClockedIn={isClockedIn} isOvertime={isSessionOvertime} workedMinutes={workedMinutes} dailyGoal={dailyGoal} isLoading={false} />
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24, paddingTop: 120 + insets.top, paddingBottom: 140 }} refreshControl={<RefreshControl refreshing={refreshing || syncStatus === 'syncing'} onRefresh={onRefresh} progressViewOffset={insets.top + 100} tintColor={theme.colors.primary} />}>
                 {isInitialLoading ? (
