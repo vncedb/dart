@@ -2,7 +2,16 @@ import { CheckmarkCircle02Icon, Tick02Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { formatDistanceToNow } from 'date-fns';
 import React, { useCallback, useEffect, useState } from 'react';
-import { FlatList, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+    ActivityIndicator,
+    FlatList,
+    Modal,
+    RefreshControl,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
+} from 'react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
     Easing,
@@ -35,7 +44,6 @@ interface NotificationModalProps {
     visible: boolean;
     onClose: () => void;
     theme: any;
-    // Removed 'notifications' prop - component fetches its own data
 }
 
 export default function NotificationModal({ visible, onClose, theme }: NotificationModalProps) {
@@ -43,31 +51,46 @@ export default function NotificationModal({ visible, onClose, theme }: Notificat
     const translateY = useSharedValue(0);
     const { user } = useAuth();
     
-    // Local State for notifications
+    // Local State
     const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+
+    // Calculate unread count from local data
     const unreadCount = notifications.filter(n => n.is_read === 0).length;
 
-    const fetchNotifications = useCallback(async () => {
+    const fetchNotifications = useCallback(async (isRefresh = false) => {
         if (!user?.id) return;
+        if (!isRefresh) setLoading(true);
         try {
             const data: any = await getUserNotifications(user.id);
-            setNotifications(data || []);
+            const validData = Array.isArray(data) ? data : [];
+            setNotifications(validData);
         } catch (e) {
             console.error("Failed to fetch notifications", e);
+            setNotifications([]);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
         }
     }, [user?.id]);
 
+    const onRefresh = () => {
+        setRefreshing(true);
+        fetchNotifications(true);
+    };
+
     const handleMarkAllRead = async () => {
         if (!user?.id) return;
-        await markAllNotificationsRead(user.id);
-        // Refresh local state to reflect changes immediately
+        // Optimistic update
         setNotifications(prev => prev.map(n => ({ ...n, is_read: 1 })));
+        await markAllNotificationsRead(user.id);
     };
 
     useEffect(() => {
         if (visible) {
             translateY.value = 0;
-            fetchNotifications(); // Fetch fresh data every time modal opens
+            fetchNotifications(); 
         }
     }, [visible, fetchNotifications]);
 
@@ -75,7 +98,7 @@ export default function NotificationModal({ visible, onClose, theme }: Notificat
         onClose();
     };
 
-    // Drag-to-dismiss gesture configuration
+    // Drag-to-dismiss gesture
     const pan = Gesture.Pan()
         .onChange((event) => {
             if (event.translationY > 0) {
@@ -96,11 +119,11 @@ export default function NotificationModal({ visible, onClose, theme }: Notificat
 
     const renderItem = ({ item }: { item: NotificationItem }) => (
         <TouchableOpacity 
-            activeOpacity={0.7}
+            activeOpacity={0.8}
             style={[
                 styles.itemContainer, 
                 { 
-                    backgroundColor: item.is_read ? theme.colors.background : theme.colors.primary + '08', // Very subtle tint for unread
+                    backgroundColor: item.is_read ? theme.colors.background : (theme.colors.primary + '08'),
                     borderBottomColor: theme.colors.border 
                 }
             ]}
@@ -118,7 +141,7 @@ export default function NotificationModal({ visible, onClose, theme }: Notificat
                             {item.title}
                         </Text>
                         <Text style={[styles.itemDate, { color: theme.colors.textSecondary }]}>
-                            {formatDistanceToNow(item.date, { addSuffix: true })}
+                            {item.date ? formatDistanceToNow(Number(item.date), { addSuffix: true }) : 'Just now'}
                         </Text>
                     </View>
                     <Text 
@@ -132,10 +155,8 @@ export default function NotificationModal({ visible, onClose, theme }: Notificat
         </TouchableOpacity>
     );
 
-    // Footer component shown at the bottom of the list
     const renderFooter = () => {
-        if (notifications.length === 0) return null;
-        
+        if (loading || notifications.length === 0) return null;
         return (
             <View style={styles.footerContainer}>
                 <View style={[styles.footerLine, { backgroundColor: theme.colors.border }]} />
@@ -147,7 +168,6 @@ export default function NotificationModal({ visible, onClose, theme }: Notificat
         );
     };
 
-    // Unmount when not visible to ensure entry animations trigger correctly on re-mount
     if (!visible) return null;
 
     return (
@@ -159,7 +179,6 @@ export default function NotificationModal({ visible, onClose, theme }: Notificat
             statusBarTranslucent
         >
             <GestureHandlerRootView style={styles.overlay}>
-                {/* Backdrop Fade */}
                 <Animated.View 
                     entering={FadeIn.duration(300)} 
                     exiting={FadeOut.duration(300)} 
@@ -168,7 +187,6 @@ export default function NotificationModal({ visible, onClose, theme }: Notificat
                     <TouchableOpacity style={StyleSheet.absoluteFill} onPress={close} activeOpacity={1} />
                 </Animated.View>
 
-                {/* Draggable Sheet - Slide Up */}
                 <Animated.View 
                     entering={SlideInDown.duration(400).easing(Easing.out(Easing.quad))} 
                     exiting={SlideOutDown.duration(300)}
@@ -183,18 +201,14 @@ export default function NotificationModal({ visible, onClose, theme }: Notificat
                         animatedSheetStyle
                     ]}>
                         
-                        {/* Header Area - Draggable */}
                         <GestureDetector gesture={pan}>
                             <View style={{ backgroundColor: theme.colors.background }}>
-                                {/* Reusable Header */}
                                 <ModalHeader 
                                     title="Notifications"
                                     subtitle={unreadCount > 0 ? `${unreadCount} unread` : 'No new notifications'}
                                     position="bottom"
                                     onClose={close}
                                 />
-
-                                {/* Actions Bar */}
                                 {notifications.length > 0 && (
                                     <View style={[styles.actionBar, { borderBottomColor: theme.colors.border }]}>
                                         <TouchableOpacity 
@@ -211,26 +225,41 @@ export default function NotificationModal({ visible, onClose, theme }: Notificat
                             </View>
                         </GestureDetector>
 
-                        {/* List */}
-                        <FlatList
-                            data={notifications}
-                            keyExtractor={(item) => item.id}
-                            renderItem={renderItem}
-                            contentContainerStyle={styles.listContent}
-                            showsVerticalScrollIndicator={false}
-                            ListFooterComponent={renderFooter}
-                            ListEmptyComponent={
-                                <View style={styles.emptyState}>
-                                    <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.card }]}>
-                                        <HugeiconsIcon icon={CheckmarkCircle02Icon} size={40} color={theme.colors.textSecondary} />
-                                    </View>
-                                    <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>All caught up!</Text>
-                                    <Text style={[styles.emptySubtitle, { color: theme.colors.textSecondary }]}>
-                                        You have no new notifications at this time.
-                                    </Text>
+                        <View style={{ flex: 1, minHeight: 200 }}> 
+                            {loading && !refreshing ? (
+                                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+                                    <ActivityIndicator size="small" color={theme.colors.primary} />
                                 </View>
-                            }
-                        />
+                            ) : (
+                                <FlatList
+                                    data={notifications}
+                                    keyExtractor={(item) => item.id}
+                                    renderItem={renderItem}
+                                    contentContainerStyle={styles.listContent}
+                                    showsVerticalScrollIndicator={false}
+                                    refreshControl={
+                                        <RefreshControl 
+                                            refreshing={refreshing} 
+                                            onRefresh={onRefresh} 
+                                            tintColor={theme.colors.primary} 
+                                        />
+                                    }
+                                    ListFooterComponent={renderFooter}
+                                    style={{ flex: 1 }}
+                                    ListEmptyComponent={
+                                        <View style={styles.emptyState}>
+                                            <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.card }]}>
+                                                <HugeiconsIcon icon={CheckmarkCircle02Icon} size={40} color={theme.colors.textSecondary} />
+                                            </View>
+                                            <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>All caught up!</Text>
+                                            <Text style={[styles.emptySubtitle, { color: theme.colors.textSecondary }]}>
+                                                You have no new notifications at this time.
+                                            </Text>
+                                        </View>
+                                    }
+                                />
+                            )}
+                        </View>
                     </Animated.View>
                 </Animated.View>
             </GestureHandlerRootView>
@@ -239,29 +268,22 @@ export default function NotificationModal({ visible, onClose, theme }: Notificat
 }
 
 const styles = StyleSheet.create({
-    overlay: { 
-        flex: 1, 
-        justifyContent: 'flex-end' 
-    },
-    backdrop: {
-        ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-    },
-    modalContainerWrapper: { 
-        flex: 1, 
-        justifyContent: 'flex-end' 
-    },
+    overlay: { flex: 1, justifyContent: 'flex-end' },
+    backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)' },
+    modalContainerWrapper: { flex: 1, justifyContent: 'flex-end' },
     sheet: {
         borderTopLeftRadius: 28,
         borderTopRightRadius: 28,
         overflow: 'hidden',
-        maxHeight: '90%', 
+        height: '85%',
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'column',
         shadowColor: "#000",
         shadowOffset: { width: 0, height: -5 },
         shadowOpacity: 0.1,
         shadowRadius: 20,
         elevation: 10,
-        width: '100%',
     },
     actionBar: {
         paddingHorizontal: 20,
@@ -277,51 +299,19 @@ const styles = StyleSheet.create({
         paddingHorizontal: 12,
         borderRadius: 20,
     },
-    markReadText: {
-        fontSize: 12,
-        fontWeight: '600',
-        marginLeft: 6,
-    },
-    listContent: {
-        flexGrow: 1,
-    },
+    markReadText: { fontSize: 12, fontWeight: '600', marginLeft: 6 },
+    listContent: { flexGrow: 1 },
     itemContainer: {
         paddingVertical: 16,
         paddingHorizontal: 20,
         borderBottomWidth: 1,
     },
-    itemContent: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-    },
-    unreadDot: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        marginTop: 6,
-        marginRight: 12,
-    },
-    itemHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 6,
-    },
-    itemTitle: {
-        fontSize: 15,
-        fontWeight: '700',
-        flex: 1,
-        marginRight: 8,
-    },
-    itemDate: {
-        fontSize: 11,
-        fontWeight: '500',
-    },
-    itemBody: {
-        fontSize: 14,
-        lineHeight: 20,
-    },
-    // Footer Styles
+    itemContent: { flexDirection: 'row', alignItems: 'flex-start' },
+    unreadDot: { width: 8, height: 8, borderRadius: 4, marginTop: 6, marginRight: 12 },
+    itemHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+    itemTitle: { fontSize: 15, fontWeight: '700', flex: 1, marginRight: 8 },
+    itemDate: { fontSize: 11, fontWeight: '500' },
+    itemBody: { fontSize: 14, lineHeight: 20 },
     footerContainer: {
         paddingVertical: 24,
         paddingHorizontal: 40,
@@ -331,22 +321,9 @@ const styles = StyleSheet.create({
         gap: 12,
         opacity: 0.6,
     },
-    footerLine: {
-        height: 1,
-        flex: 1,
-        maxWidth: 40,
-    },
-    footerText: {
-        fontSize: 12,
-        fontWeight: '500',
-    },
-    // Empty State Styles
-    emptyState: {
-        padding: 40,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginTop: 40,
-    },
+    footerLine: { height: 1, flex: 1, maxWidth: 40 },
+    footerText: { fontSize: 12, fontWeight: '500' },
+    emptyState: { padding: 40, alignItems: 'center', justifyContent: 'center', marginTop: 40 },
     emptyIconContainer: {
         width: 80,
         height: 80,
@@ -355,14 +332,6 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         marginBottom: 16,
     },
-    emptyTitle: {
-        fontSize: 18,
-        fontWeight: '700',
-        marginBottom: 8,
-    },
-    emptySubtitle: {
-        fontSize: 14,
-        textAlign: 'center',
-        lineHeight: 20,
-    }
+    emptyTitle: { fontSize: 18, fontWeight: '700', marginBottom: 8 },
+    emptySubtitle: { fontSize: 14, textAlign: 'center', lineHeight: 20 }
 });

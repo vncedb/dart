@@ -1,13 +1,14 @@
 import { differenceInSeconds } from 'date-fns';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { saveNotificationLocal } from '../lib/database'; // Import DB save function
 
-// 1. Configure Handler (Fixed Deprecation Warning)
+// 1. Configure Handler
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowBanner: true, // Replaces shouldShowAlert
-    shouldShowList: true,   // Replaces shouldShowAlert
-    shouldPlaySound: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true, // Set to true for sound
     shouldSetBadge: true,
   }),
 });
@@ -15,12 +16,12 @@ Notifications.setNotificationHandler({
 // 2. Setup Categories & Channels
 export async function initNotificationSystem() {
   if (Platform.OS === 'android') {
-    // [CRITICAL] Delete old channel to force settings update (like Importance level)
+    // Delete old channel to ensure updates apply
     await Notifications.deleteNotificationChannelAsync('attendance_persistent');
     
     await setupChannels();
 
-    // Define Buttons
+    // Define Action Buttons
     await Notifications.setNotificationCategoryAsync('attendance_active', [
       {
         identifier: 'action_break_start',
@@ -50,18 +51,65 @@ export async function initNotificationSystem() {
 }
 
 async function setupChannels() {
-    // High Importance is REQUIRED for Banners (Heads-up Notifications)
+    // Persistent Channel (Silent, for ongoing timer)
     await Notifications.setNotificationChannelAsync('attendance_persistent', {
       name: 'Attendance Status',
+      importance: Notifications.AndroidImportance.LOW, 
+      vibrationPattern: [0],
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      showBadge: false,
+      sound: null, 
+    });
+
+    // Alert Channel (High Priority, for important updates)
+    await Notifications.setNotificationChannelAsync('attendance_alerts', {
+      name: 'Attendance Alerts',
       importance: Notifications.AndroidImportance.HIGH, 
-      vibrationPattern: [0], // Silent vibration to prevent buzzing every second
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       showBadge: true,
-      sound: null, 
+      sound: 'default',
     });
 }
 
-// 3. Update Logic
+// 3. Helper: Notify AND Save to History
+export async function notifyAndSave(
+  userId: string,
+  title: string,
+  body: string,
+  type: 'info' | 'success' | 'warning' | 'error' = 'info',
+  data: any = {}
+) {
+  // A. Show System Notification
+  await Notifications.scheduleNotificationAsync({
+    content: {
+      title,
+      body,
+      data,
+      sound: true,
+      priority: Notifications.AndroidNotificationPriority.HIGH,
+      // @ts-ignore
+      channelId: 'attendance_alerts', // Use the high priority channel
+    },
+    trigger: null,
+  });
+
+  // B. Save to Local DB (for In-App History)
+  if (userId) {
+    try {
+      await saveNotificationLocal({
+        user_id: userId,
+        title,
+        body,
+        type,
+        data
+      });
+    } catch (e) {
+      console.log("Failed to save notification locally:", e);
+    }
+  }
+}
+
+// 4. Update Persistent Notification (The Sticky Timer)
 export async function updateAttendanceNotification(
     startTime: string | Date, 
     isOvertime: boolean = false, 
@@ -74,15 +122,14 @@ export async function updateAttendanceNotification(
   const diffSecs = differenceInSeconds(now, start);
   const h = Math.floor(diffSecs / 3600);
   const m = Math.floor((diffSecs % 3600) / 60);
-  // Large Counter in Title
+  
   const timeString = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
   
   let statusText = '';
   let color = '#10b981'; // Green
   let category = 'attendance_active';
   
-  // Icon Configuration
-  // This must match the file name in android/app/src/main/res/drawable/
+  // Icon must exist in android/app/src/main/res/drawable/
   const largeIcon = 'timer'; 
 
   if (isOnBreak) {
@@ -101,15 +148,14 @@ export async function updateAttendanceNotification(
 
   await Notifications.scheduleNotificationAsync({
     content: {
-      title: timeString, // Large Counter
+      title: timeString,
       body: statusText,
       sticky: true,
       autoDismiss: false,
       categoryIdentifier: category,
       data: { type: 'attendance_update' },
       color: color, 
-      // HIGH priority is needed for the banner to slide down
-      priority: Notifications.AndroidNotificationPriority.HIGH, 
+      priority: Notifications.AndroidNotificationPriority.LOW, // Low priority prevents constant beeping
       // @ts-ignore
       icon: largeIcon, 
       // @ts-ignore

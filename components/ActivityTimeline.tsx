@@ -10,7 +10,7 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { format } from 'date-fns';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Dimensions,
@@ -139,10 +139,24 @@ interface ActivityTimelineProps {
     theme: any;
     onEditTask: (task: any) => void;
     onDeleteTask: (task: any) => void;
-    isLoading?: boolean; // Added optional property
+    isLoading?: boolean;
 }
 
 export default function ActivityTimeline({ timelineData, theme, onEditTask, onDeleteTask, isLoading }: ActivityTimelineProps) {
+    
+    // Sort Timeline Data: Latest -> Oldest
+    const sortedTimeline = useMemo(() => {
+        if (!timelineData) return [];
+        return [...timelineData].sort((a, b) => {
+            // Determine timestamp for A
+            const dateA = a.time ? new Date(a.time).getTime() : new Date(a.data?.created_at || 0).getTime();
+            // Determine timestamp for B
+            const dateB = b.time ? new Date(b.time).getTime() : new Date(b.data?.created_at || 0).getTime();
+            // Descending order (Newest first)
+            return dateB - dateA;
+        });
+    }, [timelineData]);
+
     if (isLoading) {
         return (
             <View style={{ padding: 20, alignItems: 'center' }}>
@@ -151,7 +165,7 @@ export default function ActivityTimeline({ timelineData, theme, onEditTask, onDe
         );
     }
 
-    if (timelineData.length === 0) {
+    if (sortedTimeline.length === 0) {
         return (
             <View style={{ alignItems: 'center', padding: 20, opacity: 0.5 }}>
                 <HugeiconsIcon icon={HourglassIcon} size={32} color={theme.colors.icon} />
@@ -162,7 +176,7 @@ export default function ActivityTimeline({ timelineData, theme, onEditTask, onDe
 
     return (
         <View style={{ borderLeftWidth: 2, borderLeftColor: theme.colors.border, marginLeft: 8, paddingLeft: 16 }}>
-            {timelineData.map((item: any) => (
+            {sortedTimeline.map((item: any) => (
                 <View
                     key={item.type === 'task' ? `task-${item.data.id}` : `${item.type}-${item.id}`}
                     style={{ marginBottom: 24 }}
