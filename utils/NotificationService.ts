@@ -2,17 +2,22 @@ import { differenceInSeconds } from 'date-fns';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
-// 1. Configure Handler (Dynamic Sound)
+// 1. Configure Handler (Dynamic Behavior)
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
-    // Check if this is the silent persistent timer
     const data = notification.request.content.data || {};
-    const isSilent = data.type === 'attendance_update' || data.type === 'ongoing_job';
+    
+    // Determine the type of update
+    const isTimerTick = data.type === 'timer_tick';
+    const isStatusChange = data.type === 'status_change';
 
     return {
-      shouldShowBanner: true,
+      // ONLY show banner (pop-down) for status changes (Start, Pause, Resume), NEVER for timer ticks
+      shouldShowBanner: isStatusChange,
+      // Always show in the notification center/tray
       shouldShowList: true,
-      shouldPlaySound: !isSilent, // Play sound only if it's NOT the timer
+      // Play sound only for status changes, never for timer ticks
+      shouldPlaySound: isStatusChange,
       shouldSetBadge: true,
     };
   },
@@ -20,7 +25,6 @@ Notifications.setNotificationHandler({
 
 // 2. Setup Categories & Channels
 export async function initNotificationSystem() {
-  // [FIX] Request Permissions on Init
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
   let finalStatus = existingStatus;
   if (existingStatus !== 'granted') {
@@ -34,13 +38,12 @@ export async function initNotificationSystem() {
   }
 
   if (Platform.OS === 'android') {
-    // [CRITICAL] Delete old channel to force settings update (like Importance level)
-    // You can comment this out after the first successful run to avoid recreating it every time
+    // Delete old channel to ensure new settings apply
     await Notifications.deleteNotificationChannelAsync('attendance_persistent');
     
     await setupChannels();
 
-    // Define Buttons
+    // Define Buttons - "opensAppToForeground: false" is faster as it doesn't wait for UI
     await Notifications.setNotificationCategoryAsync('attendance_active', [
       {
         identifier: 'action_break_start',
@@ -70,22 +73,15 @@ export async function initNotificationSystem() {
 }
 
 async function setupChannels() {
-    // High Importance is REQUIRED for Banners (Heads-up Notifications)
+    // We use a HIGH importance channel for the persistent notification so it stays on top,
+    // but we control the "pop up" behavior via the Handler above.
     await Notifications.setNotificationChannelAsync('attendance_persistent', {
       name: 'Attendance Status',
-      importance: Notifications.AndroidImportance.HIGH, 
-      vibrationPattern: [0], // Silent vibration to prevent buzzing every second
+      importance: Notifications.AndroidImportance.LOW, // LOW prevents constant peeking/sound
+      vibrationPattern: [0], 
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       showBadge: true,
-      sound: null, // Keep channel silent, let the Handler manage sound
-    });
-
-    // Ensure default channel exists for other notifications
-    await Notifications.setNotificationChannelAsync('default', {
-      name: 'Default',
-      importance: Notifications.AndroidImportance.MAX,
-      vibrationPattern: [0, 250, 250, 250],
-      lightColor: '#FF231F7C',
+      sound: null,
     });
 }
 
@@ -94,7 +90,7 @@ export async function updateAttendanceNotification(
     startTime: string | Date, 
     isOvertime: boolean = false, 
     isOnBreak: boolean = false, 
-    isFirstShow: boolean = false
+    isStatusChange: boolean = false // New flag to force banner
 ) {
   const now = new Date();
   const start = new Date(startTime);
@@ -102,48 +98,53 @@ export async function updateAttendanceNotification(
   const diffSecs = differenceInSeconds(now, start);
   const h = Math.floor(diffSecs / 3600);
   const m = Math.floor((diffSecs % 3600) / 60);
-  // Large Counter in Title
-  const timeString = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+  const s = diffSecs % 60;
+
+  // BIGGER COUNTER: Include seconds for dynamic "Timer" feel
+  const timeString = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   
   let statusText = '';
   let color = '#10b981'; // Green
   let category = 'attendance_active';
   
-  // Icon Configuration
-  // This must match the file name in android/app/src/main/res/drawable/
   const largeIcon = 'timer'; 
 
   if (isOnBreak) {
-      statusText = 'On Break (Paused)';
+      statusText = '⏸ ON BREAK'; // Added icon for visual clarity
       color = '#F59E0B'; // Orange
       category = 'attendance_break';
   } else if (isOvertime) {
-      statusText = 'Overtime Active';
+      statusText = '⚠️ OVERTIME';
       color = '#EF4444'; // Red
       category = 'attendance_active';
   } else {
-      statusText = 'On Duty';
+      statusText = 'Creating Value...'; // Dynamic text
       color = '#10b981'; // Green
       category = 'attendance_active';
   }
 
+  // Determine priority based on action (Status changes = High Priority/Banner)
+  const priority = isStatusChange 
+    ? Notifications.AndroidNotificationPriority.HIGH 
+    : Notifications.AndroidNotificationPriority.LOW;
+
   await Notifications.scheduleNotificationAsync({
     content: {
-      title: timeString, // Large Counter
+      title: timeString, // The "Big" Timer
       body: statusText,
       sticky: true,
       autoDismiss: false,
       categoryIdentifier: category,
-      data: { type: 'attendance_update' }, // Used by Handler to silence sound
+      // Pass type to Handler to decide on Sound/Banner
+      data: { type: isStatusChange ? 'status_change' : 'timer_tick' }, 
       color: color, 
-      // HIGH priority is needed for the banner to slide down
-      priority: Notifications.AndroidNotificationPriority.HIGH, 
+      priority: priority,
       // @ts-ignore
       icon: largeIcon, 
       // @ts-ignore
       channelId: 'attendance_persistent',
     },
-    trigger: null, 
+    trigger: null, // null trigger = immediate
     identifier: 'attendance_persistent',
   });
 }
