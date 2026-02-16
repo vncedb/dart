@@ -7,20 +7,22 @@ import {
     DollarCircleIcon,
     PencilEdit02Icon,
     PlusSignIcon,
-    Tick02Icon,
     WifiOffIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import NetInfo from '@react-native-community/netinfo';
+import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
-    FlatList,
     RefreshControl,
+    ScrollView,
+    StyleSheet,
     Text,
     TouchableOpacity,
     View
 } from 'react-native';
+import Animated, { FadeInDown, FadeInUp, Layout } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import Header from '../../components/Header';
@@ -38,6 +40,7 @@ type JobPosition = {
     id: string;
     title: string;
     company: string;
+    department?: string;
     employment_status: string;
     rate: number;
     rate_type: string;
@@ -47,164 +50,152 @@ type JobPosition = {
 
 // --- HELPER COMPONENTS ---
 
-const EmptyState = ({ isOffline }: { isOffline: boolean }) => {
-    const theme = useAppTheme();
-    return (
-        <View className="items-center justify-center flex-1 px-8 pt-10">
-            <View 
-                style={{ backgroundColor: isOffline ? theme.colors.warning + '20' : theme.colors.card }}
-                className="items-center justify-center w-24 h-24 mb-6 rounded-3xl"
-            >
-                <HugeiconsIcon 
-                    icon={isOffline ? WifiOffIcon : Briefcase01Icon} 
-                    size={48} 
-                    color={isOffline ? theme.colors.warning : theme.colors.primary} 
-                />
-            </View>
-            <Text style={{ color: theme.colors.text }} className="mb-3 text-2xl font-bold text-center">
-                {isOffline ? 'Offline Mode' : 'No Jobs Found'}
-            </Text>
-            <Text style={{ color: theme.colors.textSecondary }} className="mb-8 text-base leading-6 text-center">
-                {isOffline 
-                    ? 'You can view locally saved jobs. Connect to internet to sync changes.' 
-                    : 'Add a job position to start tracking your attendance and earnings.'}
-            </Text>
+const SectionTitle = ({ title, theme }: { title: string, theme: any }) => (
+    <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>
+        {title}
+    </Text>
+);
+
+const OfflineBanner = ({ theme }: { theme: any }) => (
+    <Animated.View 
+        entering={FadeInDown.duration(400)}
+        style={[styles.offlineBanner, { backgroundColor: theme.colors.warning + '15', borderColor: theme.colors.warning + '40' }]}
+    >
+        <HugeiconsIcon icon={WifiOffIcon} size={16} color={theme.colors.warning} />
+        <Text style={[styles.offlineText, { color: theme.colors.warning }]}>
+            Offline Mode • Changes will sync when online
+        </Text>
+    </Animated.View>
+);
+
+const EmptyState = ({ onPress, theme }: { onPress: () => void, theme: any }) => (
+    <View style={styles.emptyStateContainer}>
+        <View style={[styles.emptyIconCircle, { backgroundColor: theme.colors.card }]}>
+            <HugeiconsIcon icon={Briefcase01Icon} size={40} color={theme.colors.textSecondary} />
         </View>
-    );
-};
-
-const JobCard = ({ 
-    item, 
-    isActive, 
-    onSetActive, 
-    onEdit, 
-    onDelete, 
-    theme 
-}: { 
-    item: JobPosition, 
-    isActive: boolean, 
-    onSetActive: (id: string) => void,
-    onEdit: (id: string) => void,
-    onDelete: (id: string) => void,
-    theme: any 
-}) => {
-    // Formatting Helpers
-    const formatRate = (rate: number, type: string) => {
-        if (!rate) return 'Not set';
-        const amount = rate.toLocaleString('en-PH', { style: 'currency', currency: 'PHP' });
-        const unit = type === 'daily' ? 'day' : type === 'monthly' ? 'month' : 'hour';
-        return `${amount} / ${unit}`;
-    };
-
-    const formatTime = (timeStr: string) => {
-        if (!timeStr) return '--:--';
-        const [h, m] = timeStr.split(':');
-        const date = new Date();
-        date.setHours(parseInt(h || '0'), parseInt(m || '0'));
-        return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
-    };
-
-    const schedule = typeof item.work_schedule === 'string' 
-        ? JSON.parse(item.work_schedule) 
-        : (item.work_schedule || { start: '09:00', end: '17:00' });
-
-    return (
-        <View 
-            style={{ 
-                backgroundColor: theme.colors.card, 
-                borderColor: isActive ? theme.colors.primary : theme.colors.border,
-                borderWidth: isActive ? 2 : 1
-            }} 
-            className="p-5 mb-5 shadow-sm rounded-3xl"
+        <Text style={[styles.emptyStateTitle, { color: theme.colors.text }]}>No Jobs Added</Text>
+        <Text style={[styles.emptyStateBody, { color: theme.colors.textSecondary }]}>
+            Add a position to start tracking your work hours and earnings.
+        </Text>
+        <TouchableOpacity 
+            onPress={onPress}
+            activeOpacity={0.8}
+            style={[styles.emptyStateButton, { backgroundColor: theme.colors.primary }]}
         >
-            {/* Header */}
-            <View className="flex-row justify-between mb-4">
-                <View className="flex-1 mr-4">
-                    <Text style={{ color: theme.colors.text }} className="text-xl font-extrabold" numberOfLines={1}>
-                        {item.title}
+            <HugeiconsIcon icon={PlusSignIcon} size={20} color="#FFF" />
+            <Text style={styles.emptyStateButtonText}>Add First Job</Text>
+        </TouchableOpacity>
+    </View>
+);
+
+// --- COMPONENT: ACTIVE JOB HERO CARD ---
+const ActiveJobHero = ({ item, onEdit, theme }: { item: JobPosition, onEdit: (id: string) => void, theme: any }) => {
+    const schedule = typeof item.work_schedule === 'string' ? JSON.parse(item.work_schedule) : (item.work_schedule || {});
+    
+    const formatTime = (t: string) => {
+        if (!t) return '--:--';
+        const [h, m] = t.split(':');
+        const d = new Date(); d.setHours(Number(h), Number(m));
+        return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    };
+
+    return (
+        <Animated.View 
+            layout={Layout.springify()} 
+            entering={FadeInUp.delay(100).duration(500)}
+            style={[styles.heroCard, { backgroundColor: theme.colors.card, shadowColor: theme.colors.primary }]}
+        >
+            {/* Background Tint */}
+            <View style={[styles.heroTint, { backgroundColor: theme.colors.primary, opacity: 0.04 }]} />
+            
+            {/* Active Badge */}
+            <View style={styles.heroHeader}>
+                <View style={[styles.activeBadge, { backgroundColor: theme.colors.success + '20' }]}>
+                    <View style={[styles.pulseDot, { backgroundColor: theme.colors.success }]} />
+                    <Text style={[styles.activeBadgeText, { color: theme.colors.success }]}>CURRENTLY ACTIVE</Text>
+                </View>
+                <TouchableOpacity onPress={() => onEdit(item.id)} style={[styles.iconButton, { backgroundColor: theme.colors.background }]}>
+                    <HugeiconsIcon icon={PencilEdit02Icon} size={18} color={theme.colors.text} />
+                </TouchableOpacity>
+            </View>
+
+            {/* Content */}
+            <View style={styles.heroContent}>
+                <Text style={[styles.heroTitle, { color: theme.colors.text }]} numberOfLines={1}>{item.title}</Text>
+                <View style={styles.heroCompanyRow}>
+                    <HugeiconsIcon icon={Building03Icon} size={16} color={theme.colors.textSecondary} />
+                    <Text style={[styles.heroCompany, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                        {item.company}
                     </Text>
-                    <View className="flex-row items-center mt-1">
-                        <HugeiconsIcon icon={Building03Icon} size={16} color={theme.colors.textSecondary} />
-                        <Text style={{ color: theme.colors.textSecondary }} className="ml-1.5 text-sm font-medium" numberOfLines={1}>
-                            {item.company || 'Unknown Company'}
-                        </Text>
-                    </View>
-                </View>
-                <View className="items-end gap-2">
-                    <View style={{ backgroundColor: theme.colors.primary + '15' }} className="px-2.5 py-1.5 rounded-xl">
-                        <Text style={{ color: theme.colors.primary }} className="text-[10px] font-extrabold uppercase">
-                            {item.employment_status || 'Regular'}
-                        </Text>
-                    </View>
-                    {isActive && (
-                        <View style={{ backgroundColor: theme.colors.success + '20' }} className="flex-row items-center px-2 py-1 rounded-lg">
-                            <HugeiconsIcon icon={CheckmarkCircle02Icon} size={12} color={theme.colors.success} />
-                            <Text style={{ color: theme.colors.success }} className="text-[10px] font-extrabold ml-1">ACTIVE</Text>
-                        </View>
-                    )}
                 </View>
             </View>
-            
-            <View style={{ height: 1, backgroundColor: theme.colors.border }} className="w-full mb-4 opacity-50" />
-            
-            {/* Details */}
-            <View className="gap-y-3">
-                <View>
-                    <Text style={{ color: theme.colors.textSecondary }} className="mb-1 text-xs font-bold uppercase">Pay Rate</Text>
-                    <View className="flex-row items-center">
+
+            {/* Metrics Grid */}
+            <View style={styles.heroGrid}>
+                <View style={[styles.heroGridItem, { borderColor: theme.colors.border }]}>
+                    <Text style={[styles.heroLabel, { color: theme.colors.textSecondary }]}>RATE</Text>
+                    <View style={styles.heroValueRow}>
                         <HugeiconsIcon icon={DollarCircleIcon} size={16} color={theme.colors.success} />
-                        <Text style={{ color: theme.colors.text }} className="ml-2 text-sm font-bold">
-                            {formatRate(item.rate, item.rate_type)}
+                        <Text style={[styles.heroValue, { color: theme.colors.text }]}>
+                            {item.rate.toLocaleString('en-PH', { style: 'currency', currency: 'PHP' })}
+                            <Text style={{ fontSize: 10, fontWeight: '500', color: theme.colors.textSecondary }}> / {item.rate_type}</Text>
                         </Text>
                     </View>
                 </View>
-                <View>
-                    <Text style={{ color: theme.colors.textSecondary }} className="mb-1 text-xs font-bold uppercase">Schedule</Text>
-                    <View style={{ backgroundColor: theme.colors.background }} className="flex-row items-center p-3 rounded-xl">
-                        <HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.primary} />
-                        <Text style={{ color: theme.colors.text }} className="ml-3 text-sm font-bold">
-                            {formatTime(schedule.start)}  —  {formatTime(schedule.end)}
+                <View style={[styles.heroGridItem, { borderColor: theme.colors.border, borderRightWidth: 0 }]}>
+                    <Text style={[styles.heroLabel, { color: theme.colors.textSecondary }]}>SCHEDULE</Text>
+                    <View style={styles.heroValueRow}>
+                        <HugeiconsIcon icon={Clock01Icon} size={16} color={theme.colors.primary} />
+                        <Text style={[styles.heroValue, { color: theme.colors.text }]}>
+                            {formatTime(schedule.start)} - {formatTime(schedule.end)}
                         </Text>
                     </View>
                 </View>
             </View>
-            
-            {/* Actions */}
-            <View className="flex-row gap-3 mt-5">
-                {!isActive && (
-                    <TouchableOpacity 
-                        onPress={() => onSetActive(item.id)}
-                        style={{ backgroundColor: theme.colors.primary + '15', borderColor: theme.colors.primary }} 
-                        className="flex-row items-center justify-center flex-1 py-3 border rounded-xl"
-                    >
-                        <HugeiconsIcon icon={Tick02Icon} size={16} color={theme.colors.primary} />
-                        <Text style={{ color: theme.colors.primary }} className="ml-2 font-bold">Set Active</Text>
-                    </TouchableOpacity>
-                )}
-                
-                <TouchableOpacity 
-                    onPress={() => onEdit(item.id)}
-                    style={{ backgroundColor: theme.colors.background, borderColor: theme.colors.border }} 
-                    className="flex-row items-center justify-center flex-1 py-3 border rounded-xl"
-                >
-                    <HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.text} />
-                    <Text style={{ color: theme.colors.text }} className="ml-2 font-bold">Edit</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                    onPress={() => onDelete(item.id)}
-                    style={{ backgroundColor: '#fee2e2' }} 
-                    className="items-center justify-center px-4 py-3 rounded-xl"
-                >
-                    <HugeiconsIcon icon={Delete02Icon} size={16} color="#ef4444" />
-                </TouchableOpacity>
-            </View>
-        </View>
+        </Animated.View>
     );
 };
+
+// --- COMPONENT: INACTIVE JOB CARD ---
+const InactiveJobItem = ({ item, onActivate, onEdit, onDelete, theme }: any) => {
+    return (
+        <Animated.View 
+            layout={Layout.springify()}
+            entering={FadeInDown.duration(400)}
+            style={[styles.listCard, { backgroundColor: theme.colors.card }]}
+        >
+            <View style={styles.listCardContent}>
+                <View style={[styles.listIconBox, { backgroundColor: theme.colors.background }]}>
+                    <HugeiconsIcon icon={Briefcase01Icon} size={20} color={theme.colors.textSecondary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                    <Text style={[styles.listTitle, { color: theme.colors.text }]} numberOfLines={1}>{item.title}</Text>
+                    <Text style={[styles.listSubtitle, { color: theme.colors.textSecondary }]} numberOfLines={1}>{item.company}</Text>
+                </View>
+            </View>
+
+            <View style={[styles.listActions, { borderTopColor: theme.colors.border }]}>
+                <TouchableOpacity 
+                    onPress={() => onActivate(item.id)}
+                    style={[styles.actionBtn, { flex: 1, borderRightWidth: 1, borderRightColor: theme.colors.border }]}
+                >
+                    <Text style={[styles.actionBtnText, { color: theme.colors.primary }]}>Set Active</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity onPress={() => onEdit(item.id)} style={[styles.actionIconBtn, { width: 50 }]}>
+                    <HugeiconsIcon icon={PencilEdit02Icon} size={18} color={theme.colors.textSecondary} />
+                </TouchableOpacity>
+                
+                <TouchableOpacity onPress={() => onDelete(item.id)} style={[styles.actionIconBtn, { width: 50 }]}>
+                    <HugeiconsIcon icon={Delete02Icon} size={18} color={theme.colors.danger || '#ef4444'} />
+                </TouchableOpacity>
+            </View>
+        </Animated.View>
+    );
+};
+
 
 // --- MAIN SCREEN ---
-
 export default function MyJobsScreen() {
     const theme = useAppTheme();
     const router = useRouter();
@@ -224,43 +215,18 @@ export default function MyJobsScreen() {
     const fetchJobs = useCallback(async () => {
         try {
             const { data: { session } } = await supabase.auth.getSession();
-            const rawUserId = session?.user?.id;
-            
-            if (!rawUserId) {
-                setLoading(false);
-                return;
-            }
-
-            const userId = String(rawUserId); 
+            if (!session?.user?.id) { setLoading(false); return; }
+            const userId = String(session.user.id);
 
             const db = await getDB();
-            if (!db) throw new Error("Database not ready");
+            const localJobs = await db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ? ORDER BY created_at DESC', [userId]);
+            const profile: any = await db.getFirstAsync('SELECT current_job_id FROM profiles WHERE id = ?', [userId]);
 
-            const localJobs = await db.getAllAsync(
-                'SELECT * FROM job_positions WHERE user_id = ? ORDER BY created_at DESC', 
-                [userId]
-            );
-
-            const profile: any = await db.getFirstAsync(
-                'SELECT current_job_id FROM profiles WHERE id = ?', 
-                [userId]
-            );
-
-            const currentId = profile?.current_job_id;
-            setActiveJobId(currentId || null);
-
-            let parsedJobs = (localJobs as JobPosition[]);
-            if (currentId) {
-                parsedJobs = parsedJobs.sort((a, b) => {
-                    return a.id === currentId ? -1 : b.id === currentId ? 1 : 0;
-                });
-            }
-
-            setJobs(parsedJobs);
+            setActiveJobId(profile?.current_job_id || null);
+            setJobs(localJobs as JobPosition[]);
 
             const netInfo = await NetInfo.fetch();
             setIsOffline(!netInfo.isConnected);
-
         } catch (error) {
             console.error('Fetch Jobs Error:', error);
         } finally {
@@ -268,160 +234,388 @@ export default function MyJobsScreen() {
         }
     }, []);
 
-    useFocusEffect(useCallback(() => {
-        setLoading(true);
-        fetchJobs();
-    }, [fetchJobs]));
+    useFocusEffect(useCallback(() => { setLoading(true); fetchJobs(); }, [fetchJobs]));
 
     const handleRefresh = async () => {
         setRefreshing(true);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
         await triggerSync();
         await fetchJobs();
         setRefreshing(false);
     };
 
-    // --- ACTIONS ---
+    // --- COMPUTED DATA ---
+    const activeJob = useMemo(() => jobs.find(j => j.id === activeJobId), [jobs, activeJobId]);
+    const inactiveJobs = useMemo(() => jobs.filter(j => j.id !== activeJobId), [jobs, activeJobId]);
 
+    // --- ACTIONS ---
     const handleSetActive = async (jobId: string) => {
-        setLoadingMessage('Updating active job...');
+        Haptics.selectionAsync();
+        setLoadingMessage('Activating job...');
         setProcessing(true);
         try {
             const { data: { session } } = await supabase.auth.getSession();
-            const rawUserId = session?.user?.id;
-            if (!rawUserId) return;
-            const userId = String(rawUserId);
-            
+            if (!session?.user?.id) return;
+            const userId = String(session.user.id);
             const db = await getDB();
             
-            // FIXED: More robust update logic
-            // Try to update existing profile first
-            const result = await db.runAsync('UPDATE profiles SET current_job_id = ? WHERE id = ?', [jobId, userId]);
+            // Optimistic Update
+            await db.runAsync('UPDATE profiles SET current_job_id = ? WHERE id = ?', [jobId, userId]);
+            // Fallback insert if profile missing locally
+            await db.runAsync('INSERT OR IGNORE INTO profiles (id, current_job_id, updated_at) VALUES (?, ?, ?)', [userId, jobId, new Date().toISOString()]);
             
-            // If no rows were updated (profile missing locally), insert a new profile row
-            if (result.changes === 0) {
-                console.log("Profile not found locally, creating entry...");
-                await db.runAsync(
-                    'INSERT INTO profiles (id, current_job_id, updated_at) VALUES (?, ?, ?)',
-                    [userId, jobId, new Date().toISOString()]
-                );
-            }
-            
-            const updates = { id: userId, current_job_id: jobId, updated_at: new Date().toISOString() };
-            await queueSyncItem('profiles', userId, 'UPDATE', updates);
+            await queueSyncItem('profiles', userId, 'UPDATE', { id: userId, current_job_id: jobId, updated_at: new Date().toISOString() });
             
             setActiveJobId(jobId);
-            setJobs(prev => [...prev].sort((a, b) => a.id === jobId ? -1 : b.id === jobId ? 1 : 0));
-            
             triggerSync();
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
         } catch (e) {
-            console.error("Set active job error:", e);
-            setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Failed to update active job.', onConfirm: () => setAlertConfig((p:any)=>({...p, visible: false})) });
+            console.error(e);
+            setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Failed to update.', onConfirm: () => setAlertConfig((p:any)=>({...p, visible: false})) });
         } finally {
             setProcessing(false);
         }
     };
 
     const handleDelete = async (jobId: string) => {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         setAlertConfig({
             visible: true,
-            type: 'confirm',
-            title: 'Delete Job?',
-            message: 'This action cannot be undone.',
+            type: 'warning',
+            title: 'Delete Position?',
+            message: 'This will remove the job from your list. Past records will be preserved.',
             confirmText: 'Delete',
-            cancelText: 'Cancel',
             confirmType: 'destructive',
+            cancelText: 'Cancel',
             onConfirm: async () => {
                 setAlertConfig((p:any)=>({...p, visible: false}));
-                setLoadingMessage('Deleting...');
                 setProcessing(true);
                 try {
-                    const { data: { session } } = await supabase.auth.getSession();
-                    if (!session?.user?.id) return;
-
-                    if (activeJobId === jobId) {
-                        const db = await getDB();
-                        await db.runAsync('UPDATE profiles SET current_job_id = NULL WHERE id = ?', [session.user.id]);
-                        await queueSyncItem('profiles', session.user.id, 'UPDATE', { current_job_id: null });
-                        setActiveJobId(null);
-                    }
-
                     await deleteJobLocal(jobId);
-                    triggerSync();
+                    if (activeJobId === jobId) {
+                        const { data: { session } } = await supabase.auth.getSession();
+                        if (session?.user?.id) {
+                            const db = await getDB();
+                            await db.runAsync('UPDATE profiles SET current_job_id = NULL WHERE id = ?', [session.user.id]);
+                            await queueSyncItem('profiles', session.user.id, 'UPDATE', { current_job_id: null });
+                            setActiveJobId(null);
+                        }
+                    }
                     fetchJobs();
-                } catch(e) {
-                    setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Could not delete job.', onConfirm: () => setAlertConfig((p:any)=>({...p, visible: false})) });
-                } finally {
-                    setProcessing(false);
-                }
+                } catch(e) { /* handle error */ } finally { setProcessing(false); }
             },
             onCancel: () => setAlertConfig((p:any)=>({...p, visible: false}))
         });
     };
 
     // --- RENDER ---
-
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
-            <ModernAlert {...alertConfig} />
-            {/* Loading Overlay handles action processing */}
+            <ModernAlert {...alertConfig} onDismiss={() => setAlertConfig((p:any) => ({...p, visible: false}))} />
             <LoadingOverlay visible={processing} message={loadingMessage} />
             
             <Header 
                 title="My Jobs" 
                 rightElement={
-                    !isOffline ? (
-                        <TouchableOpacity 
-                            onPress={() => router.push('/job/form')} 
-                            style={{ backgroundColor: theme.colors.primaryLight, padding: 8, borderRadius: 20, position: 'relative' }}
-                        >
-                            <HugeiconsIcon icon={PlusSignIcon} size={24} color={theme.colors.primary} />
-                            
-                            {/* Dot Indicator for Empty State */}
-                            {!loading && jobs.length === 0 && (
-                                <View style={{ 
-                                    position: 'absolute', 
-                                    top: 5, 
-                                    right: 5, 
-                                    width: 10, 
-                                    height: 10, 
-                                    borderRadius: 5, 
-                                    backgroundColor: '#ef4444', 
-                                    borderWidth: 2, 
-                                    borderColor: theme.colors.primaryLight 
-                                }} />
-                            )}
-                        </TouchableOpacity>
-                    ) : null
+                    <TouchableOpacity 
+                        onPress={() => { Haptics.selectionAsync(); router.push('/job/form'); }} 
+                        style={[styles.headerAddBtn, { backgroundColor: theme.colors.primaryLight }]}
+                    >
+                        <HugeiconsIcon icon={PlusSignIcon} size={22} color={theme.colors.primary} />
+                    </TouchableOpacity>
                 } 
             />
             
-            {/* Show Loading Screen below Header OR Content */}
             {loading ? (
-                <View style={{ flex: 1 }}>
-                    <LoadingScreen message="Loading Jobs..." />
-                </View>
+                <View style={{ flex: 1 }}><LoadingScreen message="" /></View>
             ) : (
-                <FlatList 
-                    data={jobs} 
-                    keyExtractor={(item) => item.id} 
-                    contentContainerStyle={{ padding: 24, paddingBottom: 100, flexGrow: 1 }} 
-                    showsVerticalScrollIndicator={false} 
-                    refreshControl={
-                        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.colors.primary} />
-                    }
-                    ListEmptyComponent={<EmptyState isOffline={isOffline} />}
-                    renderItem={({ item }) => (
-                        <JobCard 
-                            item={item} 
-                            isActive={item.id === activeJobId}
-                            onSetActive={handleSetActive}
-                            onEdit={(id) => router.push({ pathname: '/job/form', params: { id } })}
-                            onDelete={handleDelete}
-                            theme={theme}
-                        />
+                <ScrollView 
+                    contentContainerStyle={styles.scrollContent} 
+                    showsVerticalScrollIndicator={false}
+                    refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.colors.primary} />}
+                >
+                    {isOffline && <OfflineBanner theme={theme} />}
+
+                    {jobs.length === 0 ? (
+                        <EmptyState theme={theme} onPress={() => router.push('/job/form')} />
+                    ) : (
+                        <>
+                            {activeJob && (
+                                <View style={{ marginBottom: 24 }}>
+                                    <ActiveJobHero 
+                                        item={activeJob} 
+                                        onEdit={(id) => router.push({ pathname: '/job/form', params: { id } })} 
+                                        theme={theme} 
+                                    />
+                                </View>
+                            )}
+
+                            {inactiveJobs.length > 0 && (
+                                <View>
+                                    <SectionTitle title="AVAILABLE POSITIONS" theme={theme} />
+                                    <View style={{ gap: 12 }}>
+                                        {inactiveJobs.map(job => (
+                                            <InactiveJobItem 
+                                                key={job.id} 
+                                                item={job} 
+                                                theme={theme}
+                                                onActivate={handleSetActive}
+                                                onEdit={(id: string) => router.push({ pathname: '/job/form', params: { id } })}
+                                                onDelete={handleDelete}
+                                            />
+                                        ))}
+                                    </View>
+                                </View>
+                            )}
+                            
+                            {/* If no active job but jobs exist */}
+                            {!activeJob && inactiveJobs.length > 0 && (
+                                <View style={[styles.selectPrompt, { backgroundColor: theme.colors.primary + '10' }]}>
+                                    <HugeiconsIcon icon={CheckmarkCircle02Icon} size={20} color={theme.colors.primary} />
+                                    <Text style={[styles.selectPromptText, { color: theme.colors.primary }]}>
+                                        Select a job above to set it as active.
+                                    </Text>
+                                </View>
+                            )}
+                        </>
                     )}
-                />
+                </ScrollView>
             )}
         </SafeAreaView>
     );
 }
+
+const styles = StyleSheet.create({
+    scrollContent: {
+        padding: 24,
+        paddingBottom: 100,
+        flexGrow: 1
+    },
+    headerAddBtn: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    sectionTitle: {
+        fontSize: 12,
+        fontWeight: '800',
+        letterSpacing: 1,
+        marginBottom: 12,
+        marginLeft: 4,
+    },
+    // Offline
+    offlineBanner: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 10,
+        borderRadius: 12,
+        marginBottom: 20,
+        borderWidth: 1,
+        gap: 8,
+    },
+    offlineText: {
+        fontSize: 11,
+        fontWeight: '700',
+    },
+    // Hero Card
+    heroCard: {
+        borderRadius: 24,
+        overflow: 'hidden',
+        borderWidth: 1,
+        borderColor: 'transparent', // Can enable if needed
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.12,
+        shadowRadius: 16,
+        elevation: 6,
+        padding: 0,
+    },
+    heroTint: {
+        ...StyleSheet.absoluteFillObject,
+    },
+    heroHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 20,
+        paddingBottom: 0,
+    },
+    activeBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        borderRadius: 100,
+        gap: 6,
+    },
+    pulseDot: {
+        width: 6,
+        height: 6,
+        borderRadius: 3,
+    },
+    activeBadgeText: {
+        fontSize: 10,
+        fontWeight: '800',
+        letterSpacing: 0.5,
+    },
+    iconButton: {
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    heroContent: {
+        paddingHorizontal: 20,
+        paddingTop: 16,
+        paddingBottom: 20,
+    },
+    heroTitle: {
+        fontSize: 22,
+        fontWeight: '800',
+        marginBottom: 6,
+        letterSpacing: -0.5,
+    },
+    heroCompanyRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    heroCompany: {
+        fontSize: 15,
+        fontWeight: '600',
+    },
+    heroGrid: {
+        flexDirection: 'row',
+        borderTopWidth: 1,
+        borderColor: 'rgba(0,0,0,0.05)',
+    },
+    heroGridItem: {
+        flex: 1,
+        padding: 16,
+        borderRightWidth: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    heroLabel: {
+        fontSize: 9,
+        fontWeight: '800',
+        marginBottom: 6,
+        letterSpacing: 0.5,
+    },
+    heroValueRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    heroValue: {
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    // List Items
+    listCard: {
+        borderRadius: 16,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 8,
+        elevation: 2,
+    },
+    listCardContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 16,
+        gap: 16,
+    },
+    listIconBox: {
+        width: 44,
+        height: 44,
+        borderRadius: 12,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    listTitle: {
+        fontSize: 16,
+        fontWeight: '700',
+        marginBottom: 2,
+    },
+    listSubtitle: {
+        fontSize: 13,
+        fontWeight: '500',
+    },
+    listActions: {
+        flexDirection: 'row',
+        borderTopWidth: 1,
+    },
+    actionBtn: {
+        paddingVertical: 14,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    actionBtnText: {
+        fontSize: 13,
+        fontWeight: '700',
+    },
+    actionIconBtn: {
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    // Empty State
+    emptyStateContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingTop: 60,
+    },
+    emptyIconCircle: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 20,
+    },
+    emptyStateTitle: {
+        fontSize: 20,
+        fontWeight: '800',
+        marginBottom: 8,
+    },
+    emptyStateBody: {
+        fontSize: 14,
+        textAlign: 'center',
+        lineHeight: 20,
+        marginBottom: 32,
+        paddingHorizontal: 40,
+    },
+    emptyStateButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 14,
+        paddingHorizontal: 24,
+        borderRadius: 100,
+        gap: 8,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.2,
+        shadowRadius: 8,
+        elevation: 4,
+    },
+    emptyStateButtonText: {
+        color: '#fff',
+        fontSize: 15,
+        fontWeight: '700',
+    },
+    selectPrompt: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+        borderRadius: 16,
+        marginTop: 24,
+        gap: 8,
+    },
+    selectPromptText: {
+        fontSize: 13,
+        fontWeight: '600',
+    }
+});

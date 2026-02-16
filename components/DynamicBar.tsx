@@ -58,7 +58,7 @@ export default function DynamicBar({
         if (hour < 12) return { icon: Sun03Icon, text: "Good Morning" };
         if (hour < 18) return { icon: Sun03Icon, text: "Good Afternoon" };
         return { icon: Moon02Icon, text: "Good Evening" };
-    }, [customGreeting, mode]); 
+    }, [customGreeting]); // Fixed: Removed 'mode' dependency
 
     // --- 2. Cycle Logic ---
     useEffect(() => {
@@ -164,11 +164,12 @@ export default function DynamicBar({
                         entering={ZoomIn.duration(300)} 
                         exiting={ZoomOut.duration(300)}
                     >
-                        <HugeiconsIcon icon={data.icon} size={20} color={data.color} weight="duotone" />
+                        {/* Fixed: Removed invalid 'weight' prop */}
+                        <HugeiconsIcon icon={data.icon} size={20} color={data.color} />
                     </Animated.View>
                 </Animated.View>
 
-                {/* TEXT SECTION (Refined for spacing) */}
+                {/* TEXT SECTION */}
                 <View style={styles.textWrapper}>
                     <Animated.View 
                         key={data.key + (mode === 'quote' ? currentQuote : '')} 
@@ -177,17 +178,18 @@ export default function DynamicBar({
                         style={styles.textContainer}
                     >
                         {data.key === 'quote' ? (
-                            <View style={{ justifyContent: 'center', minHeight: 40, paddingVertical: 4 }}>
+                            <View style={{ justifyContent: 'center', alignItems: 'center', paddingVertical: 4 }}>
                                 <Text style={[styles.quoteText, { color: theme.colors.text }]}>
-                                    "{data.subtitle}"
+                                    {/* Fixed: Escaped quotes */}
+                                    &quot;{data.subtitle}&quot;
                                 </Text>
                             </View>
                         ) : (
-                            <View>
-                                <Text style={[styles.label, { color: alertVisible ? data.color : theme.colors.textSecondary }]}>
+                            <View style={{ alignItems: 'center' }}>
+                                <Text style={[styles.label, { color: alertVisible ? data.color : theme.colors.textSecondary, textAlign: 'center' }]}>
                                     {data.title}
                                 </Text>
-                                <Text style={[styles.mainText, { color: theme.colors.text }]} numberOfLines={1}>
+                                <Text style={[styles.mainText, { color: theme.colors.text, textAlign: 'center' }]} numberOfLines={1}>
                                     {data.subtitle}
                                 </Text>
                             </View>
@@ -214,12 +216,13 @@ const styles = StyleSheet.create({
         borderRadius: 24, 
         width: '100%',
         maxWidth: 380,
-        minHeight: 60, // Flexible height
+        height: 64, 
         borderWidth: 1,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.08,
         shadowRadius: 12,
         elevation: 4,
+        overflow: 'hidden',
     },
     iconWrapper: {
         width: 48,
@@ -228,15 +231,14 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: 14,
-        alignSelf: 'flex-start' // Anchors icon to top if bar expands
     },
     textWrapper: {
         flex: 1,
         justifyContent: 'center',
-        paddingVertical: 4,
     },
     textContainer: {
         justifyContent: 'center',
+        width: '100%',
     },
     label: {
         fontSize: 10,

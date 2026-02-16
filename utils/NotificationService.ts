@@ -3,14 +3,26 @@ import { differenceInSeconds } from 'date-fns';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
-// --- 1. Centralized Handler Configuration ---
+// --- 1. Handler Configuration ---
 Notifications.setNotificationHandler({
   handleNotification: async (notification) => {
+    // Check global push setting immediately
+    const settings = await getNotificationSettings();
+    if (!settings.pushEnabled) {
+        return {
+            shouldShowBanner: false,
+            shouldShowList: false,
+            shouldPlaySound: false,
+            shouldSetBadge: false,
+        };
+    }
+
     const data = notification.request.content.data || {};
     const isStatusChange = data.type === 'status_change';
-    
-    // Silent updates for timer ticks
-    if (!isStatusChange) {
+    const isGeneralAlert = data.type === 'general_alert';
+
+    // Timer Ticks are silent
+    if (!isStatusChange && !isGeneralAlert) {
         return {
             shouldShowBanner: false,
             shouldShowList: true,
@@ -19,7 +31,7 @@ Notifications.setNotificationHandler({
         };
     }
 
-    // Prominent updates for status changes (Pause/Resume)
+    // Alerts (Reminders/Status Changes) are prominent
     return {
       shouldShowBanner: true,
       shouldShowList: true,
@@ -29,7 +41,7 @@ Notifications.setNotificationHandler({
   },
 });
 
-// --- 2. System Initialization ---
+// --- 2. Initialization ---
 export async function initNotificationSystem() {
   const { status: existingStatus } = await Notifications.getPermissionsAsync();
   let finalStatus = existingStatus;
@@ -43,51 +55,32 @@ export async function initNotificationSystem() {
 
   if (Platform.OS === 'android') {
     await setupChannels();
-    await setupCategories();
   }
   return true;
 }
 
 async function setupChannels() {
+    // Silent Channel for Timer
     await Notifications.setNotificationChannelAsync('attendance_persistent', {
       name: 'Attendance Status',
-      importance: Notifications.AndroidImportance.LOW, // Low importance prevents sound/vibrate on update
+      importance: Notifications.AndroidImportance.LOW,
       vibrationPattern: [0], 
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
       showBadge: false,
       sound: null,
     });
+
+    // High Importance Channel for Alerts
+    await Notifications.setNotificationChannelAsync('attendance_alerts', {
+        name: 'Reminders & Alerts',
+        importance: Notifications.AndroidImportance.HIGH,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        showBadge: true,
+        sound: 'default',
+    });
 }
 
-async function setupCategories() {
-    await Notifications.setNotificationCategoryAsync('attendance_active', [
-      {
-        identifier: 'action_break_start',
-        buttonTitle: 'Pause (Break)',
-        options: { opensAppToForeground: false }, 
-      },
-      {
-        identifier: 'action_checkout',
-        buttonTitle: 'Time Out',
-        options: { opensAppToForeground: true }, 
-      },
-    ]);
-
-    await Notifications.setNotificationCategoryAsync('attendance_break', [
-        {
-          identifier: 'action_break_end',
-          buttonTitle: 'Resume (Work)',
-          options: { opensAppToForeground: false }, 
-        },
-        {
-            identifier: 'action_checkout',
-            buttonTitle: 'Time Out',
-            options: { opensAppToForeground: true }, 
-        },
-      ]);
-}
-
-// --- 3. Dynamic Attendance Notification ---
+// --- 3. Persistent Timer Notification ---
 export async function updateAttendanceNotification(
     startTime: string | Date, 
     isOvertime: boolean = false, 
@@ -95,7 +88,20 @@ export async function updateAttendanceNotification(
     isStatusChange: boolean = false 
 ) {
   const settings = await getNotificationSettings();
-  if (!settings.persistentTimer && !isStatusChange) return;
+  
+  // --- STRICT KILL SWITCHES ---
+  // 1. Global Push Off? -> Kill
+  if (!settings.pushEnabled) {
+      await clearAttendanceNotification();
+      return;
+  }
+  
+  // 2. Persistent Timer Off? -> Kill (Even if status changed)
+  // FIX: Removed "!isStatusChange" check so it strictly respects the setting
+  if (!settings.persistentTimer) {
+      await clearAttendanceNotification();
+      return;
+  }
 
   const now = new Date();
   const start = new Date(startTime);
@@ -104,33 +110,19 @@ export async function updateAttendanceNotification(
   const h = Math.floor(diffSecs / 3600);
   const m = Math.floor((diffSecs % 3600) / 60);
   
-  // IMPROVEMENT: Removed seconds from notification title. 
-  // Updating seconds every minute looks like a bug (frozen seconds).
-  // "4h 12m" is cleaner and always accurate to the minute.
   const timeString = `${h}h ${m.toString().padStart(2, '0')}m`;
-  
-  let statusText = '';
-  let color = '#10b981'; // Green
-  let category = 'attendance_active';
-  
-  // Ensure the icon file exists in android/app/src/main/res/drawable/
-  let icon = 'timer'; 
+  let statusText = 'Active Session';
+  let color = '#10b981'; 
 
   if (isOnBreak) {
       statusText = '⏸ ON BREAK'; 
-      color = '#F59E0B'; // Orange
-      category = 'attendance_break';
+      color = '#F59E0B'; 
   } else if (isOvertime) {
       statusText = '⚠️ OVERTIME';
-      color = '#EF4444'; // Red
-      category = 'attendance_active';
-  } else {
-      statusText = 'Creating Value...'; 
-      color = '#10b981'; // Green
-      category = 'attendance_active';
+      color = '#EF4444'; 
   }
 
-  // Force high priority only on status changes to pop the banner
+  // Use high priority only for status changes
   const priority = isStatusChange 
     ? Notifications.AndroidNotificationPriority.HIGH 
     : Notifications.AndroidNotificationPriority.LOW;
@@ -142,14 +134,13 @@ export async function updateAttendanceNotification(
           body: statusText,
           sticky: true,
           autoDismiss: false,
-          categoryIdentifier: category,
           data: { type: isStatusChange ? 'status_change' : 'timer_tick' }, 
           color: color, 
           priority: priority,
           // @ts-ignore
-          icon: icon, 
+          icon: 'notification_icon', 
           channelId: 'attendance_persistent',
-        },
+        } as any, 
         trigger: null,
         identifier: 'attendance_persistent',
       });
@@ -159,13 +150,86 @@ export async function updateAttendanceNotification(
 }
 
 export async function clearAttendanceNotification() {
-  await Notifications.dismissNotificationAsync('attendance_persistent');
+  try {
+      await Notifications.dismissNotificationAsync('attendance_persistent');
+  } catch (e) {
+      // Ignore
+  }
 }
 
-async function getNotificationSettings() {
+// --- 4. Reminders (Shift & Reports) ---
+export async function scheduleReminders(shiftStart: string | null) {
+    const settings = await getNotificationSettings();
+    
+    // Always clear existing to avoid duplicates/stale times
+    await Notifications.cancelScheduledNotificationAsync('shift_reminder');
+    await Notifications.cancelScheduledNotificationAsync('daily_report_reminder');
+
+    if (!settings.pushEnabled) return;
+
+    // A. Shift Reminder (15 mins before)
+    if (settings.clockInReminder && shiftStart) {
+        const [h, m] = shiftStart.split(':').map(Number);
+        const shiftDate = new Date();
+        shiftDate.setHours(h, m, 0, 0);
+
+        if (shiftDate < new Date()) {
+            shiftDate.setDate(shiftDate.getDate() + 1);
+        }
+
+        const reminderTime = new Date(shiftDate.getTime() - 15 * 60000);
+
+        await Notifications.scheduleNotificationAsync({
+            identifier: 'shift_reminder',
+            content: {
+                title: 'Shift Starting Soon ⏳',
+                body: `You have a shift starting at ${shiftStart}.`,
+                data: { type: 'general_alert' },
+                sound: true,
+                channelId: 'attendance_alerts'
+            } as any,
+            trigger: reminderTime as any,
+        });
+    }
+
+    // B. Daily Report Reminder (Default 5 PM)
+    if (settings.dailyReportReminder) {
+        const reportTime = new Date();
+        reportTime.setHours(17, 0, 0, 0); 
+        
+        if (reportTime < new Date()) {
+            reportTime.setDate(reportTime.getDate() + 1);
+        }
+
+        await Notifications.scheduleNotificationAsync({
+            identifier: 'daily_report_reminder',
+            content: {
+                title: 'End of Day Report 📊',
+                body: "Don't forget to generate your daily report.",
+                data: { type: 'general_alert' },
+                sound: true,
+                channelId: 'attendance_alerts'
+            } as any,
+            trigger: reportTime as any,
+        });
+    }
+}
+
+// --- 5. Settings Helper ---
+export async function getNotificationSettings() {
     try {
         const stored = await AsyncStorage.getItem('notificationSettings');
         if (stored) return JSON.parse(stored);
-    } catch (e) {}
-    return { persistentTimer: true };
+    } catch (e) {
+        // Ignore
+    }
+    
+    return { 
+        pushEnabled: true,
+        clockInReminder: true,
+        persistentTimer: true, 
+        breakReminders: true,
+        dailyReportReminder: true,
+        reportGenerationAlert: true
+    };
 }

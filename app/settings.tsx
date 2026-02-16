@@ -1,6 +1,4 @@
-// Hidden Scroll Bar Indicator
 import {
-    ArrowRight01Icon,
     Delete02Icon,
     InformationCircleIcon,
     Logout01Icon,
@@ -8,6 +6,7 @@ import {
     Notification01Icon,
     PaintBoardIcon,
     SecurityCheckIcon,
+    Settings02Icon,
     VolumeHighIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
@@ -17,11 +16,9 @@ import { useRouter } from 'expo-router';
 import { useColorScheme } from 'nativewind';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-    Animated,
     BackHandler,
     Image,
     Linking,
-    Pressable,
     ScrollView,
     StatusBar,
     StyleSheet,
@@ -35,53 +32,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Header from '../components/Header';
 import LoadingOverlay from '../components/LoadingOverlay';
 import ModernAlert from '../components/ModernAlert';
+// Fix: Import from the new components file
+import { ModernSettingsItem } from '../components/SettingsComponents';
 import { useAppTheme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 
 type ThemeOption = 'system' | 'light' | 'dark';
-
-// --- Modern Animated Settings Item ---
-const ModernSettingsItem = ({ icon, label, subLabel, onPress, rightElement, destructive, isLast, theme }: any) => {
-    const scaleValue = useRef(new Animated.Value(1)).current;
-
-    const onPressIn = () => {
-        Animated.spring(scaleValue, { toValue: 0.97, useNativeDriver: true, speed: 20 }).start();
-    };
-
-    const onPressOut = () => {
-        Animated.spring(scaleValue, { toValue: 1, useNativeDriver: true, speed: 20 }).start();
-    };
-
-    return (
-        <View>
-            <Pressable 
-                onPress={onPress}
-                onPressIn={onPress ? onPressIn : undefined}
-                onPressOut={onPress ? onPressOut : undefined}
-                disabled={!onPress}
-            >
-                <Animated.View style={{ 
-                    flexDirection: 'row', alignItems: 'center', paddingVertical: 12,
-                    transform: [{ scale: scaleValue }]
-                }}>
-                    <View style={{ 
-                        width: 36, height: 36, borderRadius: 10, 
-                        backgroundColor: destructive ? '#fee2e2' : theme.colors.background, 
-                        alignItems: 'center', justifyContent: 'center', marginRight: 12 
-                    }}>
-                        <HugeiconsIcon icon={icon} size={18} color={destructive ? '#ef4444' : (onPress || rightElement ? theme.colors.primary : theme.colors.textSecondary)} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 15, fontWeight: '600', color: destructive ? '#ef4444' : theme.colors.text }}>{label}</Text>
-                        {subLabel && <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginTop: 2 }}>{subLabel}</Text>}
-                    </View>
-                    {rightElement ? rightElement : (onPress && <HugeiconsIcon icon={ArrowRight01Icon} size={20} color={theme.colors.textSecondary} />)}
-                </Animated.View>
-            </Pressable>
-            {!isLast && <View style={{ height: 1, backgroundColor: theme.colors.border, opacity: 0.5, marginVertical: 4 }} />}
-        </View>
-    );
-};
 
 export default function SettingsScreen() {
     const router = useRouter();
@@ -96,30 +52,19 @@ export default function SettingsScreen() {
     const [loadingMessage, setLoadingMessage] = useState('');
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
-    // Check Provider
     const isGoogleAuth = user?.app_metadata?.provider === 'google';
-
     const isMounted = useRef(true);
 
-    // Refresh settings when screen comes into focus (e.g. back from Appearance screen)
     useEffect(() => {
         loadSettings();
-        // Add listener for focus to reload settings if they changed elsewhere
-        // (Though React Navigation state updates usually trigger re-renders, explicit reloading ensures sync)
-        const unsubscribe = router.canGoBack() ? null : null; 
-        return () => {};
     }, []);
 
     useEffect(() => {
         const backAction = () => {
-            if (router.canGoBack()) {
-                router.back();
-            } else {
-                router.replace('/(tabs)/home'); 
-            }
+            if (router.canGoBack()) router.back();
+            else router.replace('/(tabs)/home'); 
             return true; 
         };
-
         const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
         return () => backHandler.remove();
     }, [router]);
@@ -128,7 +73,7 @@ export default function SettingsScreen() {
         isMounted.current = true;
         loadSettings();
         return () => { isMounted.current = false; };
-    }, [colorScheme]); // Reload if color scheme changes
+    }, [colorScheme]);
 
     const loadSettings = async () => {
         try {
@@ -138,9 +83,7 @@ export default function SettingsScreen() {
                 if (parsed.soundEnabled !== undefined) setSoundEnabled(parsed.soundEnabled);
                 if (parsed.themePreference) setThemePreference(parsed.themePreference);
             }
-        } catch (e) {
-            console.error("Failed to load settings", e);
-        }
+        } catch (e) { console.error(e); }
     };
 
     const saveSetting = async (key: string, value: any) => {
@@ -149,9 +92,7 @@ export default function SettingsScreen() {
             const settings = stored ? JSON.parse(stored) : {};
             settings[key] = value;
             await AsyncStorage.setItem('appSettings', JSON.stringify(settings));
-        } catch (e) {
-            console.error(e);
-        }
+        } catch (e) { console.error(e); }
     };
 
     const toggleSound = (val: boolean) => {
@@ -168,7 +109,7 @@ export default function SettingsScreen() {
             visible: true,
             type: 'confirm',
             title: 'Clear Cache',
-            message: 'This will free up space by deleting temporary files. Your data is safe.',
+            message: 'This will free up space by deleting temporary files.',
             confirmText: 'Clear Cache',
             onConfirm: async () => {
                 setAlertConfig((prev: any) => ({ ...prev, visible: false }));
@@ -177,15 +118,12 @@ export default function SettingsScreen() {
                 try {
                     const fs = FileSystem as any;
                     if (fs.cacheDirectory) await fs.deleteAsync(fs.cacheDirectory, { idempotent: true });
-                    
                     setTimeout(() => {
                         if (!isMounted.current) return;
                         setIsLoading(false);
                         setAlertConfig({ visible: true, type: 'success', title: 'Success', message: 'Cache cleared.', onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) });
                     }, 800);
-                } catch (e) {
-                    setIsLoading(false);
-                }
+                } catch (e) { setIsLoading(false); }
             },
             onCancel: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
         });
@@ -215,42 +153,43 @@ export default function SettingsScreen() {
 
             <Header title="Settings" />
 
-            <ScrollView 
-                contentContainerStyle={{ padding: 24, paddingBottom: 100 }}
-                showsVerticalScrollIndicator={false}
-            >
-                {/* --- PROFILE SECTION --- */}
+            <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
+                
+                {/* PROFILE */}
                 <View style={{ marginBottom: 24 }}>
                     <Text style={styles.sectionTitle}>PROFILE</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                             <View style={[styles.profileIconContainer, { backgroundColor: theme.colors.background }]}>
                               {isGoogleAuth ? (
-                                <Image 
-                                  source={require('../assets/images/google-logo.png')} 
-                                  style={{ width: 22, height: 22 }}
-                                  resizeMode="contain"
-                                />
+                                <Image source={require('../assets/images/google-logo.png')} style={{ width: 22, height: 22 }} resizeMode="contain" />
                               ) : (
                                 <HugeiconsIcon icon={Mail01Icon} size={22} color={theme.colors.primary} />
                               )}
                             </View>
                             <View style={{ marginLeft: 12, flex: 1 }}>
-                                <Text style={{ fontSize: 16, fontWeight: '600', color: theme.colors.text }}>
-                                    {user?.email}
-                                </Text>
-                                <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 2 }}>
-                                    Signed in via {isGoogleAuth ? 'Google' : 'Email'}
-                                </Text>
+                                <Text style={{ fontSize: 16, fontWeight: '600', color: theme.colors.text }}>{user?.email}</Text>
+                                <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 2 }}>Signed in via {isGoogleAuth ? 'Google' : 'Email'}</Text>
                             </View>
                          </View>
                     </View>
                 </View>
 
+                {/* APP SETTINGS */}
                 <View style={{ marginBottom: 24 }}>
                     <Text style={styles.sectionTitle}>APP SETTINGS</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
+                        
+                        <ModernSettingsItem 
+                            icon={Settings02Icon} 
+                            label="General" 
+                            subLabel="App Behavior, Haptics, Shift Logic"
+                            onPress={() => router.push('/settings/general')} 
+                            theme={theme} 
+                        />
+
                         <ModernSettingsItem icon={Notification01Icon} label="Notifications" onPress={() => router.push('/settings/notifications')} theme={theme} />
+                        
                         <ModernSettingsItem 
                             icon={PaintBoardIcon} 
                             label="Appearance" 
@@ -263,6 +202,7 @@ export default function SettingsScreen() {
                             label="Sound Effects" 
                             isLast
                             theme={theme}
+                            onPress={() => toggleSound(!soundEnabled)}
                             rightElement={
                                 <Switch value={soundEnabled} onValueChange={toggleSound} trackColor={{ false: '#767577', true: theme.colors.primary }} thumbColor={'#fff'} style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }} />
                             } 
@@ -270,6 +210,7 @@ export default function SettingsScreen() {
                     </View>
                 </View>
 
+                {/* SECURITY & SUPPORT */}
                 <View style={{ marginBottom: 24 }}>
                     <Text style={styles.sectionTitle}>SECURITY</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
@@ -282,7 +223,6 @@ export default function SettingsScreen() {
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
                         <ModernSettingsItem icon={InformationCircleIcon} label="Privacy Policy" onPress={() => router.push('/settings/privacy-policy')} theme={theme} />
                         <ModernSettingsItem icon={Mail01Icon} label="Contact Support" onPress={handleContactSupport} theme={theme} />
-                        <ModernSettingsItem icon={InformationCircleIcon} label="About" subLabel="Version & Build Info" onPress={() => router.push('/settings/about')} theme={theme} />
                         <ModernSettingsItem icon={Delete02Icon} label="Clear Cache" onPress={handleClearCache} isLast theme={theme} />
                     </View>
                 </View>
@@ -292,14 +232,7 @@ export default function SettingsScreen() {
                     activeOpacity={0.8}
                     style={{
                         backgroundColor: '#FEF2F2', 
-                        height: 56,
-                        borderRadius: 16,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 12,
-                        borderWidth: 1,
-                        borderColor: '#FEE2E2'
+                        height: 56, borderRadius: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, borderWidth: 1, borderColor: '#FEE2E2'
                     }}
                 >
                     <Text style={{ color: '#ef4444', fontSize: 15, fontWeight: '600' }}>Sign Out</Text>

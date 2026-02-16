@@ -19,7 +19,6 @@ import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
-    Keyboard,
     KeyboardAvoidingView,
     Modal,
     Platform,
@@ -27,15 +26,12 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
-    TouchableWithoutFeedback,
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AddBreakModal from '../../components/AddBreakModal';
 import DatePicker from '../../components/DatePicker';
-// Removed DurationPicker import as we are using manual input
-import Footer from '../../components/Footer';
 import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
@@ -181,7 +177,7 @@ export default function JobForm() {
     const [rateType, setRateType] = useState<'hourly' | 'daily' | 'monthly'>('hourly');
     const [payoutType, setPayoutType] = useState('Semi-Monthly'); 
     
-    // Period Target State (Fixed for unlimited hours)
+    // Period Target State
     const [targetHours, setTargetHours] = useState<string>('');
     const [targetMinutes, setTargetMinutes] = useState<string>('');
 
@@ -344,7 +340,6 @@ export default function JobForm() {
 
     const handleSave = async () => {
         if (!validate()) return;
-
         setSaving(true);
         try {
             if (!user) throw new Error('No user found');
@@ -353,13 +348,10 @@ export default function JobForm() {
             const finalJobId = jobId || generateUUID();
             const now = new Date().toISOString();
             
-            // Calculate Period Target
             let periodTargetMins = null;
             const h = parseInt(targetHours || '0', 10);
             const m = parseInt(targetMinutes || '0', 10);
-            if (h > 0 || m > 0) {
-                periodTargetMins = (h * 60) + m;
-            }
+            if (h > 0 || m > 0) { periodTargetMins = (h * 60) + m; }
 
             const payload = {
                 id: finalJobId,
@@ -395,7 +387,6 @@ export default function JobForm() {
             setIsDirty(false);
             setSaving(false);
             router.back();
-
         } catch (e: any) { 
             setSaving(false);
             setAlertConfig({ visible: true, type: 'error', title: 'Save Failed', message: e.message || 'Error saving job.', confirmText: 'Close', onConfirm: () => setAlertConfig((prev:any) => ({ ...prev, visible: false })) }); 
@@ -405,186 +396,184 @@ export default function JobForm() {
     if (initialLoading) return <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={theme.colors.primary} /></View>;
     
     return (
-        <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setVisibleTooltip(null); }}>
-            <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
-                <LoadingOverlay visible={saving} message="Saving Job..." />
-                <ModernAlert {...alertConfig} />
-                <TimePickerModal visible={pickerVisible} onClose={() => setPickerVisible(false)} onConfirm={handleTimeConfirm} initialHours={pickerConfig.currentValue?.getHours()} initialMinutes={pickerConfig.currentValue?.getMinutes()} initialPeriod={pickerConfig.currentValue && pickerConfig.currentValue.getHours() >= 12 ? 'PM' : 'AM'} title={pickerConfig.mode.includes('Start') ? "Start Time" : "End Time"} />
-                
-                <AddBreakModal visible={addBreakModalVisible} onClose={() => setAddBreakModalVisible(false)} onAdd={handleAddBreak} />
-                <SearchableSelectionModal visible={jobSelectorVisible} onClose={() => setJobSelectorVisible(false)} onSelect={handleJobSelect} title="Select Job Title" options={jobOptions} placeholder="Search job title..." currentValue={position} />
-                <SearchableSelectionModal visible={statusSelectorVisible} onClose={() => setStatusSelectorVisible(false)} onSelect={(val) => markDirty(setEmploymentStatus, val)} title="Employment Status" options={EMPLOYMENT_STATUS_OPTIONS} placeholder="Select Status" currentValue={employmentStatus} />
-                <DatePicker visible={calendarVisible} onClose={() => setCalendarVisible(false)} onSelect={(date) => { markDirty(setStartDate, date); setCalendarVisible(false); }} selectedDate={startDate} />
-                
-                {/* Break Rename Modal */}
-                <Modal transparent={true} visible={breakTitleModalVisible} animationType="fade" onRequestClose={() => setBreakTitleModalVisible(false)}>
-                    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-                        <View style={{ width: '85%', backgroundColor: theme.colors.card, borderRadius: 24, padding: 24, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 5 }}>
-                            <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.colors.text, marginBottom: 8, textAlign: 'center' }}>Rename Break</Text>
-                            <View style={{ backgroundColor: theme.colors.background, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 8 }}>
-                                <TextInput placeholder="e.g. Lunch Break" placeholderTextColor={theme.colors.textSecondary} value={newBreakTitle} onChangeText={setNewBreakTitle} autoFocus maxLength={16} style={{ fontSize: 16, color: theme.colors.text }} />
-                            </View>
-                            <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
-                                <TouchableOpacity onPress={() => { setBreakTitleModalVisible(false); setEditingBreakId(null); }} style={{ flex: 1, padding: 14, borderRadius: 14, backgroundColor: theme.colors.background, alignItems: 'center' }}><Text style={{ color: theme.colors.textSecondary, fontWeight: 'bold' }}>Cancel</Text></TouchableOpacity>
-                                <TouchableOpacity onPress={saveBreakTitle} style={{ flex: 1, padding: 14, borderRadius: 14, backgroundColor: theme.colors.primary, alignItems: 'center' }}><Text style={{ color: '#fff', fontWeight: 'bold' }}>Save</Text></TouchableOpacity>
-                            </View>
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
+            <LoadingOverlay visible={saving} message="Saving Job..." />
+            <ModernAlert {...alertConfig} />
+            <TimePickerModal visible={pickerVisible} onClose={() => setPickerVisible(false)} onConfirm={handleTimeConfirm} initialHours={pickerConfig.currentValue?.getHours()} initialMinutes={pickerConfig.currentValue?.getMinutes()} initialPeriod={pickerConfig.currentValue && pickerConfig.currentValue.getHours() >= 12 ? 'PM' : 'AM'} title={pickerConfig.mode.includes('Start') ? "Start Time" : "End Time"} />
+            
+            <AddBreakModal visible={addBreakModalVisible} onClose={() => setAddBreakModalVisible(false)} onAdd={handleAddBreak} />
+            <SearchableSelectionModal visible={jobSelectorVisible} onClose={() => setJobSelectorVisible(false)} onSelect={handleJobSelect} title="Select Job Title" options={jobOptions} placeholder="Search job title..." currentValue={position} />
+            <SearchableSelectionModal visible={statusSelectorVisible} onClose={() => setStatusSelectorVisible(false)} onSelect={(val) => markDirty(setEmploymentStatus, val)} title="Employment Status" options={EMPLOYMENT_STATUS_OPTIONS} placeholder="Select Status" currentValue={employmentStatus} />
+            <DatePicker visible={calendarVisible} onClose={() => setCalendarVisible(false)} onSelect={(date) => { markDirty(setStartDate, date); setCalendarVisible(false); }} selectedDate={startDate} />
+            
+            {/* Break Rename Modal */}
+            <Modal transparent={true} visible={breakTitleModalVisible} animationType="fade" onRequestClose={() => setBreakTitleModalVisible(false)}>
+                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+                    <View style={{ width: '85%', backgroundColor: theme.colors.card, borderRadius: 24, padding: 24, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 5 }}>
+                        <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.colors.text, marginBottom: 8, textAlign: 'center' }}>Rename Break</Text>
+                        <View style={{ backgroundColor: theme.colors.background, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 8 }}>
+                            <TextInput placeholder="e.g. Lunch Break" placeholderTextColor={theme.colors.textSecondary} value={newBreakTitle} onChangeText={setNewBreakTitle} autoFocus maxLength={16} style={{ fontSize: 16, color: theme.colors.text }} />
                         </View>
-                    </KeyboardAvoidingView>
-                </Modal>
+                        <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
+                            <TouchableOpacity onPress={() => { setBreakTitleModalVisible(false); setEditingBreakId(null); }} style={{ flex: 1, padding: 14, borderRadius: 14, backgroundColor: theme.colors.background, alignItems: 'center' }}><Text style={{ color: theme.colors.textSecondary, fontWeight: 'bold' }}>Cancel</Text></TouchableOpacity>
+                            <TouchableOpacity onPress={saveBreakTitle} style={{ flex: 1, padding: 14, borderRadius: 14, backgroundColor: theme.colors.primary, alignItems: 'center' }}><Text style={{ color: '#fff', fontWeight: 'bold' }}>Save</Text></TouchableOpacity>
+                        </View>
+                    </View>
+                </KeyboardAvoidingView>
+            </Modal>
 
-                <Header title={jobId ? 'Edit Job' : 'Add New Job'} />
+            <Header title={jobId ? 'Edit Job' : 'Add New Job'} />
 
-                {/* REFINED SCROLLING */}
-                <KeyboardAvoidingView 
-                    behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
-                    style={{ flex: 1 }}
+            {/* KEYBOARD HANDLING & SCROLLING FIXES */}
+            <KeyboardAvoidingView 
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
+                style={{ flex: 1 }}
+            >
+                <ScrollView 
+                    contentContainerStyle={{ padding: 24, paddingBottom: 150, flexGrow: 1 }} 
+                    showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
+                    keyboardDismissMode="on-drag" // Allows natural keyboard dismissal
                 >
-                    <ScrollView 
-                        contentContainerStyle={{ padding: 24, paddingBottom: 100, flexGrow: 1 }} 
-                        showsVerticalScrollIndicator={false}
-                        keyboardShouldPersistTaps="handled"
-                        removeClippedSubviews={false}
-                    >
-                        <View style={{ marginBottom: 24 }}>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Job Details</Text>
-                            <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
-                                <StyledInput label="Job Title" value={position || 'Select Title'} onPress={() => setJobSelectorVisible(true)} readonly icon={Briefcase01Icon} required errorKey="position" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
-                                <StyledInput label="Company Name" value={company} onChange={(t:string) => markDirty(setCompany, t)} placeholder="Enter Company" icon={Building03Icon} required errorKey="company" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
-                                <StyledInput label="Department" value={department} onChange={(t:string) => markDirty(setDepartment, t)} placeholder="Optional" icon={UserGroupIcon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
-                                <StyledInput label="Employment Status" value={employmentStatus} onPress={() => setStatusSelectorVisible(true)} readonly icon={UserIcon} required theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
-                                <StyledInput label="Date Started" value={startDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} onPress={() => setCalendarVisible(true)} readonly icon={Calendar03Icon} required theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                    <View style={{ marginBottom: 24 }}>
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Job Details</Text>
+                        <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
+                            <StyledInput label="Job Title" value={position || 'Select Title'} onPress={() => setJobSelectorVisible(true)} readonly icon={Briefcase01Icon} required errorKey="position" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                            <StyledInput label="Company Name" value={company} onChange={(t:string) => markDirty(setCompany, t)} placeholder="Enter Company Name" icon={Building03Icon} required errorKey="company" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                            <StyledInput label="Department" value={department} onChange={(t:string) => markDirty(setDepartment, t)} placeholder="Enter Department Name" icon={UserGroupIcon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                            <StyledInput label="Employment Status" value={employmentStatus} onPress={() => setStatusSelectorVisible(true)} readonly icon={UserIcon} required theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                            <StyledInput label="Date Started" value={startDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} onPress={() => setCalendarVisible(true)} readonly icon={Calendar03Icon} required theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                        </View>
+                    </View>
+                    
+                    <View style={{ marginBottom: 24 }}>
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Compensation</Text>
+                        <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
+                            <StyledInput label="Pay Rate" value={salaryDisplay} onChange={handleSalaryChange} placeholder="₱ 0.00" icon={DollarCircleIcon} required errorKey="salary" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                            <View style={{ flexDirection: 'row', backgroundColor: theme.colors.background, padding: 4, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 20 }}>
+                                {(['hourly', 'daily', 'monthly'] as const).map((type) => (
+                                    <TouchableOpacity key={type} onPress={() => markDirty(setRateType, type)} style={{ flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: rateType === type ? theme.colors.primary : 'transparent', alignItems: 'center' }}>
+                                        <Text style={{ color: rateType === type ? '#fff' : theme.colors.textSecondary, fontWeight: '700', fontSize: 13, textTransform: 'capitalize' }}>{type}</Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </View>
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>
+                                Payout Schedule <Text style={{ color: '#ef4444' }}>*</Text>
+                            </Text>
+                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 }}>
+                                {PAYOUT_GRID_OPTIONS.map((opt) => {
+                                    const isSelected = payoutType === opt.value;
+                                    return (
+                                        <TouchableOpacity key={opt.value} onPress={() => markDirty(setPayoutType, opt.value)} style={{ width: '48%', backgroundColor: isSelected ? theme.colors.primary : theme.colors.card, borderColor: isSelected ? theme.colors.primary : theme.colors.border, borderWidth: 1, borderRadius: 16, padding: 14 }}>
+                                            <Text style={{ color: isSelected ? '#fff' : theme.colors.text, fontWeight: '700', fontSize: 14, marginBottom: 2 }}>{opt.label}</Text>
+                                            <Text style={{ color: isSelected ? '#ffffffcc' : theme.colors.textSecondary, fontSize: 10, fontWeight: '500' }}>{opt.desc}</Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </View>
+
+                            <View style={{ marginBottom: 20 }}>
+                                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>
+                                    {payoutType} Target Duration
+                                </Text>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.card, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, height: 56, paddingHorizontal: 16 }}>
+                                    <HugeiconsIcon icon={Target02Icon} size={22} color={theme.colors.textSecondary} />
+                                    <TextInput 
+                                        value={targetHours}
+                                        onChangeText={(t) => { setTargetHours(t.replace(/[^0-9]/g, '')); setIsDirty(true); }}
+                                        placeholder="0"
+                                        placeholderTextColor={theme.colors.textSecondary}
+                                        keyboardType="number-pad"
+                                        style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text, textAlign: 'right' }}
+                                    />
+                                    <Text style={{ marginLeft: 6, marginRight: 12, color: theme.colors.textSecondary, fontWeight: '600' }}>hrs</Text>
+                                    <View style={{ width: 1, height: 20, backgroundColor: theme.colors.border }} />
+                                    <TextInput 
+                                        value={targetMinutes}
+                                        onChangeText={(t) => { setTargetMinutes(t.replace(/[^0-9]/g, '')); setIsDirty(true); }}
+                                        placeholder="0"
+                                        placeholderTextColor={theme.colors.textSecondary}
+                                        keyboardType="number-pad"
+                                        maxLength={2}
+                                        style={{ width: 40, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text, textAlign: 'right' }}
+                                    />
+                                    <Text style={{ marginLeft: 6, color: theme.colors.textSecondary, fontWeight: '600' }}>min</Text>
+                                </View>
                             </View>
                         </View>
-                        
-                        <View style={{ marginBottom: 24 }}>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Compensation</Text>
-                            <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
-                                <StyledInput label="Pay Rate" value={salaryDisplay} onChange={handleSalaryChange} placeholder="₱ 0.00" icon={DollarCircleIcon} required errorKey="salary" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
-                                <View style={{ flexDirection: 'row', backgroundColor: theme.colors.background, padding: 4, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 20 }}>
-                                    {(['hourly', 'daily', 'monthly'] as const).map((type) => (
-                                        <TouchableOpacity key={type} onPress={() => markDirty(setRateType, type)} style={{ flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: rateType === type ? theme.colors.primary : 'transparent', alignItems: 'center' }}>
-                                            <Text style={{ color: rateType === type ? '#fff' : theme.colors.textSecondary, fontWeight: '700', fontSize: 13, textTransform: 'capitalize' }}>{type}</Text>
-                                        </TouchableOpacity>
+                    </View>
+
+                    <View style={{ marginBottom: 24 }}>
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>
+                            Schedule <Text style={{ color: '#ef4444' }}>*</Text>
+                        </Text>
+                        <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
+                            <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
+                                <TouchableOpacity onPress={() => openPicker('workStart')} style={{ flex: 1, backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 16, padding: 12 }}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}><Text style={{ color: theme.colors.textSecondary, fontSize: 10, fontWeight: 'bold' }}>START</Text><HugeiconsIcon icon={Clock01Icon} size={16} color={theme.colors.primary} /></View>
+                                    <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800' }}>{formatTime12h(workStart)}</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => openPicker('workEnd')} style={{ flex: 1, backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 16, padding: 12 }}>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}><Text style={{ color: theme.colors.textSecondary, fontSize: 10, fontWeight: 'bold' }}>END</Text><HugeiconsIcon icon={Clock01Icon} size={16} color="#ef4444" /></View>
+                                    <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800' }}>{formatTime12h(workEnd)}</Text>
+                                    {isOvernightShift() && <Text style={{ position: 'absolute', bottom: 12, right: 12, fontSize: 9, color: theme.colors.primary, fontWeight: 'bold', backgroundColor: theme.colors.primary + '15', paddingHorizontal: 4, borderRadius: 4 }}>+1 DAY</Text>}
+                                </TouchableOpacity>
+                            </View>
+
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase' }}>Unpaid Breaks</Text>
+                                <TouchableOpacity onPress={() => setAddBreakModalVisible(true)} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                    <HugeiconsIcon icon={PlusSignIcon} size={16} color={theme.colors.primary} />
+                                    <Text style={{ color: theme.colors.primary, marginLeft: 4, fontSize: 12, fontWeight: '700' }}>Add</Text>
+                                </TouchableOpacity>
+                            </View>
+
+                            {breaks.length === 0 ? (
+                                <View style={{ padding: 16, alignItems: 'center', justifyContent: 'center', borderStyle: 'dashed', borderWidth: 2, borderColor: theme.colors.border, borderRadius: 16 }}>
+                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>No breaks added.</Text>
+                                </View>
+                            ) : (
+                                <View style={{ gap: 10 }}>
+                                    {breaks.map((brk) => (
+                                        <View key={brk.id} style={{ backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 16, padding: 12 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                                    <Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: 14, marginRight: 8 }}>{brk.title || "Break"}</Text>
+                                                    <TouchableOpacity onPress={() => openEditBreakTitle(brk.id, brk.title || '')}><HugeiconsIcon icon={PencilEdit02Icon} size={14} color={theme.colors.textSecondary} /></TouchableOpacity>
+                                                </View>
+                                                <TouchableOpacity onPress={() => removeBreak(brk.id)}><HugeiconsIcon icon={Delete02Icon} size={16} color="#ef4444" /></TouchableOpacity>
+                                            </View>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                                <TouchableOpacity onPress={() => openPicker('breakStart', brk.id)} style={{ flex: 1, padding: 8, backgroundColor: theme.colors.card, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border }}>
+                                                    <Text style={{ fontSize: 10, color: theme.colors.textSecondary, fontWeight: '700' }}>START</Text>
+                                                    <Text style={{ fontSize: 13, color: theme.colors.text, fontWeight: '700' }}>{formatTime12h(brk.start)}</Text>
+                                                </TouchableOpacity>
+                                                <HugeiconsIcon icon={ArrowDown01Icon} size={16} color={theme.colors.textSecondary} style={{ transform: [{ rotate: '-90deg' }] }} />
+                                                <TouchableOpacity onPress={() => openPicker('breakEnd', brk.id)} style={{ flex: 1, padding: 8, backgroundColor: theme.colors.card, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border }}>
+                                                    <Text style={{ fontSize: 10, color: theme.colors.textSecondary, fontWeight: '700' }}>END</Text>
+                                                    <Text style={{ fontSize: 13, color: theme.colors.text, fontWeight: '700' }}>{formatTime12h(brk.end)}</Text>
+                                                </TouchableOpacity>
+                                            </View>
+                                        </View>
                                     ))}
                                 </View>
-                                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>
-                                    Payout Schedule <Text style={{ color: '#ef4444' }}>*</Text>
-                                </Text>
-                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 }}>
-                                    {PAYOUT_GRID_OPTIONS.map((opt) => {
-                                        const isSelected = payoutType === opt.value;
-                                        return (
-                                            <TouchableOpacity key={opt.value} onPress={() => markDirty(setPayoutType, opt.value)} style={{ width: '48%', backgroundColor: isSelected ? theme.colors.primary : theme.colors.card, borderColor: isSelected ? theme.colors.primary : theme.colors.border, borderWidth: 1, borderRadius: 16, padding: 14 }}>
-                                                <Text style={{ color: isSelected ? '#fff' : theme.colors.text, fontWeight: '700', fontSize: 14, marginBottom: 2 }}>{opt.label}</Text>
-                                                <Text style={{ color: isSelected ? '#ffffffcc' : theme.colors.textSecondary, fontSize: 10, fontWeight: '500' }}>{opt.desc}</Text>
-                                            </TouchableOpacity>
-                                        );
-                                    })}
-                                </View>
-
-                                {/* UPDATED: Manual Input for > 24 Hours Support */}
-                                <View style={{ marginBottom: 20 }}>
-                                    <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>
-                                        {payoutType} Target Duration
-                                    </Text>
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.card, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, height: 56, paddingHorizontal: 16 }}>
-                                        <HugeiconsIcon icon={Target02Icon} size={22} color={theme.colors.textSecondary} />
-                                        <TextInput 
-                                            value={targetHours}
-                                            onChangeText={(t) => { setTargetHours(t.replace(/[^0-9]/g, '')); setIsDirty(true); }}
-                                            placeholder="0"
-                                            placeholderTextColor={theme.colors.textSecondary}
-                                            keyboardType="number-pad"
-                                            style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text, textAlign: 'right' }}
-                                        />
-                                        <Text style={{ marginLeft: 6, marginRight: 12, color: theme.colors.textSecondary, fontWeight: '600' }}>hrs</Text>
-                                        <View style={{ width: 1, height: 20, backgroundColor: theme.colors.border }} />
-                                        <TextInput 
-                                            value={targetMinutes}
-                                            onChangeText={(t) => { setTargetMinutes(t.replace(/[^0-9]/g, '')); setIsDirty(true); }}
-                                            placeholder="0"
-                                            placeholderTextColor={theme.colors.textSecondary}
-                                            keyboardType="number-pad"
-                                            maxLength={2}
-                                            style={{ width: 40, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text, textAlign: 'right' }}
-                                        />
-                                        <Text style={{ marginLeft: 6, color: theme.colors.textSecondary, fontWeight: '600' }}>min</Text>
-                                    </View>
-                                </View>
+                            )}
+                            
+                            <View style={{ marginTop: 20, alignItems: 'center', backgroundColor: theme.colors.primary + '10', padding: 12, borderRadius: 12 }}>
+                                <Text style={{ color: theme.colors.textSecondary, fontSize: 13, fontWeight: '600' }}>Total Daily Goal: <Text style={{ color: theme.colors.primary, fontWeight: '800' }}>{formatHoursDisplay(calculateDailyHours())}</Text></Text>
                             </View>
                         </View>
+                    </View>
+                </ScrollView>
 
-                        <View style={{ marginBottom: 24 }}>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>
-                                Schedule <Text style={{ color: '#ef4444' }}>*</Text>
-                            </Text>
-                            <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
-                                <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
-                                    <TouchableOpacity onPress={() => openPicker('workStart')} style={{ flex: 1, backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 16, padding: 12 }}>
-                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}><Text style={{ color: theme.colors.textSecondary, fontSize: 10, fontWeight: 'bold' }}>START</Text><HugeiconsIcon icon={Clock01Icon} size={16} color={theme.colors.primary} /></View>
-                                        <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800' }}>{formatTime12h(workStart)}</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity onPress={() => openPicker('workEnd')} style={{ flex: 1, backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 16, padding: 12 }}>
-                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}><Text style={{ color: theme.colors.textSecondary, fontSize: 10, fontWeight: 'bold' }}>END</Text><HugeiconsIcon icon={Clock01Icon} size={16} color="#ef4444" /></View>
-                                        <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800' }}>{formatTime12h(workEnd)}</Text>
-                                        {isOvernightShift() && <Text style={{ position: 'absolute', bottom: 12, right: 12, fontSize: 9, color: theme.colors.primary, fontWeight: 'bold', backgroundColor: theme.colors.primary + '15', paddingHorizontal: 4, borderRadius: 4 }}>+1 DAY</Text>}
-                                    </TouchableOpacity>
-                                </View>
-
-                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                                    <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase' }}>Unpaid Breaks</Text>
-                                    <TouchableOpacity onPress={() => setAddBreakModalVisible(true)} style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                        <HugeiconsIcon icon={PlusSignIcon} size={16} color={theme.colors.primary} />
-                                        <Text style={{ color: theme.colors.primary, marginLeft: 4, fontSize: 12, fontWeight: '700' }}>Add</Text>
-                                    </TouchableOpacity>
-                                </View>
-
-                                {breaks.length === 0 ? (
-                                    <View style={{ padding: 16, alignItems: 'center', justifyContent: 'center', borderStyle: 'dashed', borderWidth: 2, borderColor: theme.colors.border, borderRadius: 16 }}>
-                                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>No breaks added.</Text>
-                                    </View>
-                                ) : (
-                                    <View style={{ gap: 10 }}>
-                                        {breaks.map((brk) => (
-                                            <View key={brk.id} style={{ backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 16, padding: 12 }}>
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                                        <Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: 14, marginRight: 8 }}>{brk.title || "Break"}</Text>
-                                                        <TouchableOpacity onPress={() => openEditBreakTitle(brk.id, brk.title || '')}><HugeiconsIcon icon={PencilEdit02Icon} size={14} color={theme.colors.textSecondary} /></TouchableOpacity>
-                                                    </View>
-                                                    <TouchableOpacity onPress={() => removeBreak(brk.id)}><HugeiconsIcon icon={Delete02Icon} size={16} color="#ef4444" /></TouchableOpacity>
-                                                </View>
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                                    <TouchableOpacity onPress={() => openPicker('breakStart', brk.id)} style={{ flex: 1, padding: 8, backgroundColor: theme.colors.card, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border }}>
-                                                        <Text style={{ fontSize: 10, color: theme.colors.textSecondary, fontWeight: '700' }}>START</Text>
-                                                        <Text style={{ fontSize: 13, color: theme.colors.text, fontWeight: '700' }}>{formatTime12h(brk.start)}</Text>
-                                                    </TouchableOpacity>
-                                                    <HugeiconsIcon icon={ArrowDown01Icon} size={16} color={theme.colors.textSecondary} style={{ transform: [{ rotate: '-90deg' }] }} />
-                                                    <TouchableOpacity onPress={() => openPicker('breakEnd', brk.id)} style={{ flex: 1, padding: 8, backgroundColor: theme.colors.card, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border }}>
-                                                        <Text style={{ fontSize: 10, color: theme.colors.textSecondary, fontWeight: '700' }}>END</Text>
-                                                        <Text style={{ fontSize: 13, color: theme.colors.text, fontWeight: '700' }}>{formatTime12h(brk.end)}</Text>
-                                                    </TouchableOpacity>
-                                                </View>
-                                            </View>
-                                        ))}
-                                    </View>
-                                )}
-                                
-                                <View style={{ marginTop: 20, alignItems: 'center', backgroundColor: theme.colors.primary + '10', padding: 12, borderRadius: 12 }}>
-                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 13, fontWeight: '600' }}>Total Daily Goal: <Text style={{ color: theme.colors.primary, fontWeight: '800' }}>{formatHoursDisplay(calculateDailyHours())}</Text></Text>
-                                </View>
-                            </View>
-                        </View>
-                    </ScrollView>
-                </KeyboardAvoidingView>
-                
-                <Footer>
+                {/* Footer is now inside KeyboardAvoidingView to stick above keyboard */}
+                <View style={{ padding: 24, paddingTop: 12, backgroundColor: theme.colors.background, borderTopWidth: 1, borderColor: theme.colors.border }}>
                     <TouchableOpacity onPress={handleSave} disabled={saving} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.primary, height: 56, borderRadius: 16, shadowColor: theme.colors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}>
                         <Text style={{ color: 'white', fontSize: 16, fontWeight: '700', marginRight: 8 }}>{jobId ? 'Update Job' : 'Save Job'}</Text>
                         <HugeiconsIcon icon={Tick01Icon} size={20} color="white" strokeWidth={2.5} />
                     </TouchableOpacity>
-                </Footer>
-            </SafeAreaView>
-        </TouchableWithoutFeedback>
+                </View>
+            </KeyboardAvoidingView>
+        </SafeAreaView>
     );
 }
