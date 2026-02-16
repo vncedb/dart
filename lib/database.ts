@@ -4,6 +4,7 @@ import { getDB } from "./db-client";
 export const initDatabase = async () => {
   const database = await getDB();
 
+  // 1. Create Tables (Base Schema)
   await database.execAsync(`
     PRAGMA journal_mode = WAL;
     
@@ -48,7 +49,6 @@ export const initDatabase = async () => {
       period_key TEXT
     );
 
-    -- [NEW] Notifications Table
     CREATE TABLE IF NOT EXISTS notifications (
       id TEXT PRIMARY KEY NOT NULL,
       user_id TEXT NOT NULL,
@@ -81,16 +81,12 @@ export const initDatabase = async () => {
     );
 
     CREATE TABLE IF NOT EXISTS job_positions (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, title TEXT, company TEXT, department TEXT, employment_status TEXT, rate REAL, rate_type TEXT, payout_type TEXT, work_schedule TEXT, break_schedule TEXT, created_at TEXT, updated_at TEXT);
-    
-    CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance(user_id, date);
-    CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);
-    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
-    CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at);
   `);
 
-  // --- MIGRATIONS ---
+  // 2. Run Migrations (Add Columns)
   const addColumn = async (table: string, col: string, type: string) => {
     try {
+      // NOTE: We do not use DEFAULT CURRENT_TIMESTAMP here to avoid "non-constant default" errors on older Android SQLite versions during ALTER TABLE.
       await database.execAsync(
         `ALTER TABLE ${table} ADD COLUMN ${col} ${type};`,
       );
@@ -105,6 +101,8 @@ export const initDatabase = async () => {
   };
 
   await addColumn("sync_queue", "retry_count", "INTEGER DEFAULT 0");
+  await addColumn("sync_queue", "created_at", "TEXT"); 
+
   await addColumn("profiles", "middle_name", "TEXT");
   await addColumn("profiles", "professional_suffix", "TEXT");
   await addColumn("profiles", "full_name", "TEXT");
@@ -118,6 +116,8 @@ export const initDatabase = async () => {
   await addColumn("job_positions", "rate", "REAL");
   await addColumn("job_positions", "rate_type", "TEXT");
   await addColumn("job_positions", "payout_type", "TEXT");
+  await addColumn("job_positions", "created_at", "TEXT");
+  await addColumn("job_positions", "updated_at", "TEXT");
   
   await addColumn("accomplishments", "updated_at", "TEXT");
   await addColumn("attendance", "job_id", "TEXT");
@@ -127,6 +127,20 @@ export const initDatabase = async () => {
   
   await addColumn("saved_reports", "is_read", "INTEGER DEFAULT 0");
   await addColumn("saved_reports", "period_key", "TEXT");
+
+  // FIX: Explicitly removed "DEFAULT CURRENT_TIMESTAMP" which causes the crash
+  await addColumn("notifications", "created_at", "TEXT"); 
+  await addColumn("notifications", "updated_at", "TEXT");
+  await addColumn("notifications", "type", "TEXT");
+  await addColumn("notifications", "is_read", "INTEGER DEFAULT 0");
+
+  // 3. Create Indexes (Safe now that columns exist)
+  await database.execAsync(`
+    CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance(user_id, date);
+    CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
+    CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at);
+  `);
 
   console.log("Database initialized and migrated.");
 };
@@ -313,7 +327,7 @@ export const getUnreadReportsCount = async (userId: string) => {
   return res?.count || 0;
 };
 
-// --- [NEW] NOTIFICATION FUNCTIONS ---
+// --- NOTIFICATION FUNCTIONS ---
 
 export const saveNotificationLocal = async (notif: any) => {
   const db = await getDB();
@@ -347,19 +361,26 @@ export const saveNotificationLocal = async (notif: any) => {
 
 export const getNotificationsLocal = async (userId: string) => {
   const db = await getDB();
-  const rows = await db.getAllAsync(
-    `SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`,
-    [userId]
-  );
-  
-  return rows.map((r: any) => ({
-    id: r.id,
-    title: r.title,
-    body: r.body,
-    read: !!r.is_read,
-    date: new Date(r.created_at).getTime(),
-    type: r.type
-  }));
+  try {
+    const rows = await db.getAllAsync(
+      `SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`,
+      [userId]
+    );
+    
+    return rows.map((r: any) => ({
+      id: r.id,
+      title: r.title,
+      body: r.body,
+      read: !!r.is_read,
+      date: new Date(r.created_at).getTime(),
+      type: r.type
+    }));
+  } catch (e: any) {
+    if (e.message?.includes('no such column')) {
+        return [];
+    }
+    throw e;
+  }
 };
 
 export const markNotificationReadLocal = async (id: string) => {

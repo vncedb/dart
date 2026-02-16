@@ -1,19 +1,16 @@
 import { format } from 'date-fns';
 import * as Haptics from 'expo-haptics';
 import React, { useEffect, useState } from 'react';
-import { Dimensions, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
     useAnimatedStyle,
     useSharedValue,
-    withRepeat,
     withSpring,
     withTiming
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAppTheme } from '../constants/theme';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface DynamicHeaderProps {
     selectedDate: Date;
@@ -27,7 +24,20 @@ interface DynamicHeaderProps {
 
 const SkeletonBox = ({ width, height, borderRadius = 4, style }: any) => {
     const theme = useAppTheme();
-    return <View style={[{ width, height, borderRadius, backgroundColor: theme.colors.textSecondary, opacity: 0.15 }, style]} />;
+    return (
+        <View 
+            style={[
+                { 
+                    width, 
+                    height, 
+                    borderRadius, 
+                    backgroundColor: theme.colors.border, 
+                    opacity: 0.3 
+                }, 
+                style
+            ]} 
+        />
+    );
 };
 
 export default function DynamicHeader({ 
@@ -46,32 +56,23 @@ export default function DynamicHeader({
     // --- Animations ---
     const progressAnim = useSharedValue(0);
     const scaleAnim = useSharedValue(1);
-    const pulseAnim = useSharedValue(1);
 
     const getStatusConfig = () => {
         if (isClockedIn) {
             if (isOvertime) {
-                return { label: 'Overtime', color: '#F59E0B' }; 
+                return { label: 'Overtime', color: '#F59E0B', bg: '#FFF7ED' }; 
             }
-            return { label: 'On Duty', color: theme.colors.success };
+            return { label: 'Active', color: theme.colors.success, bg: '#F0FDF4' };
         }
-        return { label: 'Off Duty', color: theme.colors.textSecondary };
+        return { label: 'Offline', color: theme.colors.textSecondary, bg: theme.colors.background };
     };
 
-    const { label: statusLabel, color: statusColor } = getStatusConfig();
+    const status = getStatusConfig();
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
         return () => clearInterval(timer);
     }, []);
-
-    useEffect(() => {
-        if (isClockedIn && !isLoading) {
-            pulseAnim.value = withRepeat(withTiming(0.6, { duration: 1000 }), -1, true);
-        } else {
-            pulseAnim.value = withTiming(1);
-        }
-    }, [isClockedIn, isLoading, pulseAnim]);
 
     useEffect(() => {
         if (isLoading) {
@@ -81,9 +82,8 @@ export default function DynamicHeader({
         const goalMins = dailyGoal * 60;
         const percent = goalMins > 0 ? Math.min(workedMinutes / goalMins, 1) : 0;
         progressAnim.value = withTiming(percent, { duration: 1000 });
-    }, [workedMinutes, dailyGoal, isLoading, progressAnim]);
+    }, [workedMinutes, dailyGoal, isLoading]);
 
-    // --- Interaction ---
     const handlePressIn = () => {
         scaleAnim.value = withSpring(0.98, { damping: 10 });
     };
@@ -92,32 +92,27 @@ export default function DynamicHeader({
         scaleAnim.value = withSpring(1, { damping: 10 });
     };
 
-    // --- Styles ---
     const containerStyle = useAnimatedStyle(() => ({
         transform: [{ scale: scaleAnim.value }],
     }));
 
     const progressBarStyle = useAnimatedStyle(() => ({
         width: `${progressAnim.value * 100}%`,
-        backgroundColor: statusColor,
-    }));
-
-    const pulseStyle = useAnimatedStyle(() => ({
-        opacity: pulseAnim.value,
-        transform: [{ scale: pulseAnim.value }]
+        backgroundColor: status.color,
     }));
 
     return (
-        <View style={[styles.wrapper, { top: insets.top + 12 }]}>
+        <View style={[styles.wrapper, { paddingTop: insets.top + 8 }]}>
             <Pressable 
                 onPress={() => Haptics.selectionAsync()}
                 onPressIn={handlePressIn}
                 onPressOut={handlePressOut}
                 disabled={isLoading}
+                style={styles.pressable}
             >
                 <Animated.View 
                     style={[
-                        styles.islandContainer, 
+                        styles.container, 
                         containerStyle, 
                         { 
                             backgroundColor: theme.colors.card,
@@ -125,63 +120,49 @@ export default function DynamicHeader({
                         }
                     ]}
                 >
-                    {/* Top Row: Date & Time */}
-                    <View style={styles.primaryRow}>
-                        {isLoading ? (
-                            <SkeletonBox width={120} height={26} borderRadius={6} />
-                        ) : (
-                            <Text style={[styles.dateText, { color: theme.colors.text }]}>
-                                {format(selectedDate, 'MMMM d')}
-                            </Text>
-                        )}
-                        
-                        <View style={styles.timeContainer}>
+                    {/* Header Top: Date & Status */}
+                    <View style={styles.rowBetween}>
+                        <View style={{ justifyContent: 'center' }}>
                             {isLoading ? (
-                                <SkeletonBox width={80} height={26} borderRadius={6} />
+                                <SkeletonBox width={90} height={12} borderRadius={4} style={{marginBottom: 4}} />
                             ) : (
-                                <>
+                                <Text style={[styles.dateText, { color: theme.colors.text }]}>
+                                    {format(selectedDate, 'EEEE, MMM d')}
+                                </Text>
+                            )}
+                            
+                            {isLoading ? (
+                                <SkeletonBox width={50} height={20} borderRadius={6} />
+                            ) : (
+                                <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
                                     <Text style={[styles.timeText, { color: theme.colors.text }]}>
                                         {format(currentTime, 'h:mm')}
                                     </Text>
-                                    <Text style={[styles.secondaryText, { color: theme.colors.textSecondary, marginLeft: 2, marginBottom: 2 }]}>
-                                        {format(currentTime, 'a')}
+                                    <Text style={[styles.ampmText, { color: theme.colors.textSecondary }]}>
+                                        {format(currentTime, 'a')} {/* Removed toLowerCase to keep Uppercase */}
                                     </Text>
-                                </>
+                                </View>
                             )}
+                        </View>
+
+                        {/* Status Badge */}
+                        <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+                             {isLoading ? (
+                                <SkeletonBox width={60} height={24} borderRadius={12} />
+                             ) : (
+                                <View style={[styles.badge, { backgroundColor: theme.dark ? theme.colors.background : status.bg, borderColor: theme.colors.border }]}>
+                                    <View style={[styles.dot, { backgroundColor: status.color }]} />
+                                    <Text style={[styles.badgeText, { color: theme.dark ? theme.colors.text : status.color }]}>
+                                        {status.label}
+                                    </Text>
+                                </View>
+                             )}
                         </View>
                     </View>
 
-                    {/* Bottom Row: Year/Day & Status */}
-                    <View style={styles.secondaryRow}>
-                        {isLoading ? (
-                            <SkeletonBox width={140} height={14} borderRadius={4} />
-                        ) : (
-                            <Text style={[styles.secondaryText, { color: theme.colors.textSecondary }]}>
-                                {format(selectedDate, 'yyyy')}, {format(selectedDate, 'EEEE')}
-                            </Text>
-                        )}
-                        
-                        {isLoading ? (
-                            <SkeletonBox width={60} height={20} borderRadius={12} />
-                        ) : (
-                            <View style={[styles.statusBadge, { backgroundColor: theme.colors.background }]}>
-                                <Animated.View 
-                                    style={[
-                                        styles.statusDot, 
-                                        pulseStyle,
-                                        { backgroundColor: statusColor }
-                                    ]} 
-                                />
-                                <Text style={[styles.statusText, { color: theme.colors.textSecondary }]}>
-                                    {statusLabel}
-                                </Text>
-                            </View>
-                        )}
-                    </View>
-                    
-                    {/* Bottom Progress Bar */}
-                    <View style={[styles.progressBarContainer, { backgroundColor: theme.colors.border }]}>
-                        <Animated.View style={[styles.progressBarFill, progressBarStyle]} />
+                    {/* Progress Bar (Bottom Line) */}
+                    <View style={[styles.progressTrack, { backgroundColor: theme.colors.border }]}>
+                        <Animated.View style={[styles.progressFill, progressBarStyle]} />
                     </View>
 
                 </Animated.View>
@@ -192,88 +173,73 @@ export default function DynamicHeader({
 
 const styles = StyleSheet.create({
     wrapper: {
-        position: 'absolute',
-        alignItems: 'center',
         width: '100%',
-        zIndex: 100,
+        paddingHorizontal: 20, 
+        zIndex: 10,
     },
-    islandContainer: {
-        width: SCREEN_WIDTH - 32,
-        height: 94,
-        borderRadius: 24,
-        paddingHorizontal: 22,
-        paddingTop: 16,
-        paddingBottom: 16,
+    pressable: {
+        width: '100%',
+    },
+    container: {
+        width: '100%',
+        paddingHorizontal: 16,
+        paddingVertical: 12, 
+        borderRadius: 16,    
         borderWidth: 1,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.08,
-        shadowRadius: 12,
-        elevation: 6,
-        justifyContent: 'flex-start',
+        // Removed elevation/shadow for smoother scroll performance
     },
-    primaryRow: {
+    rowBetween: {
         flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'baseline',
-        marginBottom: 6,
-        height: 28, 
+        alignItems: 'center',
+        marginBottom: 12,
     },
     dateText: {
-        fontSize: 20, 
-        fontWeight: '800',
-        letterSpacing: -0.5,
-    },
-    timeText: {
-        fontSize: 22, 
-        fontWeight: '800',
-        fontVariant: ['tabular-nums'],
-    },
-    timeContainer: {
-        flexDirection: 'row',
-        alignItems: 'baseline',
-    },
-    secondaryRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 10,
-        height: 20,
-    },
-    secondaryText: {
         fontSize: 12,
-        fontWeight: '700',
+        fontWeight: '600',
         textTransform: 'uppercase',
+        opacity: 0.6,
+        marginBottom: 0,
         letterSpacing: 0.5,
     },
-    statusBadge: {
+    timeText: {
+        fontSize: 24,
+        fontWeight: '700',
+        letterSpacing: -0.5,
+        fontVariant: ['tabular-nums'],
+    },
+    ampmText: {
+        fontSize: 14,
+        fontWeight: '600',
+        marginLeft: 2,
+    },
+    badge: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 12,
+        paddingVertical: 4,
+        paddingHorizontal: 10,
+        borderRadius: 100,
+        borderWidth: 1,
     },
-    statusDot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
+    dot: {
+        width: 5,
+        height: 5,
+        borderRadius: 2.5,
         marginRight: 6,
     },
-    statusText: {
-        fontSize: 10,
+    badgeText: {
+        fontSize: 11,
         fontWeight: '700',
-        textTransform: 'uppercase',
-        letterSpacing: 0.2,
     },
-    progressBarContainer: {
-        height: 4,
-        borderRadius: 2,
-        overflow: 'hidden',
+    progressTrack: {
+        height: 3,
+        borderRadius: 1.5,
         width: '100%',
-        marginTop: 'auto',
+        overflow: 'hidden',
+        opacity: 0.5
     },
-    progressBarFill: {
+    progressFill: {
         height: '100%',
-        borderRadius: 2,
+        borderRadius: 1.5,
     },
 });

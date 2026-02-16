@@ -17,7 +17,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     RefreshControl,
-    ScrollView,
     StatusBar,
     StyleSheet,
     Text,
@@ -26,6 +25,7 @@ import {
 } from 'react-native';
 import Animated, {
     FadeIn,
+    useAnimatedScrollHandler,
     useAnimatedStyle,
     useSharedValue,
     withRepeat,
@@ -117,86 +117,107 @@ const getPeriodStartDate = (payoutType: string) => {
     }
 };
 
-// --- ANIMATED SKELETON LOADING ---
-const SkeletonItem = ({ style, borderRadius = 8, color }: { style?: any, borderRadius?: number, color?: string }) => {
+// --- ANIMATED SKELETON COMPONENTS ---
+const SkeletonItem = ({ style, borderRadius = 4, color }: { style?: any, borderRadius?: number, color?: string }) => {
     const theme = useAppTheme();
-    const opacity = useSharedValue(0.4);
+    const opacity = useSharedValue(0.5);
 
     useEffect(() => {
-        opacity.value = withRepeat(withSequence(withTiming(0.8, { duration: 900 }), withTiming(0.4, { duration: 900 })), -1, true);
+        opacity.value = withRepeat(
+            withSequence(withTiming(1, { duration: 1000 }), withTiming(0.5, { duration: 1000 })), 
+            -1, 
+            true
+        );
     }, [opacity]);
 
     const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+    // Using a lighter gray by default for a softer look
+    const bgColor = color || (theme.dark ? 'rgba(255,255,255,0.1)' : '#E5E7EB');
 
-    return <Animated.View style={[{ backgroundColor: color || theme.colors.border, borderRadius }, style, animatedStyle]} />;
+    return <Animated.View style={[{ backgroundColor: bgColor, borderRadius }, style, animatedStyle]} />;
 };
 
 const HomeContentSkeleton = () => {
     const theme = useAppTheme();
+    const borderColor = theme.colors.border;
+    const cardBg = theme.colors.card;
+
     return (
         <View style={styles.skeletonContainer}>
-            <View style={{ alignItems: 'center', marginBottom: 40, width: '100%', marginTop: 20 }}>
-                <SkeletonItem style={{ width: 100, height: 14, marginBottom: 8 }} />
-                <SkeletonItem style={{ width: 180, height: 24, marginBottom: 32 }} />
-                <View style={{ alignItems: 'center', position: 'relative' }}>
-                     <View style={{ width: 170, height: 170, borderRadius: 85, borderStyle: 'dashed', borderWidth: 1, borderColor: theme.colors.border, alignItems: 'center', justifyContent: 'center' }}>
-                         <SkeletonItem style={{ width: 140, height: 140, borderRadius: 70 }} color={theme.colors.card} />
+            
+            {/* 1. Dynamic Bar (Pill Shape) */}
+            <View style={{ alignItems: 'center', marginBottom: 40, marginTop: 20 }}>
+                <View style={[styles.skeletonDynamicBar, { borderColor, backgroundColor: cardBg }]}>
+                     <SkeletonItem style={{ width: 40, height: 40, borderRadius: 20, marginRight: 14 }} />
+                     <View>
+                         <SkeletonItem style={{ width: 60, height: 8, marginBottom: 6 }} />
+                         <SkeletonItem style={{ width: 100, height: 12 }} />
                      </View>
                 </View>
-                <SkeletonItem style={{ width: 120, height: 16, marginTop: 16 }} />
+
+                {/* 2. Biometric Button (Large Circle) */}
+                <View style={{ alignItems: 'center', marginTop: 24 }}>
+                     <View style={{ width: 120, height: 120, borderRadius: 60, borderWidth: 1, borderColor, alignItems: 'center', justifyContent: 'center' }}>
+                         <SkeletonItem style={{ width: 100, height: 100, borderRadius: 50 }} color={theme.dark ? undefined : '#F3F4F6'} />
+                     </View>
+                     <SkeletonItem style={{ width: 120, height: 10, marginTop: 20 }} />
+                </View>
             </View>
-            <View style={[styles.skeletonCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, height: 240, marginBottom: 24 }]}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 24, paddingBottom: 20 }}>
+
+            {/* 3. Daily Summary Card */}
+            <View style={[styles.skeletonCard, { backgroundColor: cardBg, borderColor, marginBottom: 24 }]}>
+                {/* Top: Status Badge + Timer + Ring */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 20, paddingBottom: 16 }}>
                     <View>
-                        <SkeletonItem style={{ width: 60, height: 20, marginBottom: 12, borderRadius: 6 }} />
-                        <SkeletonItem style={{ width: 120, height: 40, marginBottom: 8 }} />
-                    </View>
-                    <SkeletonItem style={{ width: 80, height: 80, borderRadius: 40 }} color={theme.colors.background} />
-                </View>
-                <View style={{ height: 1, backgroundColor: theme.colors.border, opacity: 0.5 }} />
-                <View style={{ flexDirection: 'row', padding: 16 }}>
-                    <View style={{ flex: 1, alignItems: 'center', gap: 6 }}>
-                        <SkeletonItem style={{ width: 30, height: 10 }} />
-                        <SkeletonItem style={{ width: 50, height: 14 }} />
-                    </View>
-                    <View style={{ flex: 1, alignItems: 'center', gap: 6, borderLeftWidth: 1, borderRightWidth: 1, borderColor: theme.colors.border }}>
-                        <SkeletonItem style={{ width: 30, height: 10 }} />
-                        <SkeletonItem style={{ width: 50, height: 14 }} />
-                    </View>
-                    <View style={{ flex: 1, alignItems: 'center', gap: 6 }}>
-                        <SkeletonItem style={{ width: 30, height: 10 }} />
-                        <SkeletonItem style={{ width: 50, height: 14 }} />
-                    </View>
-                </View>
-                <View style={{ borderTopWidth: 1, borderColor: theme.colors.border, padding: 16, backgroundColor: theme.colors.background }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <SkeletonItem style={{ width: 70, height: 20, marginBottom: 12, borderRadius: 6 }} />
+                        <SkeletonItem style={{ width: 130, height: 32, marginBottom: 4 }} />
                         <SkeletonItem style={{ width: 80, height: 10 }} />
-                        <SkeletonItem style={{ width: 60, height: 10 }} />
                     </View>
-                    <SkeletonItem style={{ width: '100%', height: 6 }} />
+                    <SkeletonItem style={{ width: 90, height: 90, borderRadius: 45 }} color={theme.dark ? undefined : '#F3F4F6'} />
+                </View>
+                
+                {/* Divider */}
+                <View style={{ height: 1, backgroundColor: borderColor, opacity: 0.5, marginHorizontal: 20 }} />
+                
+                {/* Middle: 3-Column Grid */}
+                <View style={{ flexDirection: 'row', paddingVertical: 16, paddingHorizontal: 8 }}>
+                    {[1, 2, 3].map((i) => (
+                        <View key={i} style={{ flex: 1, alignItems: 'center', gap: 6, borderRightWidth: i < 3 ? 1 : 0, borderColor }}>
+                            <SkeletonItem style={{ width: 30, height: 8 }} />
+                            <SkeletonItem style={{ width: 50, height: 12 }} />
+                        </View>
+                    ))}
                 </View>
             </View>
-            <View style={[styles.rowBetween, { marginBottom: 16 }]}>
-                <SkeletonItem style={{ width: 150, height: 24 }} />
-                <View style={{ flexDirection: 'row', gap: 12 }}>
-                    <SkeletonItem style={{ width: 36, height: 36 }} borderRadius={18} />
-                    <SkeletonItem style={{ width: 36, height: 36 }} borderRadius={18} />
+
+            {/* 4. Timeline Section */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16, paddingHorizontal: 4, alignItems: 'center' }}>
+                <SkeletonItem style={{ width: 120, height: 18 }} />
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <SkeletonItem style={{ width: 32, height: 32, borderRadius: 16 }} />
+                    <SkeletonItem style={{ width: 32, height: 32, borderRadius: 16 }} />
                 </View>
             </View>
-            <View style={{ paddingLeft: 24, borderLeftWidth: 2, borderLeftColor: theme.colors.border, marginLeft: 8 }}>
+
+            {/* Timeline Items */}
+            <View style={{ borderLeftWidth: 2, borderLeftColor: borderColor, marginLeft: 8, paddingLeft: 24, paddingBottom: 20 }}>
                 {[1, 2].map((i) => (
-                    <View key={i} style={{ marginBottom: 24 }}>
-                        <View style={{ position: 'absolute', left: -31, top: 12, width: 12, height: 12, borderRadius: 6, backgroundColor: theme.colors.border }} />
-                        <View style={{ backgroundColor: theme.colors.card, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border }}>
+                    <View key={i} style={{ marginBottom: 32 }}>
+                        {/* Dot on Line */}
+                        <View style={{ position: 'absolute', left: -31, top: 0, width: 12, height: 12, borderRadius: 6, backgroundColor: borderColor }} />
+                        
+                        {/* Card Content */}
+                        <View style={{ backgroundColor: cardBg, borderRadius: 12, padding: 16, borderWidth: 1, borderColor }}>
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
-                                <SkeletonItem style={{ width: '60%', height: 16 }} />
-                                <SkeletonItem style={{ width: 40, height: 16 }} />
+                                <SkeletonItem style={{ width: '60%', height: 14 }} />
+                                <SkeletonItem style={{ width: 24, height: 24, borderRadius: 12 }} />
                             </View>
-                            <SkeletonItem style={{ width: '40%', height: 12 }} />
+                            <SkeletonItem style={{ width: '40%', height: 10 }} />
                         </View>
                     </View>
                 ))}
             </View>
+
         </View>
     );
 };
@@ -270,7 +291,6 @@ export default function Home() {
     const [shiftEndTarget, setShiftEndTarget] = useState<string | null>(null);
 
     const [hasShownInitialNotif, setHasShownInitialNotif] = useState(false);
-    
     const hasWarnedTimeout = useRef(false);
 
     const [notifications, setNotifications] = useState<any[]>([]);
@@ -288,23 +308,60 @@ export default function Home() {
 
     const [appSettings, setAppSettings] = useState({ vibrationEnabled: true, soundEnabled: true, notificationsEnabled: true });
 
+    // --- ANIMATION: DIFF CLAMP SCROLL HANDLER ---
+    // This logic ensures the header shows when scrolling UP, and hides when scrolling DOWN
+    const scrollY = useSharedValue(0);
+    const headerTranslateY = useSharedValue(0);
+    const HEADER_HEIGHT = 100 + insets.top; 
+
+    const scrollHandler = useAnimatedScrollHandler({
+        onScroll: (event) => {
+            const currentY = event.contentOffset.y;
+            const diff = currentY - scrollY.value;
+            scrollY.value = currentY;
+
+            // DiffClamp Logic:
+            // If scrolling down (diff > 0), add to translateY (move it up/hide)
+            // If scrolling up (diff < 0), subtract from translateY (move it down/show)
+            // Clamp between -HEADER_HEIGHT (hidden) and 0 (fully visible)
+            
+            // Only animate if we are not at the very top (bounce area)
+            if (currentY > 0) {
+                headerTranslateY.value = Math.max(
+                    -HEADER_HEIGHT, 
+                    Math.min(0, headerTranslateY.value - diff)
+                );
+            } else {
+                // Always show at top
+                headerTranslateY.value = 0;
+            }
+        },
+    });
+
+    const headerAnimatedStyle = useAnimatedStyle(() => {
+        return {
+            transform: [{ translateY: headerTranslateY.value }],
+            zIndex: 10,
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+        };
+    });
+
     const latestRecord = todaysRecords.length > 0 ? todaysRecords[0] : null;
     const isClockedIn = latestRecord?.status === 'pending';
     const isSessionOvertime = latestRecord?.remarks?.includes('Overtime');
     const unreadNotifsCount = notifications.filter(n => !n.read).length;
     
-    // --- DERIVED USER NAME ---
     const displayName = profile ? (() => {
-        // 1. Try Title + First Name
         if (profile.first_name) {
             const titlePart = profile.title ? `${profile.title.trim()} ` : '';
             return `${titlePart}${profile.first_name.trim()}`;
         }
-        // 2. Try Full Name (DB)
         if (profile.full_name) {
             return profile.full_name.split(' ')[0];
         }
-        // 3. Fallback to 'User' (Metadata is merged into profile in loadData)
         return 'User';
     })() : 'User';
 
@@ -316,19 +373,17 @@ export default function Home() {
 
     const handleHideAlert = useCallback(() => { setAlertVisible(false); }, []);
 
-    // [UPDATED] Load from DB filtered by User
+    // Load from DB filtered by User
     const loadNotifications = useCallback(async () => {
         try {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session?.user) return;
-            
-            // Fetch from SQLite DB
             const data = await getNotificationsLocal(session.user.id);
             setNotifications(data);
         } catch (e) { console.log('Err loading notifs', e); }
     }, []);
 
-    // [UPDATED] Save to DB when receiving new
+    // Save to DB when receiving new
     const saveNotifications = useCallback(async (newNotif: any) => {
         try {
              await saveNotificationLocal(newNotif);
@@ -346,17 +401,13 @@ export default function Home() {
             const dateStr = format(selectedDate, 'yyyy-MM-dd');
 
             let localProfile: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
-            
-            // --- MERGE GOOGLE METADATA IF LOCAL PROFILE IS INCOMPLETE ---
             const meta = user.user_metadata || {};
             if (!localProfile) {
                 localProfile = {
                     first_name: meta.full_name?.split(' ')[0] || meta.name?.split(' ')[0] || '',
                     full_name: meta.full_name || meta.name || '',
-                    // other fields blank
                 };
             } else if (!localProfile.first_name) {
-                // If DB has ID but no name, try to fill from metadata for display
                 const metaName = meta.full_name?.split(' ')[0] || meta.name?.split(' ')[0];
                 if (metaName) localProfile.first_name = metaName;
             }
@@ -577,6 +628,9 @@ export default function Home() {
         }
 
         if (diffSeconds <= 0) {
+            // FIX: Clear notification timer explicitly before UI updates
+            await clearAttendanceNotification();
+
             const db = await getDB();
             const endIso = targetTime.toISOString();
             await db.runAsync('UPDATE attendance SET clock_out = ?, status = ?, remarks = ? WHERE id = ?', 
@@ -637,6 +691,19 @@ export default function Home() {
         } catch (e) { console.log('Err marking read', e); }
     };
 
+    // --- IMMEDIATE NOTIFICATION UPDATE ---
+    // Triggers when Break/Work status changes to update buttons instantly
+    useEffect(() => {
+        if (isClockedIn && latestRecord?.clock_in && appSettings.notificationsEnabled !== false) {
+             updateAttendanceNotification(
+                 latestRecord.clock_in, 
+                 isSessionOvertime, 
+                 isBreakMode, 
+                 true // Force Banner/Sound/Update for immediate feedback on state change
+             );
+        }
+    }, [isBreakMode, isClockedIn, isSessionOvertime, latestRecord, appSettings.notificationsEnabled]);
+
     useEffect(() => {
         const timer = setInterval(async () => {
             const now = new Date();
@@ -653,9 +720,15 @@ export default function Home() {
             }
             if (isClockedIn && latestRecord?.clock_in) {
                 if (appSettings.notificationsEnabled !== false) {
+                    // Update silent notification only when minute changes
                     if (currentMinute !== lastUpdateMinute.current || !hasShownInitialNotif) {
                         const shouldBanner = !hasShownInitialNotif;
-                        await updateAttendanceNotification(latestRecord.clock_in, isSessionOvertime, isBreakMode, shouldBanner);
+                        await updateAttendanceNotification(
+                            latestRecord.clock_in, 
+                            isSessionOvertime, 
+                            isBreakMode, 
+                            shouldBanner
+                        );
                         if (shouldBanner) setHasShownInitialNotif(true);
                         lastUpdateMinute.current = currentMinute;
                     }
@@ -720,15 +793,20 @@ export default function Home() {
                     <Rect x="0" y="0" width="100%" height="100%" fill="url(#bgGrad)" />
                 </Svg>
             </View>
-            <View style={{ position: 'absolute', top: 0, height: insets.top + 40, width: '100%', zIndex: 90 }}>
-                <Svg height="100%" width="100%">
-                    <Rect x="0" y="0" width="100%" height="100%" fill={theme.colors.bgGradientStart} opacity={0.8} />
-                </Svg>
-            </View>
+            
+            {/* ANIMATED HEADER SECTION */}
+            <Animated.View style={headerAnimatedStyle}>
+                 <DynamicHeader selectedDate={selectedDate} onSelectDate={(date) => setSelectedDate(date)} isClockedIn={isClockedIn} isOvertime={isSessionOvertime} workedMinutes={workedMinutes} dailyGoal={dailyGoal} isLoading={false} />
+            </Animated.View>
 
-            <DynamicHeader selectedDate={selectedDate} onSelectDate={(date) => setSelectedDate(date)} isClockedIn={isClockedIn} isOvertime={isSessionOvertime} workedMinutes={workedMinutes} dailyGoal={dailyGoal} isLoading={false} />
-
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24, paddingTop: 120 + insets.top, paddingBottom: 140 }} refreshControl={<RefreshControl refreshing={refreshing || syncStatus === 'syncing'} onRefresh={onRefresh} progressViewOffset={insets.top + 100} tintColor={theme.colors.primary} />}>
+            {/* ANIMATED SCROLLVIEW */}
+            <Animated.ScrollView 
+                onScroll={scrollHandler}
+                scrollEventThrottle={16} 
+                showsVerticalScrollIndicator={false} 
+                contentContainerStyle={{ padding: 24, paddingTop: 120 + insets.top, paddingBottom: 140 }} 
+                refreshControl={<RefreshControl refreshing={refreshing || syncStatus === 'syncing'} onRefresh={onRefresh} progressViewOffset={insets.top + 100} tintColor={theme.colors.primary} />}
+            >
                 {isInitialLoading ? (
                     <HomeContentSkeleton />
                 ) : (
@@ -782,14 +860,15 @@ export default function Home() {
                         </View>
                     </>
                 )}
-            </ScrollView>
+            </Animated.ScrollView>
         </View>
     );
 }
 
 const styles = StyleSheet.create({
     skeletonContainer: { flex: 1, paddingHorizontal: 0 },
-    skeletonCard: { marginBottom: 24, borderRadius: 24, padding: 20, borderWidth: 1, justifyContent: 'space-between' },
+    skeletonDynamicBar: { flexDirection: 'row', alignItems: 'center', padding: 6, borderRadius: 24, borderWidth: 1, width: '100%', maxWidth: 380, height: 60 },
+    skeletonCard: { borderRadius: 24, borderWidth: 1, justifyContent: 'space-between' },
     rowBetween: { flexDirection: 'row', justifyContent: 'space-between' },
     jobCard: { borderWidth: 1, padding: 24, borderRadius: 24, flexDirection: 'row', alignItems: 'center' },
     jobIconBox: { width: 56, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 16 },

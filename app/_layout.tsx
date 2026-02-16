@@ -12,16 +12,18 @@ import { Stack, useRootNavigationState, useRouter, useSegments } from "expo-rout
 import * as SplashScreen from "expo-splash-screen";
 import { useColorScheme } from "nativewind";
 import { useEffect, useRef, useState } from "react";
-import { LogBox, Platform, StyleSheet, View } from "react-native";
+import { LogBox, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import BiometricLockScreen from "../components/BiometricLockScreen";
-import LoadingScreen from "../components/LoadingScreen"; // Ensure this component exists
+import LoadingScreen from "../components/LoadingScreen";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { SyncProvider } from "../context/SyncContext";
 import "../global.css";
 import { initDatabase } from "../lib/database";
+// Import the unified notification initializer
+import { initNotificationSystem } from "../utils/NotificationService";
 
 LogBox.ignoreLogs([
   "SafeAreaView has been deprecated",
@@ -30,14 +32,7 @@ LogBox.ignoreLogs([
 
 SplashScreen.preventAutoHideAsync();
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true, 
-    shouldShowList: true, 
-  }),
-});
+// NOTE: Handler is now configured inside utils/NotificationService.ts
 
 function RootLayoutNav() {
   const { isLoading: isAuthLoading, user, isOnboarded } = useAuth();
@@ -65,6 +60,10 @@ function RootLayoutNav() {
       isInitialized.current = true;
       try {
         await initDatabase();
+        
+        // Initialize Notification Channels & Permissions
+        await initNotificationSystem();
+
         const storedSettings = await AsyncStorage.getItem("appSettings");
         
         if (storedSettings) {
@@ -89,19 +88,23 @@ function RootLayoutNav() {
 
   // 2. Notification Listeners
   useEffect(() => {
-    if (Platform.OS === 'android') {
-      Notifications.setNotificationChannelAsync('default', {
-        name: 'Default',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#FF231F7C',
-      });
-    }
-
     const subscription = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data;
-      if (data?.action === 'open_saved_reports') router.push('/reports/saved-reports');
-      if (data?.type === 'ongoing_job') router.push('/(tabs)/home');
+      const actionId = response.actionIdentifier;
+
+      // Handle Taps on Content
+      if (data?.action === 'open_saved_reports') {
+          router.push('/reports/saved-reports');
+      }
+      if (data?.type === 'ongoing_job' || data?.type === 'timer_tick' || data?.type === 'status_change') {
+          router.push('/(tabs)/home');
+      }
+
+      // Handle Action Buttons (Optional: Basic Navigation)
+      if (actionId === 'action_checkout') {
+          router.push('/(tabs)/home');
+          // You could trigger a checkout modal here via query params or context
+      }
     });
 
     return () => subscription.remove();
@@ -109,7 +112,6 @@ function RootLayoutNav() {
 
   // 3. Navigation Guard
   useEffect(() => {
-    // STRICT CHECK: Do not route until Auth is fully loaded and fonts are ready
     if (isAuthLoading || !isReady || !fontsLoaded || !rootNavigationState?.key) return;
 
     const currentSegments = segments as string[];
@@ -123,29 +125,23 @@ function RootLayoutNav() {
     const checkNavigation = async () => {
       if (user) {
         if (!isOnboarded) {
-          // Force Onboarding for new users
           if (!inOnboarding) router.replace('/onboarding');
         } else {
-          // Authenticated & Onboarded -> Home
           if (isRoot || inOnboarding || (inAuthGroup && !isProtectedAuthRoute)) {
              router.replace('/(tabs)/home');
           }
         }
       } else {
-        // Unauthenticated -> Auth/Index
         if (inTabsGroup || inOnboarding || isProtectedAuthRoute) {
            router.replace('/');
         }
       }
-      
       await SplashScreen.hideAsync();
     };
 
     checkNavigation();
   }, [isReady, fontsLoaded, isAuthLoading, user, isOnboarded, segments, rootNavigationState?.key]);
 
-  // --- LOADING SCREEN ---
-  // Show this until EVERYTHING (Auth + Fonts + DB) is ready.
   if (!isReady || !fontsLoaded || isAuthLoading) {
     return <LoadingScreen />;
   }
