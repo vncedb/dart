@@ -81,13 +81,12 @@ export default function AboutScreen() {
                     </View>
                 </View>
 
-                {/* Developer Info */}
                 <View style={{ marginTop: 48, alignItems: 'center' }}>
                     <Text style={{ color: theme.colors.textSecondary, fontSize: 13, fontWeight: '600' }}>
                         Developed by Project Vdb
                     </Text>
                     <Text style={{ color: theme.colors.textSecondary, fontSize: 12, opacity: 0.5, marginTop: 4 }}>
-                        © 2024 All Rights Reserved
+                        © 2026 All Rights Reserved
                     </Text>
                 </View>
             </ScrollView>
