@@ -75,16 +75,13 @@ serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: { 'Access-Control-Allow-Origin': '*' } });
 
   try {
-    // We expect 'otp' in the body for Delete Account
     const { email, type, data, otp } = await req.json();
     let subject = '';
     let html = '';
 
-    // Consolidated OTP: Support 'data.code' or top-level 'otp'
     const codeValue = otp || (data && data.code);
 
     switch (type) {
-      // --- NEW: DELETE ACCOUNT (DANGER) ---
       case 'DELETE_ACCOUNT':
         subject = "Confirm Account Deletion";
         html = generateHtml(
@@ -93,7 +90,7 @@ serve(async (req) => {
           codeValue, 
           undefined, 
           undefined,
-          true // isDanger = true (Red styling)
+          true 
         );
         break;
 
@@ -125,6 +122,15 @@ serve(async (req) => {
           undefined,
           "View My Plan",
           "dartapp://settings"
+        );
+        break;
+
+      // --- NEW: FEEDBACK TYPE ---
+      case 'FEEDBACK':
+        subject = `DART App Feedback / Bug Report`;
+        html = generateHtml(
+          "New Feedback Received",
+          `<strong>Sender:</strong> ${data?.sender || email}<br/><br/><strong>Message:</strong><br/><p>${data?.message}</p>`
         );
         break;
 

@@ -301,21 +301,27 @@ export default function SavedReportsScreen() {
     const ext = item.file_type === "pdf" ? "pdf" : "xlsx";
     const expectedPath = `${FileSystem.documentDirectory}reports/${safeFilename}.${ext}`;
 
+    // Verify existing file integrity
     if (item.file_path && item.file_path.startsWith("file://")) {
       const dbFileInfo = await FileSystem.getInfoAsync(item.file_path);
-      if (dbFileInfo.exists) return item.file_path;
+      if (dbFileInfo.exists && dbFileInfo.size > 0) return item.file_path;
     }
 
     const expectedInfo = await FileSystem.getInfoAsync(expectedPath);
     if (expectedInfo.exists) {
-      if (item.file_path !== expectedPath) {
-        const db = await getDB();
-        await db.runAsync(
-          "UPDATE saved_reports SET file_path = ? WHERE id = ?",
-          [expectedPath, item.id],
-        );
+      if (expectedInfo.size > 0) {
+        if (item.file_path !== expectedPath) {
+          const db = await getDB();
+          await db.runAsync(
+            "UPDATE saved_reports SET file_path = ? WHERE id = ?",
+            [expectedPath, item.id],
+          );
+        }
+        return expectedPath;
+      } else {
+        // Corrupted 0-byte file found - remove it to force redownload
+        await FileSystem.deleteAsync(expectedPath, { idempotent: true });
       }
-      return expectedPath;
     }
 
     if (!item.remote_url)
@@ -337,6 +343,12 @@ export default function SavedReportsScreen() {
       item.remote_url,
       expectedPath,
     );
+    
+    // Post-download size validation check
+    const downloadedInfo = await FileSystem.getInfoAsync(uri);
+    if (!downloadedInfo.exists || downloadedInfo.size === 0) {
+        throw new Error("Downloaded file is corrupted or empty.");
+    }
 
     try {
       const db = await getDB();
@@ -373,18 +385,20 @@ export default function SavedReportsScreen() {
           : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
       if (Platform.OS === "android") {
-        const contentUri = await FileSystem.getContentUriAsync(uri);
-        await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
-          data: contentUri,
-          flags: 1,
-          type: mimeType,
-        });
+        try {
+            const contentUri = await FileSystem.getContentUriAsync(uri);
+            await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+              data: contentUri,
+              flags: 1,
+              type: mimeType,
+            });
+        } catch (e) {
+            // Secure fallback to standard UI sharing/viewing if Intent fails
+            await Sharing.shareAsync(uri, { mimeType, dialogTitle: item.title });
+        }
       } else {
         await Sharing.shareAsync(uri, {
-          UTI:
-            item.file_type === "pdf"
-              ? "com.adobe.pdf"
-              : "com.microsoft.excel.xls",
+          UTI: item.file_type === "pdf" ? "com.adobe.pdf" : "com.microsoft.excel.xls",
           mimeType,
           dialogTitle: item.title,
         });
@@ -658,7 +672,6 @@ export default function SavedReportsScreen() {
               color={isPdf ? "#D91519" : "#107C41"}
             />
           ) : (
-            // Changed to use custom images from assets
             <Image
                 source={isPdf 
                     ? require("../../assets/icons/custom-icons/pdf.png") 
@@ -904,6 +917,8 @@ const styles = StyleSheet.create({
     borderRadius: 40,
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: 16,
+    borderWidth: 1,
   },
   emptyText: {
     fontSize: 18,
@@ -915,16 +930,16 @@ const styles = StyleSheet.create({
   searchHeaderContainer: {
     flex: 1,
     width: "100%",
-    justifyContent: "center", // Vertically center the input
-    height: "100%", // Take up full header height
+    justifyContent: "center", 
+    height: "100%", 
   },
   searchInput: {
-    height: 40, // Fixed height for alignment
+    height: 40, 
     borderRadius: 8,
     paddingHorizontal: 10,
     fontSize: 16,
     width: "100%",
-    paddingVertical: 0, // Removes default Android top/bottom padding
+    paddingVertical: 0, 
   },
   headerIconButton: {
     padding: 8,

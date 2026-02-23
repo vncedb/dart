@@ -8,7 +8,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNetInfo } from '@react-native-community/netinfo';
-import { addHours, differenceInSeconds, format, isToday, set, startOfMonth, startOfWeek } from 'date-fns';
+import { addDays, addHours, differenceInSeconds, format, isToday, set, startOfMonth, startOfWeek } from 'date-fns';
 import { useAudioPlayer } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
@@ -35,7 +35,6 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
-// Custom Components
 import ActivityTimeline from '../../components/ActivityTimeline';
 import BiometricButton from '../../components/BiometricButton';
 import BreakModeAlert from '../../components/BreakModeAlert';
@@ -48,7 +47,6 @@ import NotificationModal from '../../components/NotificationModal';
 import OvertimeModal from '../../components/OvertimeModal';
 import ScaleButton from '../../components/ScaleButton';
 
-// Context & Utils
 import { useAppTheme } from '../../constants/theme';
 import { useSync } from '../../context/SyncContext';
 import { generateUUID, getNotificationsLocal, markAllNotificationsReadLocal, saveNotificationLocal } from '../../lib/database';
@@ -60,7 +58,6 @@ import {
     updateAttendanceNotification
 } from '../../utils/NotificationService';
 
-// --- HELPER FUNCTIONS ---
 const timeToMinutes = (timeStr: string) => {
     if (!timeStr) return 0;
     const [h, m] = timeStr.split(':').map(Number);
@@ -100,24 +97,22 @@ const calculateDailyGoal = (jobSettings: any) => {
     return Number((netMinutes / 60).toFixed(2));
 };
 
+// Hardcoded to strictly align to standard Monday-driven work weeks natively
 const getPeriodStartDate = (payoutType: string) => {
     const now = new Date();
+    const weekStartsOn = 1; // Default Monday
+    
     switch (payoutType) {
-        case 'Weekly': 
-            return startOfWeek(now, { weekStartsOn: 1 }); // Monday
-        case 'Bi-Weekly':
-            return addHours(now, -336); 
-        case 'Monthly':
-            return startOfMonth(now);
+        case 'Weekly': return startOfWeek(now, { weekStartsOn }); 
+        case 'Bi-Weekly': return addDays(startOfWeek(now, { weekStartsOn }), -7); 
+        case 'Monthly': return startOfMonth(now);
         case 'Semi-Monthly':
             if (now.getDate() <= 15) return startOfMonth(now);
             return set(now, { date: 16, hours: 0, minutes: 0, seconds: 0 });
-        default:
-            return startOfWeek(now);
+        default: return startOfWeek(now, { weekStartsOn });
     }
 };
 
-// --- ANIMATED SKELETON COMPONENTS ---
 const SkeletonItem = ({ style, borderRadius = 4, color }: { style?: any, borderRadius?: number, color?: string }) => {
     const theme = useAppTheme();
     const opacity = useSharedValue(0.5);
@@ -131,7 +126,6 @@ const SkeletonItem = ({ style, borderRadius = 4, color }: { style?: any, borderR
     }, [opacity]);
 
     const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
-    // Using a lighter gray by default for a softer look
     const bgColor = color || (theme.dark ? 'rgba(255,255,255,0.1)' : '#E5E7EB');
 
     return <Animated.View style={[{ backgroundColor: bgColor, borderRadius }, style, animatedStyle]} />;
@@ -144,8 +138,6 @@ const HomeContentSkeleton = () => {
 
     return (
         <View style={styles.skeletonContainer}>
-            
-            {/* 1. Dynamic Bar (Pill Shape) */}
             <View style={{ alignItems: 'center', marginBottom: 40, marginTop: 20 }}>
                 <View style={[styles.skeletonDynamicBar, { borderColor, backgroundColor: cardBg }]}>
                      <SkeletonItem style={{ width: 40, height: 40, borderRadius: 20, marginRight: 14 }} />
@@ -154,8 +146,6 @@ const HomeContentSkeleton = () => {
                          <SkeletonItem style={{ width: 100, height: 12 }} />
                      </View>
                 </View>
-
-                {/* 2. Biometric Button (Large Circle) */}
                 <View style={{ alignItems: 'center', marginTop: 24 }}>
                      <View style={{ width: 120, height: 120, borderRadius: 60, borderWidth: 1, borderColor, alignItems: 'center', justifyContent: 'center' }}>
                          <SkeletonItem style={{ width: 100, height: 100, borderRadius: 50 }} color={theme.dark ? undefined : '#F3F4F6'} />
@@ -164,9 +154,7 @@ const HomeContentSkeleton = () => {
                 </View>
             </View>
 
-            {/* 3. Daily Summary Card */}
             <View style={[styles.skeletonCard, { backgroundColor: cardBg, borderColor, marginBottom: 24 }]}>
-                {/* Top: Status Badge + Timer + Ring */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 20, paddingBottom: 16 }}>
                     <View>
                         <SkeletonItem style={{ width: 70, height: 20, marginBottom: 12, borderRadius: 6 }} />
@@ -175,11 +163,7 @@ const HomeContentSkeleton = () => {
                     </View>
                     <SkeletonItem style={{ width: 90, height: 90, borderRadius: 45 }} color={theme.dark ? undefined : '#F3F4F6'} />
                 </View>
-                
-                {/* Divider */}
                 <View style={{ height: 1, backgroundColor: borderColor, opacity: 0.5, marginHorizontal: 20 }} />
-                
-                {/* Middle: 3-Column Grid */}
                 <View style={{ flexDirection: 'row', paddingVertical: 16, paddingHorizontal: 8 }}>
                     {[1, 2, 3].map((i) => (
                         <View key={i} style={{ flex: 1, alignItems: 'center', gap: 6, borderRightWidth: i < 3 ? 1 : 0, borderColor }}>
@@ -190,7 +174,6 @@ const HomeContentSkeleton = () => {
                 </View>
             </View>
 
-            {/* 4. Timeline Section */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16, paddingHorizontal: 4, alignItems: 'center' }}>
                 <SkeletonItem style={{ width: 120, height: 18 }} />
                 <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -199,14 +182,10 @@ const HomeContentSkeleton = () => {
                 </View>
             </View>
 
-            {/* Timeline Items */}
             <View style={{ borderLeftWidth: 2, borderLeftColor: borderColor, marginLeft: 8, paddingLeft: 24, paddingBottom: 20 }}>
                 {[1, 2].map((i) => (
                     <View key={i} style={{ marginBottom: 32 }}>
-                        {/* Dot on Line */}
                         <View style={{ position: 'absolute', left: -31, top: 0, width: 12, height: 12, borderRadius: 6, backgroundColor: borderColor }} />
-                        
-                        {/* Card Content */}
                         <View style={{ backgroundColor: cardBg, borderRadius: 12, padding: 16, borderWidth: 1, borderColor }}>
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
                                 <SkeletonItem style={{ width: '60%', height: 14 }} />
@@ -217,12 +196,10 @@ const HomeContentSkeleton = () => {
                     </View>
                 ))}
             </View>
-
         </View>
     );
 };
 
-// --- MODERN NO JOB STATE ---
 const NoJobState = ({ theme, router, isOffline }: any) => (
     <Animated.View entering={FadeIn.duration(500)} style={[styles.noJobCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
         <View style={{ flex: 1, alignItems: 'center' }}>
@@ -254,7 +231,6 @@ const NoJobState = ({ theme, router, isOffline }: any) => (
     </Animated.View>
 );
 
-// --- MAIN COMPONENT ---
 export default function Home() {
     const insets = useSafeAreaInsets();
     const router = useRouter();
@@ -268,6 +244,8 @@ export default function Home() {
 
     const [loading, setLoading] = useState(false);
     const [isInitialLoading, setIsInitialLoading] = useState(true); 
+    const isInitialLoadRef = useRef(true); 
+
     const [refreshing, setRefreshing] = useState(false);
     const [timelineLoading, setTimelineLoading] = useState(false);
     const [calendarLoading, setCalendarLoading] = useState(false);
@@ -288,7 +266,6 @@ export default function Home() {
     const [isBreak, setIsBreak] = useState(false);
     
     const [otExpiry, setOtExpiry] = useState<string | null>(null);
-    const [shiftEndTarget, setShiftEndTarget] = useState<string | null>(null);
 
     const [hasShownInitialNotif, setHasShownInitialNotif] = useState(false);
     const hasWarnedTimeout = useRef(false);
@@ -306,10 +283,9 @@ export default function Home() {
     const [modernAlertConfig, setModernAlertConfig] = useState<any>({ visible: false });
     const [otModalVisible, setOtModalVisible] = useState(false);
 
-    const [appSettings, setAppSettings] = useState({ vibrationEnabled: true, soundEnabled: true, notificationsEnabled: true });
+    // Kept fundamental notifications/sound options here
+    const [appSettings, setAppSettings] = useState<any>({ vibrationEnabled: true, soundEnabled: true, notificationsEnabled: true });
 
-    // --- ANIMATION: DIFF CLAMP SCROLL HANDLER ---
-    // This logic ensures the header shows when scrolling UP, and hides when scrolling DOWN
     const scrollY = useSharedValue(0);
     const headerTranslateY = useSharedValue(0);
     const HEADER_HEIGHT = 100 + insets.top; 
@@ -320,19 +296,12 @@ export default function Home() {
             const diff = currentY - scrollY.value;
             scrollY.value = currentY;
 
-            // DiffClamp Logic:
-            // If scrolling down (diff > 0), add to translateY (move it up/hide)
-            // If scrolling up (diff < 0), subtract from translateY (move it down/show)
-            // Clamp between -HEADER_HEIGHT (hidden) and 0 (fully visible)
-            
-            // Only animate if we are not at the very top (bounce area)
             if (currentY > 0) {
                 headerTranslateY.value = Math.max(
                     -HEADER_HEIGHT, 
                     Math.min(0, headerTranslateY.value - diff)
                 );
             } else {
-                // Always show at top
                 headerTranslateY.value = 0;
             }
         },
@@ -373,7 +342,6 @@ export default function Home() {
 
     const handleHideAlert = useCallback(() => { setAlertVisible(false); }, []);
 
-    // Load from DB filtered by User
     const loadNotifications = useCallback(async () => {
         try {
             const { data: { session } } = await supabase.auth.getSession();
@@ -383,7 +351,6 @@ export default function Home() {
         } catch (e) { console.log('Err loading notifs', e); }
     }, []);
 
-    // Save to DB when receiving new
     const saveNotifications = useCallback(async (newNotif: any) => {
         try {
              await saveNotificationLocal(newNotif);
@@ -392,7 +359,7 @@ export default function Home() {
     }, [loadNotifications]);
 
     const loadData = useCallback(async () => {
-        if (!isInitialLoading) setTimelineLoading(true);
+        if (!isInitialLoadRef.current) setTimelineLoading(true);
         try {
             const { data: { session } } = await supabase.auth.getSession();
             if (!session?.user) return;
@@ -422,7 +389,6 @@ export default function Home() {
                 setTodaysRecords([]);
                 setTasks([]);
                 setLoading(false);
-                setIsInitialLoading(false);
                 return;
             }
 
@@ -441,15 +407,6 @@ export default function Home() {
                     setDbPeriodTargetMinutes(parseInt(parsedJob.period_target, 10));
                 } else {
                     setDbPeriodTargetMinutes(undefined);
-                }
-
-                if (parsedJob.work_schedule && parsedJob.work_schedule.end) {
-                    const today = new Date();
-                    const [endH, endM] = parsedJob.work_schedule.end.split(':').map(Number);
-                    const shiftEnd = set(today, { hours: endH, minutes: endM, seconds: 0, milliseconds: 0 });
-                    setShiftEndTarget(shiftEnd.toISOString());
-                } else {
-                    setShiftEndTarget(null);
                 }
 
                 const [attendance, dailyTasks] = await Promise.all([
@@ -495,9 +452,12 @@ export default function Home() {
         } finally { 
             setRefreshing(false); 
             setTimelineLoading(false);
-            setTimeout(() => setIsInitialLoading(false), 300); 
+            setTimeout(() => {
+                setIsInitialLoading(false);
+                isInitialLoadRef.current = false;
+            }, 300); 
         }
-    }, [selectedDate, isInitialLoading]);
+    }, [selectedDate]);
 
     const processClockAction = useCallback(async (isOvertime = false, duration = 0) => {
         if (!activeJobId) {
@@ -558,10 +518,10 @@ export default function Home() {
                 setAlertMessage(isOvertime ? "Overtime Started!" : "Welcome In!"); 
                 setAlertType('check-in');
             }
-            if (appSettings.soundEnabled && successPlayer) {
+            if (appSettings?.soundEnabled && successPlayer) {
                 try { successPlayer.seekTo(0); successPlayer.play(); } catch (audioErr) { console.log("Audio play failed (non-fatal):", audioErr); }
             }
-            if (appSettings.vibrationEnabled) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            if (appSettings?.vibrationEnabled !== false) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             setSelectedDate(new Date()); 
             setAlertVisible(true);
             await loadData();
@@ -601,6 +561,7 @@ export default function Home() {
         processClockAction(false);
     };
 
+    // HARDCODED AUTO TIMEOUT LOGIC
     const handleAutoTimeoutLogic = useCallback(async () => {
         if (!isClockedIn || !latestRecord) return;
         const now = new Date();
@@ -610,8 +571,19 @@ export default function Home() {
         if (isSessionOvertime && otExpiry) {
             targetTime = new Date(otExpiry);
             reason = "Overtime Duration Reached";
-        } else if (!isSessionOvertime && shiftEndTarget) {
-            targetTime = new Date(shiftEndTarget);
+        } else if (!isSessionOvertime && latestRecord?.clock_in && jobSettings?.work_schedule?.end) {
+            const [endH, endM] = jobSettings.work_schedule.end.split(':').map(Number);
+            let shiftEnd = set(new Date(latestRecord.clock_in), { hours: endH, minutes: endM, seconds: 0, milliseconds: 0 });
+            
+            const [startH, startM] = jobSettings.work_schedule.start.split(':').map(Number);
+            const shiftStart = set(new Date(latestRecord.clock_in), { hours: startH, minutes: startM, seconds: 0, milliseconds: 0 });
+            
+            // If shift spans past midnight
+            if (shiftEnd <= shiftStart) {
+                shiftEnd = addDays(shiftEnd, 1);
+            }
+
+            targetTime = shiftEnd;
             reason = "Shift Ended";
         }
 
@@ -624,11 +596,10 @@ export default function Home() {
                 content: { title: "Time Out Soon", body: `You will be automatically clocked out in 1 minute.`, sound: true, priority: Notifications.AndroidNotificationPriority.HIGH },
                 trigger: null,
             });
-            if (appSettings.vibrationEnabled) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            if (appSettings?.vibrationEnabled !== false) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         }
 
         if (diffSeconds <= 0) {
-            // FIX: Clear notification timer explicitly before UI updates
             await clearAttendanceNotification();
 
             const db = await getDB();
@@ -642,11 +613,14 @@ export default function Home() {
             setOtExpiry(null);
             hasWarnedTimeout.current = false;
             setHasShownInitialNotif(false);
-            setModernAlertConfig({ visible: true, type: 'info', title: 'Auto Checked Out', message: `Session ended at ${format(targetTime, 'h:mm a')}.`, confirmText: 'Okay', onConfirm: () => setModernAlertConfig((prev:any) => ({...prev, visible: false})) });
+
+            const timeStr = targetTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+            setModernAlertConfig({ visible: true, type: 'info', title: 'Auto Checked Out', message: `Session ended at ${timeStr}.`, confirmText: 'Okay', onConfirm: () => setModernAlertConfig((prev:any) => ({...prev, visible: false})) });
             triggerSync();
             loadData(); 
         }
-    }, [isClockedIn, latestRecord, isSessionOvertime, otExpiry, shiftEndTarget, appSettings, triggerSync, loadData]);
+    }, [isClockedIn, latestRecord, isSessionOvertime, otExpiry, jobSettings, appSettings, triggerSync, loadData]);
 
     useEffect(() => {
         loadNotifications();
@@ -685,24 +659,21 @@ export default function Home() {
             
             await markAllNotificationsReadLocal(session.user.id);
             
-            // Optimistic UI Update
             const updated = notifications.map(n => ({ ...n, read: true }));
             setNotifications(updated);
         } catch (e) { console.log('Err marking read', e); }
     };
 
-    // --- IMMEDIATE NOTIFICATION UPDATE ---
-    // Triggers when Break/Work status changes to update buttons instantly
     useEffect(() => {
-        if (isClockedIn && latestRecord?.clock_in && appSettings.notificationsEnabled !== false) {
+        if (isClockedIn && latestRecord?.clock_in && appSettings?.notificationsEnabled !== false) {
              updateAttendanceNotification(
                  latestRecord.clock_in, 
                  isSessionOvertime, 
                  isBreakMode, 
-                 true // Force Banner/Sound/Update for immediate feedback on state change
+                 true 
              );
         }
-    }, [isBreakMode, isClockedIn, isSessionOvertime, latestRecord, appSettings.notificationsEnabled]);
+    }, [isBreakMode, isClockedIn, isSessionOvertime, latestRecord, appSettings]);
 
     useEffect(() => {
         const timer = setInterval(async () => {
@@ -719,8 +690,7 @@ export default function Home() {
                 setWorkedMinutes(workedMins);
             }
             if (isClockedIn && latestRecord?.clock_in) {
-                if (appSettings.notificationsEnabled !== false) {
-                    // Update silent notification only when minute changes
+                if (appSettings?.notificationsEnabled !== false) {
                     if (currentMinute !== lastUpdateMinute.current || !hasShownInitialNotif) {
                         const shouldBanner = !hasShownInitialNotif;
                         await updateAttendanceNotification(

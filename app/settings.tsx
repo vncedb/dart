@@ -1,17 +1,15 @@
 import {
-    Delete02Icon,
     InformationCircleIcon,
     Logout01Icon,
     Mail01Icon,
     Notification01Icon,
     PaintBoardIcon,
+    PencilEdit02Icon,
     SecurityCheckIcon,
-    Settings02Icon,
     VolumeHighIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
 import { useRouter } from 'expo-router';
 import { useColorScheme } from 'nativewind';
 import React, { useEffect, useRef, useState } from 'react';
@@ -32,7 +30,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Header from '../components/Header';
 import LoadingOverlay from '../components/LoadingOverlay';
 import ModernAlert from '../components/ModernAlert';
-// Fix: Import from the new components file
 import { ModernSettingsItem } from '../components/SettingsComponents';
 import { useAppTheme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
@@ -104,31 +101,6 @@ export default function SettingsScreen() {
         Linking.openURL('mailto:support@projectvdb.com?subject=DART Support Request');
     };
 
-    const handleClearCache = async () => {
-        setAlertConfig({
-            visible: true,
-            type: 'confirm',
-            title: 'Clear Cache',
-            message: 'This will free up space by deleting temporary files.',
-            confirmText: 'Clear Cache',
-            onConfirm: async () => {
-                setAlertConfig((prev: any) => ({ ...prev, visible: false }));
-                setIsLoading(true);
-                setLoadingMessage('Cleaning up...');
-                try {
-                    const fs = FileSystem as any;
-                    if (fs.cacheDirectory) await fs.deleteAsync(fs.cacheDirectory, { idempotent: true });
-                    setTimeout(() => {
-                        if (!isMounted.current) return;
-                        setIsLoading(false);
-                        setAlertConfig({ visible: true, type: 'success', title: 'Success', message: 'Cache cleared.', onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) });
-                    }, 800);
-                } catch (e) { setIsLoading(false); }
-            },
-            onCancel: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
-        });
-    };
-
     const handleSignOut = () => {
         setAlertConfig({
             visible: true,
@@ -179,14 +151,6 @@ export default function SettingsScreen() {
                 <View style={{ marginBottom: 24 }}>
                     <Text style={styles.sectionTitle}>APP SETTINGS</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
-                        
-                        <ModernSettingsItem 
-                            icon={Settings02Icon} 
-                            label="General" 
-                            subLabel="App Behavior, Haptics, Shift Logic"
-                            onPress={() => router.push('/settings/general')} 
-                            theme={theme} 
-                        />
 
                         <ModernSettingsItem icon={Notification01Icon} label="Notifications" onPress={() => router.push('/settings/notifications')} theme={theme} />
                         
@@ -210,7 +174,7 @@ export default function SettingsScreen() {
                     </View>
                 </View>
 
-                {/* SECURITY & SUPPORT */}
+                {/* SECURITY */}
                 <View style={{ marginBottom: 24 }}>
                     <Text style={styles.sectionTitle}>SECURITY</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
@@ -218,12 +182,14 @@ export default function SettingsScreen() {
                     </View>
                 </View>
 
+                {/* SUPPORT */}
                 <View style={{ marginBottom: 32 }}>
                     <Text style={styles.sectionTitle}>SUPPORT</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
                         <ModernSettingsItem icon={InformationCircleIcon} label="Privacy Policy" onPress={() => router.push('/settings/privacy-policy')} theme={theme} />
                         <ModernSettingsItem icon={Mail01Icon} label="Contact Support" onPress={handleContactSupport} theme={theme} />
-                        <ModernSettingsItem icon={Delete02Icon} label="Clear Cache" onPress={handleClearCache} isLast theme={theme} />
+                        <ModernSettingsItem icon={PencilEdit02Icon} label="Report or Feedback" onPress={() => router.push('/settings/feedback')} theme={theme} />
+                        <ModernSettingsItem icon={InformationCircleIcon} label="About" onPress={() => router.push('/settings/about')} isLast theme={theme} />
                     </View>
                 </View>
 

@@ -1,6 +1,9 @@
-import React, { useEffect, useState } from "react";
+import * as Haptics from "expo-haptics";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  FlatList,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -8,9 +11,11 @@ import {
   View,
 } from "react-native";
 import Animated, {
-  Easing,
+  Extrapolation,
   interpolate,
+  interpolateColor,
   runOnJS,
+  useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
@@ -20,340 +25,324 @@ import { useAppTheme } from "../constants/theme";
 import Button from "./Button";
 import ModalHeader from "./ModalHeader";
 
+const ITEM_HEIGHT = 60; 
+const CONTENT_HEIGHT = 300; // Exactly 5x ITEM_HEIGHT for perfect center snapping
+const PADDING_VERTICAL = (CONTENT_HEIGHT - ITEM_HEIGHT) / 2;
+const COLUMN_WIDTH = 110; // Extra width for 2 columns
+
+// --- WHEEL ITEM ---
+const WheelItem = React.memo(
+  ({ item, index, scrollY, onPress, formatLabel, primaryColor, textSecondaryColor }: any) => {
+    const animatedStyle = useAnimatedStyle(() => {
+      const itemCenter = index * ITEM_HEIGHT;
+      const viewCenter = scrollY.value;
+      const distance = Math.abs(viewCenter - itemCenter);
+
+      const scale = interpolate(
+        distance,
+        [0, ITEM_HEIGHT, ITEM_HEIGHT * 2],
+        [1.2, 0.85, 0.7],
+        Extrapolation.CLAMP
+      );
+      const opacity = interpolate(
+        distance,
+        [0, ITEM_HEIGHT, ITEM_HEIGHT * 2],
+        [1, 0.4, 0.2],
+        Extrapolation.CLAMP
+      );
+      const color = interpolateColor(
+        distance,
+        [0, ITEM_HEIGHT],
+        [primaryColor, textSecondaryColor]
+      );
+
+      return { transform: [{ scale }], opacity, color };
+    });
+
+    return (
+      <TouchableOpacity
+        activeOpacity={1}
+        onPress={() => onPress(index)}
+        style={{ height: ITEM_HEIGHT, width: '100%', justifyContent: "center", alignItems: "center" }}
+      >
+        <Animated.Text style={[{ fontSize: 18, fontWeight: "600", textAlign: "center" }, animatedStyle]}>
+          {formatLabel(item)}
+        </Animated.Text>
+      </TouchableOpacity>
+    );
+  },
+  (prev, next) => prev.item === next.item && prev.index === next.index
+);
+WheelItem.displayName = "WheelItem";
+
+// --- WHEEL PICKER ---
+const WheelPicker = React.memo(
+  ({ data, initialValue, onChange, formatLabel, primaryColor, textSecondaryColor, isInfinite = false }: any) => {
+    
+    const MULTIPLIER = 100;
+    const baseLength = data.length;
+    
+    const extendedData = useMemo(() => {
+      if (!isInfinite) return data;
+      return Array.from({ length: baseLength * MULTIPLIER }, (_, i) => data[i % baseLength]);
+    }, [data, isInfinite, baseLength]);
+
+    const initialBaseIndex = data.indexOf(initialValue) !== -1 ? data.indexOf(initialValue) : 0;
+    const startIndex = isInfinite
+      ? Math.floor(MULTIPLIER / 2) * baseLength + initialBaseIndex
+      : initialBaseIndex;
+
+    const scrollY = useSharedValue(startIndex * ITEM_HEIGHT);
+    const [activeIndex, setActiveIndex] = useState(startIndex);
+    const flatListRef = useRef<FlatList>(null);
+
+    const onScroll = useAnimatedScrollHandler((event) => {
+      scrollY.value = event.contentOffset.y;
+    });
+
+    const handleMomentumEnd = useCallback(
+      (e: any) => {
+        const index = Math.round(e.nativeEvent.contentOffset.y / ITEM_HEIGHT);
+        const safeIndex = Math.max(0, Math.min(index, extendedData.length - 1));
+        if (safeIndex !== activeIndex) {
+          setActiveIndex(safeIndex);
+          onChange(extendedData[safeIndex]);
+          if (Platform.OS !== "web") Haptics.selectionAsync();
+        }
+      },
+      [extendedData, activeIndex, onChange]
+    );
+
+    const handlePress = useCallback(
+      (index: number) => {
+        flatListRef.current?.scrollToOffset({ offset: index * ITEM_HEIGHT, animated: true });
+        setActiveIndex(index);
+        onChange(extendedData[index]);
+        if (Platform.OS !== "web") Haptics.selectionAsync();
+      },
+      [extendedData, onChange]
+    );
+
+    return (
+      <View style={{ flex: 1, height: CONTENT_HEIGHT, overflow: "hidden", width: '100%' }}>
+        <Animated.FlatList
+          ref={flatListRef}
+          data={extendedData}
+          keyExtractor={(_, i) => i.toString()}
+          renderItem={({ item, index }) => (
+            <WheelItem
+              item={item}
+              index={index}
+              scrollY={scrollY}
+              onPress={handlePress}
+              formatLabel={formatLabel}
+              primaryColor={primaryColor}
+              textSecondaryColor={textSecondaryColor}
+            />
+          )}
+          getItemLayout={(_, index) => ({
+            length: ITEM_HEIGHT,
+            offset: ITEM_HEIGHT * index,
+            index,
+          })}
+          initialScrollIndex={startIndex}
+          snapToInterval={ITEM_HEIGHT}
+          snapToAlignment="start"
+          decelerationRate="normal" // Native momentum
+          bounces={false}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingVertical: PADDING_VERTICAL }}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          onMomentumScrollEnd={handleMomentumEnd}
+          removeClippedSubviews={Platform.OS === 'android'}
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+        />
+      </View>
+    );
+  }
+);
+WheelPicker.displayName = "WheelPicker";
+
+// --- MAIN COMPONENT ---
 interface DurationPickerProps {
   visible: boolean;
   onClose: () => void;
   onConfirm: (hours: number, minutes: number) => void;
+  title?: string;
   initialHours?: number;
   initialMinutes?: number;
 }
-
-const CONTAINER_WIDTH = 340;
-const CONTAINER_HEIGHT = 500; // Matches TimePicker
-
-const SMOOTH_EASING = Easing.out(Easing.cubic);
-
-const TickerNumber = ({ value, max }: { value: number; max: number }) => {
-  const theme = useAppTheme();
-  const translateY = useSharedValue(0);
-  const opacity = useSharedValue(1);
-  const [displayValue, setDisplayValue] = useState(value);
-  
-  const prevValueRef = React.useRef(value);
-
-  useEffect(() => {
-    if (value !== prevValueRef.current) {
-      const direction = value > prevValueRef.current ? -1 : 1;
-      const effectiveDir =
-        prevValueRef.current === 0 && value === max
-          ? 1
-          : prevValueRef.current === max && value === 0
-            ? -1
-            : direction;
-
-      translateY.value = withTiming(effectiveDir * 20, { duration: 150 });
-      opacity.value = withTiming(0, { duration: 150 }, (finished) => {
-        if (finished) {
-          runOnJS(setDisplayValue)(value);
-          translateY.value = -effectiveDir * 20;
-          translateY.value = withTiming(0, {
-            duration: 200,
-            easing: SMOOTH_EASING,
-          });
-          opacity.value = withTiming(1, { duration: 200 });
-        }
-      });
-      prevValueRef.current = value;
-    }
-  }, [value, max]);
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
-    opacity: opacity.value,
-  }));
-
-  return (
-    <View
-      style={{
-        height: 40,
-        width: 60,
-        alignItems: "center",
-        justifyContent: "center",
-        overflow: "hidden",
-      }}
-    >
-      <Animated.Text
-        style={[
-          { fontSize: 32, fontWeight: "800", color: theme.colors.text },
-          animatedStyle,
-        ]}
-      >
-        {displayValue.toString().padStart(2, "0")}
-      </Animated.Text>
-    </View>
-  );
-};
 
 export default function DurationPicker({
   visible,
   onClose,
   onConfirm,
+  title = "Set Duration",
   initialHours = 0,
   initialMinutes = 0,
 }: DurationPickerProps) {
   const theme = useAppTheme();
-  const [durHours, setDurHours] = useState(initialHours);
-  const [durMins, setDurMins] = useState(initialMinutes);
   const [showModal, setShowModal] = useState(visible);
 
-  const animation = useSharedValue(0);
+  const [hours, setHours] = useState(initialHours);
+  const [minutes, setMinutes] = useState(initialMinutes);
+
+  const translateY = useSharedValue(CONTENT_HEIGHT + 350);
+  const backdropOpacity = useSharedValue(0);
+
+  const hoursData = useMemo(() => Array.from({ length: 24 }, (_, i) => i), []);
+  const minutesData = useMemo(() => Array.from({ length: 60 }, (_, i) => i), []);
 
   useEffect(() => {
     if (visible) {
       setShowModal(true);
-      setDurHours(initialHours);
-      setDurMins(initialMinutes);
-      // Match DatePicker Spring Config
-      animation.value = withSpring(1, {
-        damping: 18,
-        stiffness: 120,
-        mass: 1,
-      });
+      setHours(initialHours);
+      setMinutes(initialMinutes);
+
+      backdropOpacity.value = withTiming(1, { duration: 250 });
+      translateY.value = withSpring(0, { damping: 20, stiffness: 150, mass: 0.8 });
     } else {
-      animation.value = withTiming(0, { duration: 200 }, (finished) => {
-        if (finished) {
-            runOnJS(setShowModal)(false);
-        }
-      });
+      if (showModal) closeModal();
     }
   }, [visible, initialHours, initialMinutes]);
 
-  const handleClose = () => {
-    onClose();
+  const closeModal = (callback?: () => void) => {
+    translateY.value = withTiming(CONTENT_HEIGHT + 350, { duration: 250 });
+    backdropOpacity.value = withTiming(0, { duration: 250 }, (finished) => {
+      if (finished) {
+        runOnJS(setShowModal)(false);
+        if (callback) runOnJS(callback)();
+      }
+    });
   };
+
+  const handleClose = () => closeModal(onClose);
 
   const handleConfirm = () => {
-    onClose();
-    setTimeout(() => {
-        onConfirm(durHours, durMins);
-    }, 100);
+    closeModal(() => {
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      onConfirm(hours, minutes);
+      onClose();
+    });
   };
 
-  const backdropStyle = useAnimatedStyle(() => ({ opacity: animation.value }));
-  
-  const containerStyle = useAnimatedStyle(() => {
-    const scale = interpolate(animation.value, [0, 1], [0.92, 1]);
-    return {
-      opacity: animation.value,
-      transform: [{ scale }],
-    };
-  });
+  const animatedBackdropStyle = useAnimatedStyle(() => ({ opacity: backdropOpacity.value }));
+  const animatedSheetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.value }] }));
 
   if (!showModal) return null;
 
   return (
-    <Modal
-      visible={showModal}
-      transparent
-      animationType="none"
-      onRequestClose={handleClose}
-      statusBarTranslucent
-    >
+    <Modal visible={showModal} transparent animationType="none" onRequestClose={handleClose} statusBarTranslucent>
       <View style={styles.overlay}>
-        <Animated.View style={[styles.backdrop, backdropStyle]} />
+        <Animated.View style={[styles.backdrop, animatedBackdropStyle]} />
         <Pressable onPress={handleClose} style={StyleSheet.absoluteFill} />
 
-        <Pressable onPress={(e) => e.stopPropagation()}>
-          <Animated.View
-            style={[
-              styles.container,
-              { backgroundColor: theme.colors.card },
-              containerStyle,
-            ]}
-          >
-            <ModalHeader title="Set Duration" position="center" />
-            
-            <View style={styles.content}>
-              <View style={{ gap: 40, alignItems: "center" }}>
-                <View style={{ alignItems: "center" }}>
-                  <Text
-                    style={{
-                      fontSize: 11,
-                      fontWeight: "700",
-                      color: theme.colors.textSecondary,
-                      marginBottom: 12,
-                      textTransform: "uppercase",
-                      letterSpacing: 1,
-                    }}
-                  >
-                    Hours
-                  </Text>
-                  <View
-                    style={[
-                      styles.tickerContainer,
-                      {
-                        backgroundColor: theme.colors.background,
-                        borderColor: theme.colors.border,
-                      },
-                    ]}
-                  >
-                    <TouchableOpacity
-                      onPress={() =>
-                        setDurHours(durHours === 0 ? 23 : durHours - 1)
-                      }
-                      style={[
-                        styles.roundBtn,
-                        { backgroundColor: theme.colors.card },
-                      ]}
-                    >
-                      <Text
-                        style={[styles.btnText, { color: theme.colors.text }]}
-                      >
-                        -
-                      </Text>
-                    </TouchableOpacity>
-                    <TickerNumber value={durHours} max={23} />
-                    <TouchableOpacity
-                      onPress={() =>
-                        setDurHours(durHours === 23 ? 0 : durHours + 1)
-                      }
-                      style={[
-                        styles.roundBtn,
-                        { backgroundColor: theme.colors.card },
-                      ]}
-                    >
-                      <Text
-                        style={[styles.btnText, { color: theme.colors.text }]}
-                      >
-                        +
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
+        <Animated.View style={[styles.bottomSheet, { backgroundColor: theme.colors.card }, animatedSheetStyle]}>
+          <View style={styles.handleContainer}>
+             <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
+          </View>
 
-                <View style={{ alignItems: "center" }}>
-                  <Text
-                    style={{
-                      fontSize: 11,
-                      fontWeight: "700",
-                      color: theme.colors.textSecondary,
-                      marginBottom: 12,
-                      textTransform: "uppercase",
-                      letterSpacing: 1,
-                    }}
-                  >
-                    Minutes
-                  </Text>
-                  <View
-                    style={[
-                      styles.tickerContainer,
-                      {
-                        backgroundColor: theme.colors.background,
-                        borderColor: theme.colors.border,
-                      },
-                    ]}
-                  >
-                    <TouchableOpacity
-                      onPress={() =>
-                        setDurMins(durMins === 0 ? 59 : durMins - 1)
-                      }
-                      style={[
-                        styles.roundBtn,
-                        { backgroundColor: theme.colors.card },
-                      ]}
-                    >
-                      <Text
-                        style={[styles.btnText, { color: theme.colors.text }]}
-                      >
-                        -
-                      </Text>
-                    </TouchableOpacity>
-                    <TickerNumber value={durMins} max={59} />
-                    <TouchableOpacity
-                      onPress={() =>
-                        setDurMins(durMins === 59 ? 0 : durMins + 1)
-                      }
-                      style={[
-                        styles.roundBtn,
-                        { backgroundColor: theme.colors.card },
-                      ]}
-                    >
-                      <Text
-                        style={[styles.btnText, { color: theme.colors.text }]}
-                      >
-                        +
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-            </View>
-            <View
-              style={[styles.footer, { borderTopColor: theme.colors.border }]}
-            >
-              <Button
-                title="Cancel"
-                variant="neutral"
-                onPress={handleClose}
-                style={{ flex: 1 }}
-              />
-              <View style={{ width: 12 }} />
-              <Button
-                title="Confirm"
-                variant="primary"
-                onPress={handleConfirm}
-                style={{ flex: 1 }}
+          <ModalHeader title={title} onClose={handleClose} position="bottom" />
+
+          {/* Column Headers */}
+          <View style={styles.headersRow}>
+            <Text style={[styles.headerLabel, { color: theme.colors.textSecondary }]}>HOURS</Text>
+            <View style={styles.spacer} />
+            <Text style={[styles.headerLabel, { color: theme.colors.textSecondary }]}>MINUTES</Text>
+          </View>
+
+          <View style={styles.pickersContainer}>
+            <View style={[styles.selectionBand, { backgroundColor: theme.colors.primary }]} pointerEvents="none" />
+
+            <View style={styles.column}>
+              <WheelPicker
+                data={hoursData}
+                initialValue={hours}
+                onChange={setHours}
+                formatLabel={(h: number) => h.toString()}
+                primaryColor={theme.colors.primary}
+                textSecondaryColor={theme.colors.textSecondary}
+                isInfinite={true}
               />
             </View>
-          </Animated.View>
-        </Pressable>
+            
+            <View style={styles.spacerCenter}>
+              <Text style={[styles.colon, { color: theme.colors.text }]}>:</Text>
+            </View>
+
+            <View style={styles.column}>
+              <WheelPicker
+                data={minutesData}
+                initialValue={minutes}
+                onChange={setMinutes}
+                formatLabel={(m: number) => m.toString().padStart(2, "0")}
+                primaryColor={theme.colors.primary}
+                textSecondaryColor={theme.colors.textSecondary}
+                isInfinite={true}
+              />
+            </View>
+          </View>
+
+          <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
+            <Button title="Cancel" variant="neutral" onPress={handleClose} style={{ flex: 1 }} />
+            <View style={{ width: 12 }} />
+            <Button title="Confirm Duration" variant="primary" onPress={handleConfirm} style={{ flex: 1 }} />
+          </View>
+        </Animated.View>
       </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: "center", alignItems: "center" },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.5)",
+  overlay: { flex: 1, justifyContent: "flex-end" },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)" },
+  bottomSheet: {
+    width: "100%", borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: "hidden",
+    shadowColor: "#000", shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.1, shadowRadius: 16, elevation: 20,
   },
-  container: {
-    width: CONTAINER_WIDTH,
-    height: CONTAINER_HEIGHT,
-    borderRadius: 28,
-    overflow: "hidden",
-    elevation: 20,
-    flexDirection: 'column',
+  handleContainer: { width: '100%', alignItems: 'center', paddingTop: 12, paddingBottom: 4 },
+  handle: { width: 36, height: 4, borderRadius: 2, opacity: 0.4 },
+  
+  // Headers Alignment
+  headersRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 16,
+    paddingBottom: 8,
   },
-  content: { 
-      flex: 1, 
-      alignItems: "center",
-      justifyContent: 'center', 
-      paddingVertical: 20
+  headerLabel: {
+    width: COLUMN_WIDTH,
+    textAlign: 'center',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    opacity: 0.6,
   },
-  tickerContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-    padding: 8,
-    borderRadius: 24,
-    borderWidth: 1,
+  spacer: { width: 24 }, // Match width of spacerCenter
+  
+  // Pickers Alignment
+  pickersContainer: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    height: CONTENT_HEIGHT, position: 'relative',
   },
-  roundBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "rgba(0,0,0,0.05)",
+  column: {
+    width: COLUMN_WIDTH,
+    alignItems: 'center',
   },
-  btnText: { fontSize: 24, fontWeight: "600" },
-  footer: { 
-      padding: 20, 
-      borderTopWidth: 1, 
-      flexDirection: "row",
-      marginTop: 'auto' 
+  spacerCenter: {
+    width: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  selectionBand: {
+    position: 'absolute', top: '50%', left: 24, right: 24, height: ITEM_HEIGHT,
+    marginTop: -ITEM_HEIGHT / 2, borderRadius: 12, opacity: 0.1,
+  },
+  colon: { fontSize: 28, fontWeight: "700", opacity: 0.3 },
+  footer: { flexDirection: "row", padding: 24, paddingBottom: Platform.OS === 'ios' ? 40 : 24, borderTopWidth: 1 },
 });

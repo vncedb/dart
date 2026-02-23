@@ -1,8 +1,8 @@
 import * as Haptics from "expo-haptics";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  FlatList,
   Modal,
-  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
@@ -11,22 +11,162 @@ import {
   View,
 } from "react-native";
 import Animated, {
+  Extrapolation,
   interpolate,
+  interpolateColor,
   runOnJS,
-  useAnimatedProps,
+  useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
   withTiming,
 } from "react-native-reanimated";
-import Svg, { Circle, G, Line, Text as SvgText } from "react-native-svg";
 import { useAppTheme } from "../constants/theme";
 import Button from "./Button";
 import ModalHeader from "./ModalHeader";
 
-const AnimatedLine = Animated.createAnimatedComponent(Line);
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+const ITEM_HEIGHT = 60; 
+const CONTENT_HEIGHT = 300; 
+const PADDING_VERTICAL = (CONTENT_HEIGHT - ITEM_HEIGHT) / 2;
+const COLUMN_WIDTH = 90;
 
+// --- WHEEL ITEM ---
+const WheelItem = React.memo(
+  ({ item, index, scrollY, onPress, formatLabel, primaryColor, textSecondaryColor }: any) => {
+    const animatedStyle = useAnimatedStyle(() => {
+      const itemCenter = index * ITEM_HEIGHT;
+      const viewCenter = scrollY.value;
+      const distance = Math.abs(viewCenter - itemCenter);
+
+      const scale = interpolate(
+        distance,
+        [0, ITEM_HEIGHT, ITEM_HEIGHT * 2],
+        [1.15, 0.9, 0.8],
+        Extrapolation.CLAMP
+      );
+      const opacity = interpolate(
+        distance,
+        [0, ITEM_HEIGHT, ITEM_HEIGHT * 2],
+        [1, 0.4, 0.2],
+        Extrapolation.CLAMP
+      );
+      const color = interpolateColor(
+        distance,
+        [0, ITEM_HEIGHT],
+        [primaryColor, textSecondaryColor]
+      );
+
+      return { transform: [{ scale }], opacity, color };
+    });
+
+    return (
+      <TouchableOpacity
+        activeOpacity={1}
+        onPress={() => onPress(index)}
+        style={{ height: ITEM_HEIGHT, width: '100%', justifyContent: "center", alignItems: "center" }}
+      >
+        <Animated.Text style={[{ fontSize: 18, fontWeight: "600", textAlign: "center" }, animatedStyle]}>
+          {formatLabel(item)}
+        </Animated.Text>
+      </TouchableOpacity>
+    );
+  },
+  (prev, next) => prev.item === next.item && prev.index === next.index
+);
+WheelItem.displayName = "WheelItem";
+
+// --- WHEEL PICKER ---
+const WheelPicker = React.memo(
+  ({ data, initialValue, onChange, formatLabel, primaryColor, textSecondaryColor, isInfinite = false }: any) => {
+    
+    const MULTIPLIER = 100;
+    const baseLength = data.length;
+    
+    const extendedData = useMemo(() => {
+      if (!isInfinite) return data;
+      return Array.from({ length: baseLength * MULTIPLIER }, (_, i) => data[i % baseLength]);
+    }, [data, isInfinite, baseLength]);
+
+    const initialBaseIndex = data.indexOf(initialValue) !== -1 ? data.indexOf(initialValue) : 0;
+    const startIndex = isInfinite
+      ? Math.floor(MULTIPLIER / 2) * baseLength + initialBaseIndex
+      : initialBaseIndex;
+
+    const scrollY = useSharedValue(startIndex * ITEM_HEIGHT);
+    const [activeIndex, setActiveIndex] = useState(startIndex);
+    const flatListRef = useRef<FlatList>(null);
+
+    const onScroll = useAnimatedScrollHandler((event) => {
+      scrollY.value = event.contentOffset.y;
+    });
+
+    const handleMomentumEnd = useCallback(
+      (e: any) => {
+        const index = Math.round(e.nativeEvent.contentOffset.y / ITEM_HEIGHT);
+        const safeIndex = Math.max(0, Math.min(index, extendedData.length - 1));
+        if (safeIndex !== activeIndex) {
+          setActiveIndex(safeIndex);
+          onChange(extendedData[safeIndex]);
+          if (Platform.OS !== "web") Haptics.selectionAsync();
+        }
+      },
+      [extendedData, activeIndex, onChange]
+    );
+
+    const handlePress = useCallback(
+      (index: number) => {
+        flatListRef.current?.scrollToOffset({ offset: index * ITEM_HEIGHT, animated: true });
+        setActiveIndex(index);
+        onChange(extendedData[index]);
+        if (Platform.OS !== "web") Haptics.selectionAsync();
+      },
+      [extendedData, onChange]
+    );
+
+    return (
+      <View style={{ flex: 1, height: CONTENT_HEIGHT, overflow: "hidden", width: '100%' }}>
+        <Animated.FlatList
+          ref={flatListRef}
+          data={extendedData}
+          keyExtractor={(_, i) => i.toString()}
+          renderItem={({ item, index }) => (
+            <WheelItem
+              item={item}
+              index={index}
+              scrollY={scrollY}
+              onPress={handlePress}
+              formatLabel={formatLabel}
+              primaryColor={primaryColor}
+              textSecondaryColor={textSecondaryColor}
+            />
+          )}
+          getItemLayout={(_, index) => ({
+            length: ITEM_HEIGHT,
+            offset: ITEM_HEIGHT * index,
+            index,
+          })}
+          initialScrollIndex={startIndex}
+          snapToInterval={ITEM_HEIGHT}
+          snapToAlignment="start"
+          decelerationRate="normal"
+          bounces={false}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={{ paddingVertical: PADDING_VERTICAL }}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          onMomentumScrollEnd={handleMomentumEnd}
+          removeClippedSubviews={Platform.OS === 'android'}
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={5}
+        />
+      </View>
+    );
+  }
+);
+WheelPicker.displayName = "WheelPicker";
+
+// --- MAIN COMPONENT ---
 interface TimePickerProps {
   visible: boolean;
   onClose: () => void;
@@ -36,17 +176,6 @@ interface TimePickerProps {
   initialMinutes?: number;
   initialPeriod?: "AM" | "PM";
 }
-
-const CONTAINER_WIDTH = 340;
-const CONTAINER_HEIGHT = 520;
-const CLOCK_SIZE = 240;
-const CENTER = CLOCK_SIZE / 2;
-const RADIUS = CLOCK_SIZE / 2 - 32;
-
-const getShortestPath = (current: number, target: number) => {
-  const diff = ((target - (current % 360) + 540) % 360) - 180;
-  return current + diff;
-};
 
 export default function TimePicker({
   visible,
@@ -58,32 +187,22 @@ export default function TimePicker({
   initialPeriod = "AM",
 }: TimePickerProps) {
   const theme = useAppTheme();
+  const [showModal, setShowModal] = useState(visible);
+
   const [hours, setHours] = useState(initialHours);
   const [minutes, setMinutes] = useState(initialMinutes);
   const [period, setPeriod] = useState<"AM" | "PM">(initialPeriod || "AM");
-  
-  const [mode, setMode] = useState<"HOUR" | "MINUTE">("HOUR");
-  const [viewMode, setViewMode] = useState<"DIGITAL" | "ANALOG">("DIGITAL");
-  const [showModal, setShowModal] = useState(visible);
 
-  // Animations
-  const animation = useSharedValue(0); 
-  const modeAnim = useSharedValue(0); 
-  const angle = useSharedValue(0);
-  
-  const modeRef = useRef<"HOUR" | "MINUTE">("HOUR");
-  const lastHapticValue = useRef<number | null>(null);
-  const isDragging = useRef(false);
+  const translateY = useSharedValue(CONTENT_HEIGHT + 350);
+  const backdropOpacity = useSharedValue(0);
 
-  useEffect(() => {
-    modeRef.current = mode;
-  }, [mode]);
+  const hoursData = useMemo(() => Array.from({ length: 12 }, (_, i) => i + 1), []);
+  const minutesData = useMemo(() => Array.from({ length: 60 }, (_, i) => i), []);
+  const periodData = useMemo(() => ["AM", "PM"], []);
 
   useEffect(() => {
     if (visible) {
       setShowModal(true);
-      setViewMode("DIGITAL");
-      modeAnim.value = 0; 
       
       let h = initialHours;
       if (h === 0) h = 12;
@@ -91,546 +210,160 @@ export default function TimePicker({
       setHours(h);
       setMinutes(initialMinutes || 0);
       setPeriod(initialPeriod || "AM");
-      setMode("HOUR");
 
-      animation.value = withSpring(1, {
-        damping: 18,
-        stiffness: 120,
-        mass: 1,
-      });
+      backdropOpacity.value = withTiming(1, { duration: 250 });
+      translateY.value = withSpring(0, { damping: 20, stiffness: 150, mass: 0.8 });
     } else {
-      animation.value = withTiming(0, { duration: 200 }, (finished) => {
-        if (finished) {
-          runOnJS(setShowModal)(false);
-        }
-      });
+      if (showModal) closeModal();
     }
   }, [visible, initialHours, initialMinutes, initialPeriod]);
 
-  useEffect(() => {
-    if (viewMode === "ANALOG") {
-      modeAnim.value = withTiming(1, { duration: 300 });
-    } else {
-      modeAnim.value = withTiming(0, { duration: 300 });
-    }
-  }, [viewMode]);
-
-  const handleClose = () => {
-    onClose();
-  };
-
-  const handleConfirm = () => {
-    if (Platform.OS !== "web") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    }
-    onConfirm(hours, minutes, period);
-    onClose();
-  };
-
-  const updateAngleForMode = (targetMode: "HOUR" | "MINUTE", h: number, m: number) => {
-    const val = targetMode === "HOUR" ? (h === 12 ? 0 : h) : m;
-    const step = targetMode === "HOUR" ? 30 : 6;
-    const targetAngle = val * step;
-    
-    // Animate to new angle
-    angle.value = withSpring(targetAngle, {
-        damping: 16,
-        stiffness: 120
+  const closeModal = (callback?: () => void) => {
+    translateY.value = withTiming(CONTENT_HEIGHT + 350, { duration: 250 });
+    backdropOpacity.value = withTiming(0, { duration: 250 }, (finished) => {
+      if (finished) {
+        runOnJS(setShowModal)(false);
+        if (callback) runOnJS(callback)();
+      }
     });
   };
 
-  const openAnalog = (targetMode: "HOUR" | "MINUTE") => {
-    setMode(targetMode);
-    
-    // Snap instantly when opening
-    const val = targetMode === "HOUR" ? (hours === 12 ? 0 : hours) : minutes;
-    const step = targetMode === "HOUR" ? 30 : 6;
-    angle.value = val * step;
-    
-    setViewMode("ANALOG");
-    if (Platform.OS !== "web") Haptics.selectionAsync();
+  const handleClose = () => closeModal(onClose);
+
+  const handleConfirm = () => {
+    closeModal(() => {
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      onConfirm(hours, minutes, period);
+      onClose();
+    });
   };
 
-  const switchToMinuteMode = () => {
-      setMode("MINUTE");
-      updateAngleForMode("MINUTE", hours, minutes);
-  };
-
-  const handleCenterTap = () => {
-    if (Platform.OS !== "web") Haptics.selectionAsync();
-    setViewMode("DIGITAL");
-  };
-
-  const handleTouch = (x: number, y: number, finish: boolean) => {
-    isDragging.current = !finish;
-
-    const dx = x - CENTER;
-    const dy = y - CENTER;
-    let theta = Math.atan2(dy, dx) * (180 / Math.PI) + 90;
-    if (theta < 0) theta += 360;
-
-    const currentMode = modeRef.current;
-    let val = 0;
-    let snappedAngle = 0;
-
-    if (currentMode === "HOUR") {
-      const step = 30;
-      snappedAngle = Math.round(theta / step) * step;
-      val = Math.round(snappedAngle / 30);
-      if (val === 0 || val === 12) val = 12;
-      else if (val > 12) val -= 12;
-    } else {
-      const step = 6;
-      snappedAngle = Math.round(theta / step) * step;
-      val = Math.round(snappedAngle / 6);
-      if (val === 60) val = 0;
-    }
-
-    if (val !== lastHapticValue.current) {
-      if (Platform.OS !== "web") Haptics.selectionAsync();
-      lastHapticValue.current = val;
-      if (currentMode === "HOUR") setHours(val);
-      else setMinutes(val);
-    }
-
-    if (!finish) {
-      angle.value = getShortestPath(angle.value, theta);
-    } else {
-      const finalSnap = getShortestPath(angle.value, snappedAngle);
-      angle.value = withSpring(finalSnap, {
-          damping: 15,
-          stiffness: 150
-      });
-
-      // Smart Flow: Auto-advance
-      if (currentMode === "HOUR") {
-          // Wait briefly then switch to Minutes
-          setTimeout(() => {
-              runOnJS(switchToMinuteMode)();
-          }, 450);
-      } else {
-          // Wait briefly then return to Digital
-          setTimeout(() => {
-            runOnJS(setViewMode)("DIGITAL");
-          }, 450); 
-      }
-    }
-  };
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onPanResponderGrant: (evt) => handleTouch(evt.nativeEvent.locationX, evt.nativeEvent.locationY, false),
-      onPanResponderMove: (evt) => handleTouch(evt.nativeEvent.locationX, evt.nativeEvent.locationY, false),
-      onPanResponderRelease: (evt) => handleTouch(evt.nativeEvent.locationX, evt.nativeEvent.locationY, true),
-    }),
-  ).current;
-
-  const handProps = useAnimatedProps(() => {
-    const rad = (angle.value - 90) * (Math.PI / 180);
-    return {
-      x2: CENTER + RADIUS * Math.cos(rad),
-      y2: CENTER + RADIUS * Math.sin(rad),
-    };
-  });
-
-  const knobProps = useAnimatedProps(() => {
-    const rad = (angle.value - 90) * (Math.PI / 180);
-    return {
-      cx: CENTER + RADIUS * Math.cos(rad),
-      cy: CENTER + RADIUS * Math.sin(rad),
-    };
-  });
-
-  const backdropStyle = useAnimatedStyle(() => ({ opacity: animation.value }));
-  const containerStyle = useAnimatedStyle(() => {
-    const scale = interpolate(animation.value, [0, 1], [0.92, 1]);
-    return {
-        opacity: animation.value,
-        transform: [{ scale }],
-    };
-  });
-
-  const digitalViewStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(modeAnim.value, [0, 1], [1, 0]),
-    transform: [{ scale: interpolate(modeAnim.value, [0, 1], [1, 0.9]) }],
-    zIndex: modeAnim.value < 0.5 ? 1 : 0, 
-  }));
-
-  const analogViewStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(modeAnim.value, [0, 1], [0, 1]),
-    transform: [{ scale: interpolate(modeAnim.value, [0, 1], [1.1, 1]) }],
-    zIndex: modeAnim.value > 0.5 ? 1 : 0,
-  }));
+  const animatedBackdropStyle = useAnimatedStyle(() => ({ opacity: backdropOpacity.value }));
+  const animatedSheetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.value }] }));
 
   if (!showModal) return null;
 
   return (
-    <Modal
-      visible={showModal}
-      transparent
-      animationType="none"
-      onRequestClose={handleClose}
-      statusBarTranslucent
-    >
+    <Modal visible={showModal} transparent animationType="none" onRequestClose={handleClose} statusBarTranslucent>
       <View style={styles.overlay}>
-        <Animated.View style={[styles.backdrop, backdropStyle]} />
+        <Animated.View style={[styles.backdrop, animatedBackdropStyle]} />
         <Pressable onPress={handleClose} style={StyleSheet.absoluteFill} />
 
-        <Pressable onPress={(e) => e.stopPropagation()}>
-          <Animated.View
-            style={[
-              styles.container,
-              { backgroundColor: theme.colors.card },
-              containerStyle,
-            ]}
-          >
-            <ModalHeader title={title} position="center" />
+        <Animated.View style={[styles.bottomSheet, { backgroundColor: theme.colors.card }, animatedSheetStyle]}>
+          <View style={styles.handleContainer}>
+             <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
+          </View>
+
+          <ModalHeader title={title} onClose={handleClose} position="bottom" />
+
+          <View style={styles.headersRow}>
+            <Text style={[styles.headerLabel, { color: theme.colors.textSecondary }]}>HOURS</Text>
+            <View style={styles.spacer} />
+            <Text style={[styles.headerLabel, { color: theme.colors.textSecondary }]}>MINUTES</Text>
+            <View style={styles.spacer} />
+            <Text style={[styles.headerLabel, { color: theme.colors.textSecondary }]}>AM/PM</Text>
+          </View>
+
+          <View style={styles.pickersContainer}>
+            <View style={[styles.selectionBand, { backgroundColor: theme.colors.primary }]} pointerEvents="none" />
+
+            <View style={styles.column}>
+              <WheelPicker
+                data={hoursData}
+                initialValue={hours}
+                onChange={setHours}
+                formatLabel={(h: number) => h.toString().padStart(2, "0")}
+                primaryColor={theme.colors.primary}
+                textSecondaryColor={theme.colors.textSecondary}
+                isInfinite={true}
+              />
+            </View>
             
-            <View style={styles.bodyContainer}>
-              
-              {/* DIGITAL VIEW */}
-              <Animated.View 
-                style={[styles.absoluteFill, digitalViewStyle]}
-                pointerEvents={viewMode === "DIGITAL" ? "auto" : "none"}
-              >
-                <View style={styles.centerContent}>
-                  <View style={styles.timeDisplay}>
-                    {/* Hour Display */}
-                    <TouchableOpacity
-                      onPress={() => openAnalog('HOUR')}
-                      activeOpacity={0.8}
-                      style={[
-                          styles.timeUnit,
-                          mode === 'HOUR' && viewMode === 'ANALOG' && styles.activeTimeUnit,
-                          { backgroundColor: theme.colors.background }
-                      ]}
-                    >
-                      <Text style={[
-                          styles.timeText, 
-                          { color: theme.colors.text }
-                      ]}>
-                        {hours === 0 ? 12 : hours}
-                      </Text>
-                      <Text style={[styles.label, {color: theme.colors.textSecondary}]}>HOURS</Text>
-                    </TouchableOpacity>
-                    
-                    <Text style={[styles.colon, { color: theme.colors.text }]}>:</Text>
-                    
-                    {/* Minute Display */}
-                    <TouchableOpacity
-                      onPress={() => openAnalog('MINUTE')}
-                      activeOpacity={0.8}
-                      style={[
-                          styles.timeUnit,
-                          mode === 'MINUTE' && viewMode === 'ANALOG' && styles.activeTimeUnit,
-                          { backgroundColor: theme.colors.background }
-                      ]}
-                    >
-                      <Text style={[
-                          styles.timeText, 
-                          { color: theme.colors.text }
-                      ]}>
-                        {minutes.toString().padStart(2, "0")}
-                      </Text>
-                      <Text style={[styles.label, {color: theme.colors.textSecondary}]}>MINUTES</Text>
-                    </TouchableOpacity>
-                    
-                    {/* AM/PM Switcher */}
-                    <View style={styles.ampmContainer}>
-                      {["AM", "PM"].map((p) => (
-                        <TouchableOpacity
-                          key={p}
-                          onPress={() => {
-                            setPeriod(p as any);
-                            if (Platform.OS !== "web")
-                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          }}
-                          style={[
-                            styles.ampmButton,
-                            period === p 
-                                ? { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary }
-                                : { backgroundColor: 'transparent', borderColor: theme.colors.border },
-                          ]}
-                        >
-                          <Text
-                            style={[
-                              styles.ampmText,
-                              {
-                                color: period === p ? "#FFF" : theme.colors.textSecondary,
-                              },
-                            ]}
-                          >
-                            {p}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </View>
-                </View>
-              </Animated.View>
-
-              {/* ANALOG VIEW */}
-              <Animated.View 
-                style={[styles.absoluteFill, analogViewStyle]}
-                pointerEvents={viewMode === "ANALOG" ? "auto" : "none"}
-              >
-                <View style={styles.centerContent}>
-                  <View style={styles.clockWrapper}>
-                    <View style={styles.clockContainer} {...panResponder.panHandlers}>
-                        <Svg height={CLOCK_SIZE} width={CLOCK_SIZE}>
-                        {/* 1. Background Ring */}
-                        <Circle
-                            cx={CENTER}
-                            cy={CENTER}
-                            r={CLOCK_SIZE / 2 - 4}
-                            fill={theme.colors.background}
-                            stroke={theme.colors.border}
-                            strokeWidth={1}
-                        />
-
-                        {/* 2. Hands & Selector Tip */}
-                        <AnimatedLine
-                            x1={CENTER}
-                            y1={CENTER}
-                            stroke={theme.colors.primary}
-                            strokeWidth="3"
-                            strokeLinecap="round"
-                            animatedProps={handProps}
-                        />
-                        <AnimatedCircle
-                            r="18"
-                            fill={theme.colors.primary}
-                            animatedProps={knobProps}
-                        />
-
-                        {/* 3. Numbers */}
-                        {mode === "HOUR" &&
-                            Array.from({ length: 12 }).map((_, i) => {
-                            const val = i + 1;
-                            const angleRad = (val * 30 - 90) * (Math.PI / 180);
-                            const isSelected = hours === val || (hours === 0 && val === 12);
-                            return (
-                                <G key={i}>
-                                <SvgText
-                                    x={CENTER + RADIUS * Math.cos(angleRad)}
-                                    y={CENTER + RADIUS * Math.sin(angleRad) + 5}
-                                    fill={isSelected ? "#FFFFFF" : theme.colors.text}
-                                    fontSize="16"
-                                    fontWeight="700"
-                                    textAnchor="middle"
-                                >
-                                    {val}
-                                </SvgText>
-                                </G>
-                            );
-                            })}
-                        {mode === "MINUTE" &&
-                            Array.from({ length: 12 }).map((_, i) => {
-                            const val = i * 5;
-                            const angleRad = (i * 30 - 90) * (Math.PI / 180);
-                            const isSelected = minutes === val;
-                            return (
-                                <G key={i}>
-                                <SvgText
-                                    x={CENTER + RADIUS * Math.cos(angleRad)}
-                                    y={CENTER + RADIUS * Math.sin(angleRad) + 5}
-                                    fill={isSelected ? "#FFFFFF" : theme.colors.text}
-                                    fontSize="14"
-                                    fontWeight="600"
-                                    textAnchor="middle"
-                                >
-                                    {val.toString().padStart(2, "0")}
-                                </SvgText>
-                                </G>
-                            );
-                            })}
-                        
-                        {/* 4. Center Pivot */}
-                        <Circle
-                            cx={CENTER}
-                            cy={CENTER}
-                            r={4}
-                            fill={theme.colors.primary}
-                        />
-
-                        {/* 5. Center Info Label */}
-                        <Circle
-                            cx={CENTER}
-                            cy={CENTER}
-                            r={26} 
-                            fill={theme.colors.card}
-                            stroke={theme.colors.border}
-                            strokeWidth={0.5}
-                        />
-                        <SvgText
-                            x={CENTER}
-                            y={CENTER + 6}
-                            fill={theme.colors.primary}
-                            fontSize="20"
-                            fontWeight="800"
-                            textAnchor="middle"
-                        >
-                            {mode === "HOUR" 
-                                ? (hours === 0 ? 12 : hours) 
-                                : minutes.toString().padStart(2, '0')
-                            }
-                        </SvgText>
-                        <SvgText
-                            x={CENTER}
-                            y={CENTER + 16}
-                            fill={theme.colors.textSecondary}
-                            fontSize="6"
-                            fontWeight="700"
-                            textAnchor="middle"
-                            letterSpacing="0.5"
-                        >
-                            {mode === "HOUR" ? "HR" : "MIN"}
-                        </SvgText>
-                        </Svg>
-                    </View>
-
-                    {/* Button to confirm analog selection manually if needed */}
-                    <TouchableOpacity 
-                        style={styles.centerButtonOverlay}
-                        onPress={handleCenterTap}
-                        activeOpacity={0.7}
-                    />
-                  </View>
-                  <Text style={[styles.hintText, { color: theme.colors.textSecondary }]}>
-                      {mode === "HOUR" ? "Select Hour" : "Select Minute"}
-                  </Text>
-                </View>
-              </Animated.View>
-
+            <View style={styles.spacerCenter}>
+              <Text style={[styles.colon, { color: theme.colors.text }]}>:</Text>
             </View>
-
-            <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
-              <Button
-                title="Cancel"
-                variant="neutral"
-                onPress={handleClose}
-                style={{ flex: 1 }}
-              />
-              <View style={{ width: 16 }} />
-              <Button
-                title="Confirm"
-                variant="primary"
-                onPress={handleConfirm}
-                style={{ flex: 1 }}
+            
+            <View style={styles.column}>
+              <WheelPicker
+                data={minutesData}
+                initialValue={minutes}
+                onChange={setMinutes}
+                formatLabel={(m: number) => m.toString().padStart(2, "0")}
+                primaryColor={theme.colors.primary}
+                textSecondaryColor={theme.colors.textSecondary}
+                isInfinite={true}
               />
             </View>
-          </Animated.View>
-        </Pressable>
+            
+            <View style={styles.spacer} />
+            <View style={styles.column}>
+              <WheelPicker
+                data={periodData}
+                initialValue={period}
+                onChange={(p: "AM" | "PM") => setPeriod(p)}
+                formatLabel={(p: string) => p}
+                primaryColor={theme.colors.primary}
+                textSecondaryColor={theme.colors.textSecondary}
+                isInfinite={false} 
+              />
+            </View>
+          </View>
+
+          <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
+            <Button title="Cancel" variant="neutral" onPress={handleClose} style={{ flex: 1 }} />
+            <View style={{ width: 12 }} />
+            <Button title="Confirm Time" variant="primary" onPress={handleConfirm} style={{ flex: 1 }} />
+          </View>
+        </Animated.View>
       </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: "center", alignItems: "center" },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.5)",
+  overlay: { flex: 1, justifyContent: "flex-end" },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)" },
+  bottomSheet: {
+    width: "100%", borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: "hidden",
+    shadowColor: "#000", shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.1, shadowRadius: 16, elevation: 20,
   },
-  container: {
-    width: CONTAINER_WIDTH,
-    height: CONTAINER_HEIGHT,
-    borderRadius: 28,
-    overflow: "hidden",
-    elevation: 20,
-    flexDirection: 'column', 
-  },
-  bodyContainer: {
-    flex: 1, 
-    position: 'relative',
-  },
-  absoluteFill: {
-    ...StyleSheet.absoluteFillObject,
+  handleContainer: { width: '100%', alignItems: 'center', paddingTop: 12, paddingBottom: 4 },
+  handle: { width: 36, height: 4, borderRadius: 2, opacity: 0.4 },
+  
+  headersRow: {
+    flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingTop: 16,
+    paddingBottom: 8,
   },
-  centerContent: {
-    width: '100%',
+  headerLabel: {
+    width: COLUMN_WIDTH,
+    textAlign: 'center',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    opacity: 0.6,
+  },
+  spacer: { width: 16 }, 
+  
+  pickersContainer: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    height: CONTENT_HEIGHT, position: 'relative',
+  },
+  column: {
+    width: COLUMN_WIDTH,
+    alignItems: 'center',
+  },
+  spacerCenter: {
+    width: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  clockWrapper: {
-      position: 'relative',
-      alignItems: 'center',
-      justifyContent: 'center',
+  selectionBand: {
+    position: 'absolute', top: '50%', left: 24, right: 24, height: ITEM_HEIGHT,
+    marginTop: -ITEM_HEIGHT / 2, borderRadius: 12, opacity: 0.1,
   },
-  clockContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  centerButtonOverlay: {
-      position: 'absolute',
-      top: (CLOCK_SIZE / 2) - 30, 
-      left: (CLOCK_SIZE / 2) - 30,
-      width: 60,
-      height: 60,
-      borderRadius: 30,
-  },
-  timeDisplay: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  timeUnit: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    minWidth: 80,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
-  },
-  activeTimeUnit: {
-      borderColor: '#3b82f6', // Example active color, usually theme.primary
-      backgroundColor: 'rgba(59, 130, 246, 0.05)',
-  },
-  timeText: {
-    fontSize: 48,
-    fontWeight: "800",
-    letterSpacing: -1,
-    fontVariant: ["tabular-nums"],
-  },
-  label: {
-      fontSize: 10,
-      fontWeight: '700',
-      marginTop: 4,
-      letterSpacing: 1,
-      opacity: 0.6,
-  },
-  colon: { 
-      fontSize: 40, 
-      fontWeight: "700", 
-      marginBottom: 24, 
-      opacity: 0.5,
-      marginHorizontal: 8,
-  },
-  ampmContainer: { flexDirection: "column", marginLeft: 16, gap: 8 },
-  ampmButton: {
-    borderWidth: 1,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    alignItems: "center",
-    justifyContent: 'center',
-  },
-  ampmText: { fontSize: 13, fontWeight: "800" },
-  hintText: {
-      marginTop: 24,
-      fontSize: 14,
-      fontWeight: '600',
-      opacity: 0.8,
-  },
-  footer: { 
-      flexDirection: "row", 
-      padding: 20, 
-      borderTopWidth: 1,
-      marginTop: 'auto',
-  },
+  colon: { fontSize: 28, fontWeight: "700", opacity: 0.3 },
+  footer: { flexDirection: "row", padding: 24, paddingBottom: Platform.OS === 'ios' ? 40 : 24, borderTopWidth: 1 },
 });

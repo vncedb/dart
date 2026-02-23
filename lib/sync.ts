@@ -1,4 +1,4 @@
-// vncedb/dart/dart-dfc370a1cb531fb84d58dfcbf96afcbce8542d4e/lib/sync.ts
+// lib/sync.ts
 import NetInfo from "@react-native-community/netinfo";
 import { decode } from "base64-arraybuffer";
 import * as FileSystem from "expo-file-system/legacy";
@@ -108,6 +108,24 @@ export const syncPush = async () => {
              }
            }
         }
+        
+        // --- NEW: AVATAR SYNC UPLOAD ---
+        if (table_name === "profiles") {
+            if (payload.local_avatar_path && payload.local_avatar_path.startsWith("file://") && action !== "DELETE") {
+                const remoteUrl = await uploadFileToSupabase(payload.local_avatar_path, row_id || payload.id, "avatars");
+                if (remoteUrl) {
+                    payload.avatar_url = remoteUrl;
+                    // Silently sync the successful link back into SQLite
+                    try {
+                        const localDb = await getDB();
+                        await localDb.runAsync(`UPDATE profiles SET avatar_url = ? WHERE id = ?`, [remoteUrl, row_id || payload.id]);
+                    } catch(e) {}
+                }
+            }
+            // Ensure local-only columns are not pushed to Supabase Schema
+            delete payload.local_avatar_path;
+        }
+
       } catch (e: any) {
         console.error(`[Sync] Pre-flight failed for ${id}:`, e);
         continue;
@@ -229,7 +247,7 @@ export const syncPull = async (userId: string) => {
       }
     }
     
-    // 5. PULL Reports (FIXED: Replaced ON CONFLICT with universal INSERT OR REPLACE)
+    // 5. PULL Reports 
     const { data: reportsData } = await supabase.from("saved_reports").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`);
     if (reportsData) {
         for (const row of reportsData) {
@@ -240,7 +258,7 @@ export const syncPull = async (userId: string) => {
                   row.id, 
                   row.user_id, 
                   row.title || "Untitled", 
-                  "", // File path empty since file is remote initially
+                  "", 
                   row.file_type || "pdf", 
                   row.file_size || 0, 
                   row.remote_url || null, 

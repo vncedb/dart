@@ -14,6 +14,7 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import NetInfo from '@react-native-community/netinfo';
+// Explicitly imported file system functions to fix TS/ESLint errors
 import {
     cacheDirectory,
     documentDirectory,
@@ -269,73 +270,20 @@ export default function ProfileScreen() {
         await loadData(true); 
     };
 
-    const deleteOldAvatar = async (url: string) => {
-        if (!url) return;
-        try {
-            const pathParts = url.split('/avatars/');
-            if (pathParts.length > 1) {
-                const path = pathParts[1].split('?')[0]; 
-                await supabase.storage.from('avatars').remove([path]);
-            }
-        } catch (e) { console.log("Failed to delete old profile picture:", e); }
-    };
-
-    const uploadAvatar = async (uri: string, userId: string) => {
-        const state = await NetInfo.fetch();
-        if (!state.isConnected) throw new Error("Offline");
-        const timeoutPromise = new Promise((_, reject) => { setTimeout(() => reject(new Error("Request timed out")), 30000); });
-        const uploadTask = async () => {
-            const response = await fetch(uri);
-            const arrayBuffer = await response.arrayBuffer();
-            const ext = uri.substring(uri.lastIndexOf('.') + 1);
-            const fileName = `${userId}/${Date.now()}.${ext}`;
-            const { error } = await supabase.storage.from('avatars').upload(fileName, arrayBuffer, { contentType: `image/${ext}`, upsert: true });
-            if (error) throw error;
-            const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
-            return `${publicUrl}?t=${new Date().getTime()}`;
-        };
-        return await Promise.race([uploadTask(), timeoutPromise]) as string;
-    };
-
     const handleUpdateProfile = async (updates: any) => {
-        if (!viewData.profile) return;
+        if (!viewData.profile || !user) return;
         
         setIsUpdating(true);
-        setLoadingMessage('Saving Profile...');
+        setLoadingMessage('Saving Data...');
 
         try {
-            if (!user) return;
-
-            let finalUpdates = { ...updates };
-            
-            if (updates.avatar_url && updates.avatar_url.startsWith('file://')) {
-                 setLoadingMessage('Uploading Image...');
-                 try {
-                     const publicUrl = await uploadAvatar(updates.avatar_url, user.id);
-                     finalUpdates.avatar_url = publicUrl;
-                     finalUpdates.local_avatar_path = updates.avatar_url; 
-                     if (viewData.profile.avatar_url && viewData.profile.avatar_url !== publicUrl) deleteOldAvatar(viewData.profile.avatar_url);
-                 } catch (e: any) { 
-                     setIsUpdating(false);
-                     let title = "Upload Failed";
-                     let message = "Could not upload image.";
-                     if (e.message === 'Offline') message = "You are offline.";
-                     else if (e.message === 'Request timed out') title = "Upload Timeout";
-                     setAlertConfig({ visible: true, type: 'error', title, message, confirmText: 'OK', onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) });
-                     return; 
-                 }
-            }
-
-            setLoadingMessage('Saving Data...');
-            const updatedProfile = { ...viewData.profile, ...finalUpdates };
+            const updatedProfile = { ...viewData.profile, ...updates };
             setViewData(prev => ({ ...prev, profile: updatedProfile }));
             
             await saveProfileLocal(updatedProfile);
+            await queueSyncItem('profiles', user.id, 'UPDATE', updates);
             
-            const { local_avatar_path, ...syncData } = finalUpdates;
-            await queueSyncItem('profiles', user.id, 'UPDATE', syncData);
             triggerSync();
-            
         } catch (e) { 
             console.log("Update Error:", e);
             setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Failed to save changes.', confirmText: 'OK', onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) });
@@ -347,19 +295,19 @@ export default function ProfileScreen() {
 
     const pickAvatar = async () => {
         const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.5 });
-        if (!result.canceled) { handleUpdateProfile({ avatar_url: result.assets[0].uri }); }
+        if (!result.canceled) { 
+            handleUpdateProfile({ local_avatar_path: result.assets[0].uri }); 
+        }
     };
 
-    const removeAvatar = () => { handleUpdateProfile({ avatar_url: null }); };
+    const removeAvatar = () => { handleUpdateProfile({ avatar_url: null, local_avatar_path: null }); };
 
     const { profile: userProfile, job: userJob } = viewData;
 
-    // --- UPDATED AVATAR LOGIC (Fallback to Google Metadata) ---
     const getAvatarSource = () => {
         if (userProfile?.local_avatar_path) return { uri: userProfile.local_avatar_path };
         if (userProfile?.avatar_url) return { uri: userProfile.avatar_url };
         
-        // Fallback: Check User Metadata from Auth
         if (user?.user_metadata) {
             const meta = user.user_metadata;
             const metaAvatar = meta.avatar_url || meta.picture || meta.avatar;
@@ -370,9 +318,7 @@ export default function ProfileScreen() {
     
     const avatarSource = getAvatarSource();
 
-    // --- UPDATED NAME LOGIC (Fallback to Google Metadata) ---
     const displayName = (() => {
-        // 1. Try DB Profile
         if(userProfile) {
             const titlePart = userProfile.title ? `${userProfile.title.trim()} ` : '';
             const middleInitial = userProfile.middle_name && userProfile.middle_name.trim().length > 0 ? ` ${userProfile.middle_name.trim().charAt(0).toUpperCase()}.` : '';
@@ -383,7 +329,6 @@ export default function ProfileScreen() {
             }
         }
 
-        // 2. Fallback: Try User Metadata (Google/Auth)
         const meta = user?.user_metadata;
         if (meta) {
             if (meta.full_name) return meta.full_name;
@@ -403,14 +348,11 @@ export default function ProfileScreen() {
             <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} translucent backgroundColor="transparent" />
             
             <ModernAlert {...alertConfig} />
-            
-            {/* LoadingOverlay for BLOCKING actions (saving/updating) */}
             <LoadingOverlay visible={isUpdating} message={loadingMessage} />
             
             <EditDisplayModal visible={modalVisible} onClose={() => setModalVisible(false)} selectedKeys={visibleDetailKeys} onSave={(newKeys) => setVisibleDetailKeys(newKeys)} />
             <EditAvatarModal visible={avatarModalVisible} onClose={() => setAvatarModalVisible(false)} onPickImage={pickAvatar} onRemoveImage={removeAvatar} />
             
-            {/* Header always visible */}
             <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
                 <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Profile</Text>
                 <TouchableOpacity onPress={() => router.push('/settings')} style={[styles.settingsButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
@@ -418,7 +360,6 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
             </View>
 
-            {/* Content Area: Shows LoadingScreen or ScrollView */}
             {isLoading ? (
                 <LoadingScreen message="Loading Profile..." />
             ) : (
@@ -461,7 +402,6 @@ export default function ProfileScreen() {
                             <TouchableOpacity onPress={() => router.push('/job/job')} style={[styles.actionButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, position: 'relative' }]}>
                                 <HugeiconsIcon icon={Layers01Icon} size={16} color={theme.colors.primary} />
                                 <Text style={[styles.actionButtonText, { color: theme.colors.primary }]}>Manage Jobs</Text>
-                                {/* UPDATED INDICATOR POSITION: Top Right of Button */}
                                 {!hasJobs && (
                                     <View style={{ position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' }} />
                                 )}
@@ -535,6 +475,4 @@ const styles = StyleSheet.create({
     emptyIconContainer: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
     emptyTitle: { fontSize: 18, fontWeight: '800', marginBottom: 8 },
     emptyDesc: { textAlign: 'center', fontSize: 14, marginBottom: 24, opacity: 0.7 },
-    primaryButton: { paddingVertical: 12, paddingHorizontal: 24, borderRadius: 100 },
-    primaryButtonText: { color: '#fff', fontWeight: '700' },
-}); 
+});

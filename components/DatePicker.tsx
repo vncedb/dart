@@ -28,7 +28,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import Animated, {
   Extrapolation,
@@ -51,6 +51,16 @@ const ITEM_HEIGHT = 60;
 const CONTENT_HEIGHT = 340;
 const PADDING_VERTICAL = (CONTENT_HEIGHT - ITEM_HEIGHT) / 2;
 
+// --- STATIC DATA (Extracted to prevent re-creation on every render) ---
+const MONTHS_DATA = Array.from({ length: 12 }, (_, i) => new Date(0, i));
+const START_YEAR = 1900;
+const CURRENT_YEAR = new Date().getFullYear();
+const YEARS_DATA = Array.from(
+  { length: CURRENT_YEAR - START_YEAR + 1 },
+  (_, i) => START_YEAR + i
+);
+const WEEK_DAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
 interface DatePickerProps {
   visible: boolean;
   onClose: () => void;
@@ -63,7 +73,6 @@ interface DatePickerProps {
 type ViewMode = "calendar" | "month" | "year";
 
 // --- MEMOIZED DAY CELL ---
-// Extracting this prevents the entire grid from re-rendering on selection
 const DayCell = React.memo(
   ({
     day,
@@ -72,7 +81,9 @@ const DayCell = React.memo(
     isToday,
     hasIndicator,
     onSelect,
-    theme,
+    primaryColor,
+    textColor,
+    textSecondaryColor,
   }: {
     day: Date;
     isSelected: boolean;
@@ -80,38 +91,41 @@ const DayCell = React.memo(
     isToday: boolean;
     hasIndicator: boolean;
     onSelect: (date: Date) => void;
-    theme: any;
+    primaryColor: string;
+    textColor: string;
+    textSecondaryColor: string;
   }) => {
+    
+    // 1. Prioritize Selection Colors
+    let cellTextColor = textColor;
+    if (isToday && !isSelected) cellTextColor = primaryColor;
+    if (isSelected) cellTextColor = "#FFFFFF"; // Forces white when selected
+
+    // 2. Adjust Opacity (Visibility)
+    // Reduce greyness of non-current month dates but keep them distinct
+    let cellOpacity = (isCurrentMonth || isSelected) ? 1 : 0.45; 
+
+    // 3. Adjust Font Weight
+    let cellFontWeight: any = isSelected ? "800" : (isToday ? "700" : "500");
+
     return (
       <View style={styles.dayCellWrapper}>
         <TouchableOpacity
           onPress={() => onSelect(day)}
           style={[
             styles.dayCell,
-            {
-              backgroundColor: isSelected ? theme.colors.primary : "transparent",
-            },
-            !isSelected &&
-              isToday && {
-                borderWidth: 1.5,
-                borderColor: theme.colors.primary,
-              },
+            { backgroundColor: isSelected ? primaryColor : "transparent" },
+            !isSelected && isToday && { borderWidth: 1.5, borderColor: primaryColor },
           ]}
         >
           <Text
             style={[
               styles.dayText,
               {
-                color: isCurrentMonth
-                  ? theme.colors.text
-                  : theme.colors.textSecondary,
+                color: cellTextColor,
+                fontWeight: cellFontWeight,
+                opacity: cellOpacity,
               },
-              !isSelected &&
-                isToday && {
-                  color: theme.colors.primary,
-                  fontWeight: "700",
-                },
-              isSelected && { color: "#fff", fontWeight: "800" },
             ]}
           >
             {format(day, "d")}
@@ -125,7 +139,7 @@ const DayCell = React.memo(
                 width: 4,
                 height: 4,
                 borderRadius: 2,
-                backgroundColor: isSelected ? "#fff" : theme.colors.primary,
+                backgroundColor: isSelected ? "#fff" : primaryColor,
               }}
             />
           )}
@@ -133,21 +147,20 @@ const DayCell = React.memo(
       </View>
     );
   },
-  (prev, next) => {
-    return (
-      prev.isSelected === next.isSelected &&
-      prev.isCurrentMonth === next.isCurrentMonth &&
-      prev.hasIndicator === next.hasIndicator &&
-      prev.theme === next.theme &&
-      prev.day.getTime() === next.day.getTime()
-    );
-  }
+  // Strict comparison to entirely prevent unnecessary grid re-renders
+  (prev, next) =>
+    prev.isSelected === next.isSelected &&
+    prev.isCurrentMonth === next.isCurrentMonth &&
+    prev.isToday === next.isToday &&
+    prev.hasIndicator === next.hasIndicator &&
+    prev.day.getTime() === next.day.getTime() &&
+    prev.primaryColor === next.primaryColor
 );
 DayCell.displayName = "DayCell";
 
 // --- WHEEL ITEM ---
 const WheelItem = React.memo(
-  ({ item, index, scrollY, onPress, formatLabel, theme }: any) => {
+  ({ item, index, scrollY, onPress, formatLabel, primaryColor, textSecondaryColor }: any) => {
     const animatedStyle = useAnimatedStyle(() => {
       const itemCenter = index * ITEM_HEIGHT;
       const viewCenter = scrollY.value;
@@ -168,7 +181,7 @@ const WheelItem = React.memo(
       const color = interpolateColor(
         distance,
         [0, ITEM_HEIGHT],
-        [theme.colors.primary, theme.colors.textSecondary]
+        [primaryColor, textSecondaryColor]
       );
 
       return { transform: [{ scale }], opacity, color };
@@ -184,26 +197,22 @@ const WheelItem = React.memo(
           alignItems: "center",
         }}
       >
-        <Animated.Text
-          style={[{ fontSize: 18, fontWeight: "600" }, animatedStyle]}
-        >
+        <Animated.Text style={[{ fontSize: 18, fontWeight: "600" }, animatedStyle]}>
           {formatLabel(item)}
         </Animated.Text>
       </TouchableOpacity>
     );
-  }
+  },
+  (prev, next) => prev.item === next.item && prev.index === next.index
 );
 WheelItem.displayName = "WheelItem";
 
 // --- WHEEL PICKER ---
 const WheelPicker = React.memo(
-  ({ data, initialIndex, onChange, formatLabel }: any) => {
-    const theme = useAppTheme();
-    const scrollY = useSharedValue(initialIndex * ITEM_HEIGHT); // Initialize directly
+  ({ data, initialIndex, onChange, formatLabel, primaryColor, textSecondaryColor }: any) => {
+    const scrollY = useSharedValue(initialIndex * ITEM_HEIGHT);
     const [activeIndex, setActiveIndex] = useState(initialIndex);
     const flatListRef = React.useRef<FlatList>(null);
-
-    // Removed setTimeout/isReady state. getItemLayout handles the positioning efficiently.
 
     const onScroll = useAnimatedScrollHandler((event) => {
       scrollY.value = event.contentOffset.y;
@@ -224,10 +233,7 @@ const WheelPicker = React.memo(
 
     const handlePress = useCallback(
       (index: number) => {
-        flatListRef.current?.scrollToOffset({
-          offset: index * ITEM_HEIGHT,
-          animated: true,
-        });
+        flatListRef.current?.scrollToOffset({ offset: index * ITEM_HEIGHT, animated: true });
         setActiveIndex(index);
         onChange(index);
         if (Platform.OS !== "web") Haptics.selectionAsync();
@@ -236,13 +242,7 @@ const WheelPicker = React.memo(
     );
 
     return (
-      <View
-        style={{
-          height: CONTENT_HEIGHT,
-          width: "100%",
-          overflow: "hidden",
-        }}
-      >
+      <View style={{ height: CONTENT_HEIGHT, width: "100%", overflow: "hidden" }}>
         <Animated.FlatList
           ref={flatListRef}
           data={data}
@@ -254,7 +254,8 @@ const WheelPicker = React.memo(
               scrollY={scrollY}
               onPress={handlePress}
               formatLabel={formatLabel}
-              theme={theme}
+              primaryColor={primaryColor}
+              textSecondaryColor={textSecondaryColor}
             />
           )}
           getItemLayout={(_, index) => ({
@@ -272,8 +273,8 @@ const WheelPicker = React.memo(
           onScroll={onScroll}
           scrollEventThrottle={16}
           onMomentumScrollEnd={handleMomentumEnd}
-          removeClippedSubviews={true}
-          initialNumToRender={10}
+          removeClippedSubviews={Platform.OS === 'android'}
+          initialNumToRender={8}
           maxToRenderPerBatch={10}
           windowSize={5}
         />
@@ -298,23 +299,9 @@ export default function DatePicker({
   const [viewMode, setViewMode] = useState<ViewMode>("calendar");
 
   const [showModal, setShowModal] = useState(visible);
-  const animation = useSharedValue(0);
-
-  const months = useMemo(
-    () => Array.from({ length: 12 }, (_, i) => new Date(0, i)),
-    []
-  );
-
-  const years = useMemo(() => {
-    const startYear = 1900;
-    const currentYear = new Date().getFullYear();
-    // Pre-calculate to avoid loop on every render if not needed, 
-    // though useMemo handles it well.
-    return Array.from(
-      { length: currentYear - startYear + 1 },
-      (_, i) => startYear + i
-    );
-  }, []);
+  
+  const translateY = useSharedValue(CONTENT_HEIGHT + 350);
+  const backdropOpacity = useSharedValue(0);
 
   useEffect(() => {
     if (visible) {
@@ -323,20 +310,16 @@ export default function DatePicker({
       setCurrentMonth(new Date(selectedDate));
       setViewMode("calendar");
 
-      animation.value = withSpring(1, {
-        damping: 18,
-        stiffness: 120,
-        mass: 1,
-      });
+      backdropOpacity.value = withTiming(1, { duration: 250 });
+      translateY.value = withSpring(0, { damping: 20, stiffness: 150, mass: 0.8 });
     } else {
-      if (showModal) {
-        closeModal();
-      }
+      if (showModal) closeModal();
     }
   }, [visible, selectedDate]);
 
   const closeModal = (callback?: () => void) => {
-    animation.value = withTiming(0, { duration: 200 }, (finished) => {
+    translateY.value = withTiming(CONTENT_HEIGHT + 350, { duration: 250 });
+    backdropOpacity.value = withTiming(0, { duration: 250 }, (finished) => {
       if (finished) {
         runOnJS(setShowModal)(false);
         if (callback) runOnJS(callback)();
@@ -344,60 +327,40 @@ export default function DatePicker({
     });
   };
 
-  const handleClose = () => {
-    closeModal(onClose);
-  };
+  const handleClose = () => closeModal(onClose);
 
   const handleConfirm = () => {
     closeModal(() => {
-      onClose();
+      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       onSelect(tempDate);
+      onClose();
     });
   };
 
   const handleDaySelect = useCallback((day: Date) => {
     setTempDate(day);
+    setCurrentMonth(day); // Immediately aligns the displayed month view if picking adjacent days
     if (Platform.OS !== "web") Haptics.selectionAsync();
   }, []);
 
-  const animatedBackdropStyle = useAnimatedStyle(() => ({
-    opacity: animation.value,
-  }));
-
-  const animatedContainerStyle = useAnimatedStyle(() => {
-    const scale = interpolate(animation.value, [0, 1], [0.92, 1]);
-    return {
-      opacity: animation.value,
-      transform: [{ scale }],
-    };
-  });
+  const animatedBackdropStyle = useAnimatedStyle(() => ({ opacity: backdropOpacity.value }));
+  const animatedSheetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.value }] }));
 
   const formatMonth = useCallback((item: Date) => format(item, "MMMM"), []);
   const formatYear = useCallback((item: number) => item.toString(), []);
 
   const handleMonthChange = useCallback((index: number) => {
-    setCurrentMonth((prev) => {
-      const newDate = setMonth(prev, index);
-      // Optional: keep selection in sync with month scroll
-      // setTempDate((d) => setMonth(d, index)); 
-      return newDate;
-    });
+    setCurrentMonth((prev) => setMonth(prev, index));
+    setTempDate((prev) => setMonth(prev, index));
   }, []);
 
-  const handleYearChange = useCallback(
-    (index: number) => {
-      const year = years[index];
-      if (year) {
-        setCurrentMonth((prev) => {
-          const newDate = setYear(prev, year);
-          // Optional: keep selection in sync with year scroll
-          // setTempDate((d) => setYear(d, year)); 
-          return newDate;
-        });
-      }
-    },
-    [years]
-  );
+  const handleYearChange = useCallback((index: number) => {
+    const year = YEARS_DATA[index];
+    if (year) {
+      setCurrentMonth((prev) => setYear(prev, year));
+      setTempDate((prev) => setYear(prev, year));
+    }
+  }, []);
 
   const calendarDays = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
@@ -413,11 +376,8 @@ export default function DatePicker({
       style={styles.calendarContainer}
     >
       <View style={styles.weekHeader}>
-        {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((day) => (
-          <Text
-            key={day}
-            style={[styles.weekText, { color: theme.colors.textSecondary }]}
-          >
+        {WEEK_DAYS.map((day) => (
+          <Text key={day} style={[styles.weekText, { color: theme.colors.textSecondary }]}>
             {day}
           </Text>
         ))}
@@ -439,7 +399,9 @@ export default function DatePicker({
               isToday={isToday}
               hasIndicator={hasIndicator}
               onSelect={handleDaySelect}
-              theme={theme}
+              primaryColor={theme.colors.primary}
+              textColor={theme.colors.text}
+              textSecondaryColor={theme.colors.textSecondary}
             />
           );
         })}
@@ -450,190 +412,144 @@ export default function DatePicker({
   if (!showModal) return null;
 
   return (
-    <Modal
-      visible={showModal}
-      transparent
-      animationType="none"
-      onRequestClose={handleClose}
-      statusBarTranslucent
-    >
-      <Animated.View style={[styles.backdrop, animatedBackdropStyle]} />
+    <Modal visible={showModal} transparent animationType="none" onRequestClose={handleClose} statusBarTranslucent>
+      <View style={styles.overlay}>
+        <Animated.View style={[styles.backdrop, animatedBackdropStyle]} />
+        <Pressable onPress={handleClose} style={StyleSheet.absoluteFill} />
 
-      <Pressable style={styles.overlay} onPress={handleClose}>
-        <Pressable onPress={(e) => e.stopPropagation()}>
-          <Animated.View
-            style={[
-              styles.container,
-              { backgroundColor: theme.colors.card },
-              animatedContainerStyle,
-            ]}
-          >
-            <ModalHeader title={title} position="center" />
+        <Animated.View style={[styles.bottomSheet, { backgroundColor: theme.colors.card }, animatedSheetStyle]}>
+          <View style={styles.handleContainer}>
+             <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
+          </View>
 
-            <View style={styles.navBar}>
-              <TouchableOpacity
-                onPress={() =>
-                  viewMode === "calendar"
-                    ? setCurrentMonth(subMonths(currentMonth, 1))
-                    : setViewMode("calendar")
-                }
-                style={styles.navBtn}
-              >
-                <HugeiconsIcon
-                  icon={ArrowLeft01Icon}
-                  size={20}
-                  color={theme.colors.text}
-                />
-              </TouchableOpacity>
-              <View style={styles.viewToggleContainer}>
-                <TouchableOpacity
-                  onPress={() =>
-                    setViewMode(viewMode === "month" ? "calendar" : "month")
-                  }
-                  style={[
-                    styles.dropdownBtn,
-                    { width: 110 },
-                    viewMode === "month" && {
-                      backgroundColor: theme.colors.primary + "15",
-                    },
-                  ]}
-                >
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.dropdownText,
-                      {
-                        color:
-                          viewMode === "month"
-                            ? theme.colors.primary
-                            : theme.colors.text,
-                      },
-                    ]}
-                  >
-                    {format(currentMonth, "MMMM")}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() =>
-                    setViewMode(viewMode === "year" ? "calendar" : "year")
-                  }
-                  style={[
-                    styles.dropdownBtn,
-                    { width: 75 },
-                    viewMode === "year" && {
-                      backgroundColor: theme.colors.primary + "15",
-                    },
-                  ]}
-                >
-                  <Text
-                    numberOfLines={1}
-                    style={[
-                      styles.dropdownText,
-                      {
-                        color:
-                          viewMode === "year"
-                            ? theme.colors.primary
-                            : theme.colors.text,
-                      },
-                    ]}
-                  >
-                    {format(currentMonth, "yyyy")}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <TouchableOpacity
-                onPress={() =>
-                  viewMode === "calendar"
-                    ? setCurrentMonth(addMonths(currentMonth, 1))
-                    : setViewMode("calendar")
-                }
-                style={styles.navBtn}
-              >
-                <HugeiconsIcon
-                  icon={ArrowRight01Icon}
-                  size={20}
-                  color={theme.colors.text}
-                />
-              </TouchableOpacity>
-            </View>
+          <ModalHeader title={title} onClose={handleClose} position="bottom" />
 
-            <View style={styles.contentFrame}>
-              {viewMode === "calendar" && renderCalendar()}
-              {viewMode === "month" && (
-                <WheelPicker
-                  data={months}
-                  initialIndex={months.findIndex(
-                    (m) => m.getMonth() === currentMonth.getMonth()
-                  )}
-                  onChange={handleMonthChange}
-                  formatLabel={formatMonth}
-                />
-              )}
-              {viewMode === "year" && (
-                <WheelPicker
-                  data={years}
-                  initialIndex={Math.max(
-                    0,
-                    years.indexOf(currentMonth.getFullYear())
-                  )}
-                  onChange={handleYearChange}
-                  formatLabel={formatYear}
-                />
-              )}
-            </View>
-
-            <View
-              style={[styles.footer, { borderTopColor: theme.colors.border }]}
+          <View style={styles.navBar}>
+            <TouchableOpacity
+              onPress={() => {
+                if (viewMode === "calendar") {
+                  setCurrentMonth((prev) => subMonths(prev, 1));
+                  setTempDate((prev) => subMonths(prev, 1)); 
+                } else setViewMode("calendar");
+              }}
+              style={styles.navBtn}
             >
-              <Button
-                title="Cancel"
-                variant="neutral"
-                onPress={handleClose}
-                style={{ flex: 1 }}
-              />
-              <View style={{ width: 12 }} />
-              <Button
-                title="Select"
-                variant="primary"
-                onPress={handleConfirm}
-                style={{ flex: 1 }}
-              />
+              <HugeiconsIcon icon={ArrowLeft01Icon} size={20} color={theme.colors.text} />
+            </TouchableOpacity>
+            
+            <View style={styles.viewToggleContainer}>
+              <TouchableOpacity
+                onPress={() => setViewMode("calendar")}
+                style={[
+                  styles.dropdownBtn, { width: 50 },
+                  viewMode === "calendar" && { backgroundColor: theme.colors.primary + "15" }
+                ]}
+              >
+                <Text numberOfLines={1} style={[styles.dropdownText, { color: viewMode === "calendar" ? theme.colors.primary : theme.colors.text }]}>
+                  {format(tempDate, "dd")}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setViewMode(viewMode === "month" ? "calendar" : "month")}
+                style={[
+                  styles.dropdownBtn, { width: 110 },
+                  viewMode === "month" && { backgroundColor: theme.colors.primary + "15" }
+                ]}
+              >
+                <Text numberOfLines={1} style={[styles.dropdownText, { color: viewMode === "month" ? theme.colors.primary : theme.colors.text }]}>
+                  {format(currentMonth, "MMMM")}
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setViewMode(viewMode === "year" ? "calendar" : "year")}
+                style={[
+                  styles.dropdownBtn, { width: 75 },
+                  viewMode === "year" && { backgroundColor: theme.colors.primary + "15" }
+                ]}
+              >
+                <Text numberOfLines={1} style={[styles.dropdownText, { color: viewMode === "year" ? theme.colors.primary : theme.colors.text }]}>
+                  {format(currentMonth, "yyyy")}
+                </Text>
+              </TouchableOpacity>
             </View>
-          </Animated.View>
-        </Pressable>
-      </Pressable>
+
+            <TouchableOpacity
+              onPress={() => {
+                if (viewMode === "calendar") {
+                  setCurrentMonth((prev) => addMonths(prev, 1));
+                  setTempDate((prev) => addMonths(prev, 1)); 
+                } else setViewMode("calendar");
+              }}
+              style={styles.navBtn}
+            >
+              <HugeiconsIcon icon={ArrowRight01Icon} size={20} color={theme.colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.contentFrame}>
+            {viewMode === "calendar" && renderCalendar()}
+            {viewMode === "month" && (
+              <WheelPicker
+                data={MONTHS_DATA}
+                initialIndex={MONTHS_DATA.findIndex((m) => m.getMonth() === currentMonth.getMonth())}
+                onChange={handleMonthChange}
+                formatLabel={formatMonth}
+                primaryColor={theme.colors.primary}
+                textSecondaryColor={theme.colors.textSecondary}
+              />
+            )}
+            {viewMode === "year" && (
+              <WheelPicker
+                data={YEARS_DATA}
+                initialIndex={Math.max(0, YEARS_DATA.indexOf(currentMonth.getFullYear()))}
+                onChange={handleYearChange}
+                formatLabel={formatYear}
+                primaryColor={theme.colors.primary}
+                textSecondaryColor={theme.colors.textSecondary}
+              />
+            )}
+          </View>
+
+          <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
+            <Button title="Cancel" variant="neutral" onPress={handleClose} style={{ flex: 1 }} />
+            <View style={{ width: 12 }} />
+            <Button title="Confirm Date" variant="primary" onPress={handleConfirm} style={{ flex: 1 }} />
+          </View>
+        </Animated.View>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 24,
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.5)",
-  },
-  container: {
-    width: 340,
-    borderRadius: 28,
+  overlay: { flex: 1, justifyContent: "flex-end" },
+  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)" },
+  bottomSheet: {
+    width: "100%",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
     elevation: 20,
   },
+  handleContainer: { width: '100%', alignItems: 'center', paddingTop: 12, paddingBottom: 4 },
+  handle: { width: 36, height: 4, borderRadius: 2, opacity: 0.4 },
   navBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 12,
   },
   navBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.03)",
@@ -647,7 +563,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   dropdownBtn: {
-    paddingVertical: 6,
+    paddingVertical: 8,
     paddingHorizontal: 4,
     borderRadius: 12,
     backgroundColor: "rgba(0,0,0,0.03)",
@@ -655,8 +571,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   dropdownText: { fontSize: 16, fontWeight: "700", letterSpacing: 0.3 },
-  contentFrame: { height: CONTENT_HEIGHT, overflow: "hidden" },
-  calendarContainer: { flex: 1, paddingHorizontal: 16 },
+  contentFrame: { height: CONTENT_HEIGHT, overflow: "hidden", marginVertical: 8 },
+  calendarContainer: { flex: 1, paddingHorizontal: 20 },
   weekHeader: {
     flexDirection: "row",
     marginBottom: 12,
@@ -664,29 +580,10 @@ const styles = StyleSheet.create({
     borderColor: "rgba(0,0,0,0.05)",
     paddingBottom: 8,
   },
-  weekText: {
-    width: "14.28%",
-    textAlign: "center",
-    fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    opacity: 0.6,
-  },
+  weekText: { width: "14.28%", textAlign: "center", fontSize: 12, fontWeight: "700", textTransform: "uppercase", opacity: 0.6 },
   daysGrid: { flexDirection: "row", flexWrap: "wrap", rowGap: 4 },
-  dayCellWrapper: {
-    width: "14.28%",
-    aspectRatio: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  dayCell: {
-    width: 40,
-    height: 40,
-    borderRadius: 9999,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  dayText: { fontSize: 15, fontWeight: "500" },
-  footer: { flexDirection: "row", padding: 20, borderTopWidth: 1 },
+  dayCellWrapper: { width: "14.28%", aspectRatio: 1, alignItems: "center", justifyContent: "center" },
+  dayCell: { width: 42, height: 42, borderRadius: 9999, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  dayText: { fontSize: 16, fontWeight: "500" },
+  footer: { flexDirection: "row", padding: 24, paddingBottom: Platform.OS === 'ios' ? 40 : 24, borderTopWidth: 1 },
 });

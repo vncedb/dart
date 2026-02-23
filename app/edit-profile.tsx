@@ -1,4 +1,4 @@
-// vncedb/dart/dart-dfc370a1cb531fb84d58dfcbf96afcbce8542d4e/app/edit-profile.tsx
+// app/edit-profile.tsx
 import {
     ArrowDown01Icon,
     InformationCircleIcon,
@@ -29,6 +29,7 @@ import ModernAlert from '../components/ModernAlert';
 import SearchableSelectionModal from '../components/SearchableSelectionModal';
 import { PROFESSIONAL_SUFFIXES, PROFESSIONAL_TITLES } from '../constants/profile-options';
 import { useAppTheme } from '../constants/theme';
+import { useAuth } from '../context/AuthContext';
 import { useSync } from '../context/SyncContext';
 import { queueSyncItem, saveProfileLocal } from '../lib/database';
 import { getDB } from '../lib/db-client';
@@ -83,6 +84,7 @@ export default function EditProfileScreen() {
   const router = useRouter();
   const theme = useAppTheme();
   const { triggerSync } = useSync();
+  const { user } = useAuth();
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -92,19 +94,15 @@ export default function EditProfileScreen() {
 
   const [profile, setProfile] = useState({
     id: '', first_name: '', middle_name: '', last_name: '', title: '', professional_suffix: '', full_name: '', 
+    current_job_id: null as string | null, avatar_url: null as string | null, local_avatar_path: null as string | null, email: '', is_onboarded: 0
   });
   const [errors, setErrors] = useState<{ firstName?: string; lastName?: string }>({});
   const [visibleTooltip, setVisibleTooltip] = useState<'firstName' | 'lastName' | null>(null);
 
-  useFocusEffect(useCallback(() => { fetchData(); }, []));
-
-  const fetchData = async () => {
+  // Memoize fetchData to resolve ESLint warning
+  const fetchData = useCallback(async () => {
       setLoading(true);
       try {
-        // Use getSession to safely grab the token locally offline without strict network errors
-        const { data: { session }, error } = await supabase.auth.getSession();
-        const user = session?.user;
-        
         if (!user) {
             console.warn("No local session found.");
             return;
@@ -113,11 +111,17 @@ export default function EditProfileScreen() {
         const db = await getDB();
         
         let profileData: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
+        
         if (!profileData) {
-             const { data: remoteProfile, error: remoteError } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-             if (remoteProfile && !remoteError) { 
-                 profileData = remoteProfile; 
-                 await saveProfileLocal(remoteProfile); 
+             try {
+                 const { data: remoteProfile, error: remoteError } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+                 if (remoteProfile && !remoteError) { 
+                     profileData = remoteProfile; 
+                     await saveProfileLocal(remoteProfile); 
+                 }
+             } catch {
+                 // Removed unused 'e' variable to fix ESLint warning
+                 console.log("Offline or failed remote fetch");
              }
         }
 
@@ -148,6 +152,11 @@ export default function EditProfileScreen() {
             title: profileData?.title || '', 
             professional_suffix: profileData?.professional_suffix || '', 
             full_name: fullName || `${firstName} ${lastName}`.trim(), 
+            current_job_id: profileData?.current_job_id || null,
+            avatar_url: profileData?.avatar_url || null,
+            local_avatar_path: profileData?.local_avatar_path || null,
+            email: profileData?.email || user.email || '',
+            is_onboarded: profileData?.is_onboarded || 0,
         });
 
       } catch (e) { 
@@ -155,7 +164,10 @@ export default function EditProfileScreen() {
       } finally { 
           setLoading(false); 
       }
-  };
+  }, [user]);
+
+  // Include fetchData in the dependency array
+  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
 
   const validate = () => {
       const newErrors: any = {};
@@ -174,13 +186,22 @@ export default function EditProfileScreen() {
     if (!validate()) return;
     setSaving(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const user = session?.user;
-      
       if (!user) throw new Error("No user found locally.");
       
       const updates = {
-        id: user.id, first_name: profile.first_name, middle_name: profile.middle_name, last_name: profile.last_name, title: profile.title, professional_suffix: profile.professional_suffix, full_name: `${profile.first_name} ${profile.last_name}`.trim(), updated_at: new Date().toISOString(),
+        id: user.id, 
+        email: profile.email,
+        first_name: profile.first_name, 
+        middle_name: profile.middle_name, 
+        last_name: profile.last_name, 
+        title: profile.title, 
+        professional_suffix: profile.professional_suffix, 
+        full_name: `${profile.first_name} ${profile.last_name}`.trim(), 
+        current_job_id: profile.current_job_id,
+        avatar_url: profile.avatar_url,
+        local_avatar_path: profile.local_avatar_path,
+        is_onboarded: profile.is_onboarded,
+        updated_at: new Date().toISOString(),
       };
       
       await saveProfileLocal(updates);
@@ -199,8 +220,10 @@ export default function EditProfileScreen() {
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
             <ModernAlert {...alertConfig} />
             <LoadingOverlay visible={saving} message="Saving Profile..." />
-            <SearchableSelectionModal visible={titleModalVisible} onClose={() => setTitleModalVisible(false)} title="Select Title" options={PROFESSIONAL_TITLES} onSelect={(val: string) => setProfile({...profile, title: val})} placeholder="Search titles..." theme={theme} currentValue={profile.title} />
-            <SearchableSelectionModal visible={suffixModalVisible} onClose={() => setSuffixModalVisible(false)} title="Select Professional Suffix" options={PROFESSIONAL_SUFFIXES} onSelect={(val: string) => setProfile({...profile, professional_suffix: val})} placeholder="Search suffixes..." theme={theme} currentValue={profile.professional_suffix} />
+            
+            {/* Removed the unregistered `theme` prop to fix TS2322 */}
+            <SearchableSelectionModal visible={titleModalVisible} onClose={() => setTitleModalVisible(false)} title="Select Title" options={PROFESSIONAL_TITLES} onSelect={(val: string) => setProfile({...profile, title: val})} placeholder="Search titles..." currentValue={profile.title} />
+            <SearchableSelectionModal visible={suffixModalVisible} onClose={() => setSuffixModalVisible(false)} title="Select Professional Suffix" options={PROFESSIONAL_SUFFIXES} onSelect={(val: string) => setProfile({...profile, professional_suffix: val})} placeholder="Search suffixes..." currentValue={profile.professional_suffix} />
             
             <Header title="Edit Profile" />
 
