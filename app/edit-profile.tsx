@@ -1,4 +1,4 @@
-// Footer Fixed to Bottom (Outside KAV)
+// vncedb/dart/dart-dfc370a1cb531fb84d58dfcbf96afcbce8542d4e/app/edit-profile.tsx
 import {
     ArrowDown01Icon,
     InformationCircleIcon,
@@ -101,23 +101,31 @@ export default function EditProfileScreen() {
   const fetchData = async () => {
       setLoading(true);
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+        // Use getSession to safely grab the token locally offline without strict network errors
+        const { data: { session }, error } = await supabase.auth.getSession();
+        const user = session?.user;
+        
+        if (!user) {
+            console.warn("No local session found.");
+            return;
+        }
+        
         const db = await getDB();
         
         let profileData: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
         if (!profileData) {
-             const { data: remoteProfile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-             if (remoteProfile) { profileData = remoteProfile; await saveProfileLocal(remoteProfile); }
+             const { data: remoteProfile, error: remoteError } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+             if (remoteProfile && !remoteError) { 
+                 profileData = remoteProfile; 
+                 await saveProfileLocal(remoteProfile); 
+             }
         }
 
-        // Initialize state, try to use Google Meta if DB fields are empty
         const meta = user.user_metadata || {};
         let firstName = profileData?.first_name || '';
         let lastName = profileData?.last_name || '';
         let fullName = profileData?.full_name || '';
 
-        // Fallback to Google metadata if profile is empty
         if (!firstName && !lastName) {
             if (meta.full_name) {
                 const parts = meta.full_name.split(' ');
@@ -125,7 +133,6 @@ export default function EditProfileScreen() {
                 if (parts.length > 1) lastName = parts.slice(1).join(' ');
                 fullName = meta.full_name;
             } else if (meta.name) {
-                // Some providers use 'name'
                 const parts = meta.name.split(' ');
                 firstName = parts[0];
                 if (parts.length > 1) lastName = parts.slice(1).join(' ');
@@ -143,7 +150,11 @@ export default function EditProfileScreen() {
             full_name: fullName || `${firstName} ${lastName}`.trim(), 
         });
 
-      } catch (e) { console.log(e); } finally { setLoading(false); }
+      } catch (e) { 
+          console.log("Fetch Error (Offline safe fail):", e); 
+      } finally { 
+          setLoading(false); 
+      }
   };
 
   const validate = () => {
@@ -163,19 +174,24 @@ export default function EditProfileScreen() {
     if (!validate()) return;
     setSaving(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No user found");
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
+      
+      if (!user) throw new Error("No user found locally.");
+      
       const updates = {
         id: user.id, first_name: profile.first_name, middle_name: profile.middle_name, last_name: profile.last_name, title: profile.title, professional_suffix: profile.professional_suffix, full_name: `${profile.first_name} ${profile.last_name}`.trim(), updated_at: new Date().toISOString(),
       };
+      
       await saveProfileLocal(updates);
       await queueSyncItem('profiles', user.id, 'UPDATE', updates);
       triggerSync();
       router.back();
     } catch (error: any) {
       setAlertConfig({ visible: true, type: 'error', title: 'Save Failed', message: error.message, confirmText: 'OK', onConfirm: () => setAlertConfig((p:any)=>({...p, visible: false})) });
+    } finally {
       setSaving(false);
-    } 
+    }
   };
 
   return (

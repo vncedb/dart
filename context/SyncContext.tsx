@@ -1,7 +1,7 @@
+// vncedb/dart/dart-dfc370a1cb531fb84d58dfcbf96afcbce8542d4e/context/SyncContext.tsx
 import NetInfo from '@react-native-community/netinfo';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-// initDatabase import removed - handled in _layout.tsx
 import { getDB } from '../lib/db-client';
 import { syncPull, syncPush } from '../lib/sync';
 import { useAuth } from './AuthContext';
@@ -46,7 +46,9 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
     if (!user || isSyncing.current) return false;
     
     const state = await NetInfo.fetch();
-    if (!state.isConnected || !state.isInternetReachable) {
+    
+    // FIX: Removed state.isInternetReachable check to avoid false offline state blocking the sync
+    if (!state.isConnected) {
         return false; 
     }
 
@@ -91,7 +93,7 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
-      if (state.isConnected && state.isInternetReachable) triggerSync();
+      if (state.isConnected) triggerSync();
     });
     return () => unsubscribe();
   }, [user]);

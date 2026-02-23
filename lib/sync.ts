@@ -1,3 +1,4 @@
+// vncedb/dart/dart-dfc370a1cb531fb84d58dfcbf96afcbce8542d4e/lib/sync.ts
 import NetInfo from "@react-native-community/netinfo";
 import { decode } from "base64-arraybuffer";
 import * as FileSystem from "expo-file-system/legacy";
@@ -9,15 +10,18 @@ const MAX_RETRIES = 5;
 // --- FILE HELPERS ---
 const getPathFromUrl = (url: string) => {
   if (!url) return null;
+  if (url.includes("/entry-images/"))
+    return url.split("/entry-images/")[1].split("?")[0];
   if (url.includes("/accomplishments/"))
     return url.split("/accomplishments/")[1].split("?")[0];
-  if (url.includes("/reports/")) return url.split("/reports/")[1].split("?")[0];
+  if (url.includes("/reports/")) 
+    return url.split("/reports/")[1].split("?")[0];
   return null;
 };
 
 const deleteFileFromSupabase = async (
   fullUrl: string,
-  bucket: string = "accomplishments",
+  bucket: string,
 ) => {
   const path = getPathFromUrl(fullUrl);
   if (!path) return;
@@ -31,13 +35,15 @@ const deleteFileFromSupabase = async (
 const uploadFileToSupabase = async (
   localUri: string,
   userId: string,
-  bucket: string = "accomplishments",
+  bucket: string,
+  folderPath: string = ""
 ): Promise<string | null> => {
   try {
     if (!localUri || !localUri.startsWith("file://")) return localUri;
 
     const ext = localUri.split(".").pop();
-    const fileName = `${userId}/${Date.now()}_${Math.floor(Math.random() * 1000)}.${ext}`;
+    const prefix = folderPath ? `${folderPath}/` : "";
+    const fileName = `${prefix}${userId}/${Date.now()}_${Math.floor(Math.random() * 1000)}.${ext}`;
 
     const base64 = await FileSystem.readAsStringAsync(localUri, {
       encoding: "base64",
@@ -88,7 +94,7 @@ export const syncPush = async () => {
 
         if (table_name === "accomplishments") {
           if (payload.image_url && payload.image_url.startsWith("file://") && action !== "DELETE") {
-             const remoteUrl = await uploadFileToSupabase(payload.image_url, payload.user_id || "unknown", "accomplishments");
+             const remoteUrl = await uploadFileToSupabase(payload.image_url, payload.user_id || "unknown", "entry-images", "entries");
              if (remoteUrl) payload.image_url = remoteUrl;
           }
         }
@@ -109,7 +115,7 @@ export const syncPush = async () => {
 
       let error = null;
       try {
-        if (action === "INSERT") {
+        if (action === "INSERT" || action === "UPSERT") {
           const { error: err } = await supabase.from(table_name).upsert(payload);
           error = err;
         } else if (action === "UPDATE") {
@@ -118,6 +124,9 @@ export const syncPush = async () => {
         } else if (action === "DELETE") {
           if (table_name === 'saved_reports' && payload.remote_url) {
              await deleteFileFromSupabase(payload.remote_url, "reports");
+          } else if (table_name === 'accomplishments' && payload.image_url) {
+             const bucket = payload.image_url.includes('/entry-images/') ? 'entry-images' : 'accomplishments';
+             await deleteFileFromSupabase(payload.image_url, bucket);
           }
           const { error: err } = await supabase.from(table_name).delete().eq("id", row_id);
           error = err;
@@ -154,7 +163,7 @@ export const syncPull = async (userId: string) => {
     const newSyncTime = new Date().toISOString();
 
     // 1. PULL JOBS
-    const { data: jobsData } = await supabase.from('job_positions').select('*').eq('user_id', userId).gt('updated_at', lastSyncedAt);
+    const { data: jobsData } = await supabase.from('job_positions').select('*').eq('user_id', userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`);
     if (jobsData && jobsData.length > 0) {
       for (const job of jobsData) {
         await db.runAsync(
@@ -172,78 +181,80 @@ export const syncPull = async (userId: string) => {
     }
 
     // 2. PULL PROFILE
-    const { data: profileData } = await supabase.from('profiles').select('*').eq('id', userId).gt('updated_at', lastSyncedAt).single();
-    if (profileData) {
+    const { data: profileData, error: profileErr } = await supabase.from('profiles').select('*').eq('id', userId).gt('updated_at', lastSyncedAt).maybeSingle();
+    
+    if (profileData && !profileErr) {
+       const existing: any = await db.getFirstAsync("SELECT local_avatar_path FROM profiles WHERE id = ?", [userId]);
+       
        await db.runAsync(
-         `UPDATE profiles SET current_job_id = ?, first_name = ?, last_name = ?, full_name = ?, is_onboarded = ?, updated_at = ? WHERE id = ?`,
+         `INSERT OR REPLACE INTO profiles (id, email, first_name, last_name, middle_name, title, professional_suffix, current_job_id, full_name, avatar_url, local_avatar_path, is_onboarded, updated_at) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
          [
+             profileData.id, 
+             profileData.email || "", 
+             profileData.first_name || "", 
+             profileData.last_name || "", 
+             profileData.middle_name || "", 
+             profileData.title || "", 
+             profileData.professional_suffix || "", 
              profileData.current_job_id, 
-             profileData.first_name, 
-             profileData.last_name, 
-             profileData.full_name, 
+             profileData.full_name || "", 
+             profileData.avatar_url, 
+             existing?.local_avatar_path || null,
              profileData.is_onboarded ? 1 : 0, 
-             profileData.updated_at, 
-             userId
+             profileData.updated_at
          ]
        );
     }
 
     // 3. PULL Attendance
-    const { data: attendanceData } = await supabase.from("attendance").select("*").eq("user_id", userId).gt("updated_at", lastSyncedAt);
+    const { data: attendanceData } = await supabase.from("attendance").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},date.gt.${lastSyncedAt}`);
     if (attendanceData) {
        for (const row of attendanceData) {
          await db.runAsync(
            `INSERT OR REPLACE INTO attendance (id, user_id, job_id, date, clock_in, clock_out, status, remarks, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-           [row.id, row.user_id, row.job_id, row.date, row.clock_in, row.clock_out, row.status, row.remarks, row.updated_at]
+           [row.id, row.user_id, row.job_id, row.date, row.clock_in, row.clock_out, row.status, row.remarks, row.updated_at || row.clock_in]
          );
        }
     }
 
     // 4. PULL Accomplishments
-    const { data: taskData } = await supabase.from("accomplishments").select("*").eq("user_id", userId).gt("created_at", lastSyncedAt);
+    const { data: taskData } = await supabase.from("accomplishments").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`);
     if (taskData) {
       for (const row of taskData) {
          await db.runAsync(
-           `INSERT OR REPLACE INTO accomplishments (id, user_id, job_id, date, description, remarks, image_url, created_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-           [row.id, row.user_id, row.job_id, row.date, row.description, row.remarks, row.image_url, row.created_at]
+           `INSERT OR REPLACE INTO accomplishments (id, user_id, job_id, date, description, remarks, image_url, created_at, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+           [row.id, row.user_id, row.job_id, row.date, row.description || "", row.remarks || null, row.image_url || null, row.created_at, row.updated_at || row.created_at]
          );
       }
     }
     
-    // 5. PULL Reports
-    const { data: reportsData } = await supabase.from("saved_reports").select("*").eq("user_id", userId).gt("created_at", lastSyncedAt);
+    // 5. PULL Reports (FIXED: Replaced ON CONFLICT with universal INSERT OR REPLACE)
+    const { data: reportsData } = await supabase.from("saved_reports").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`);
     if (reportsData) {
         for (const row of reportsData) {
             await db.runAsync(
-                `INSERT INTO saved_reports (id, user_id, title, file_path, file_type, file_size, remote_url, created_at, updated_at, is_synced) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-                 ON CONFLICT(id) DO UPDATE SET
-                    title = excluded.title,
-                    remote_url = excluded.remote_url,
-                    updated_at = excluded.updated_at,
-                    is_synced = 1
-                 `,
+                `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, remote_url, created_at, updated_at, is_read, period_key, is_synced) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
                 [
                   row.id, 
                   row.user_id, 
-                  row.title, 
-                  "", 
-                  row.file_type, 
-                  row.file_size, 
-                  row.remote_url, 
+                  row.title || "Untitled", 
+                  "", // File path empty since file is remote initially
+                  row.file_type || "pdf", 
+                  row.file_size || 0, 
+                  row.remote_url || null, 
                   row.created_at, 
-                  row.updated_at
+                  row.updated_at || row.created_at,
+                  row.is_read ? 1 : 0,
+                  row.period_key || null
                 ]
             );
         }
     }
 
-    // 6. [NEW] PULL NOTIFICATIONS
-    const { data: notifData } = await supabase
-      .from("notifications")
-      .select("*")
-      .eq("user_id", userId)
-      .gt("created_at", lastSyncedAt);
+    // 6. PULL NOTIFICATIONS
+    const { data: notifData } = await supabase.from("notifications").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`);
 
     if (notifData) {
       for (const row of notifData) {
@@ -258,7 +269,7 @@ export const syncPull = async (userId: string) => {
              row.type, 
              row.is_read ? 1 : 0, 
              row.created_at, 
-             row.updated_at
+             row.updated_at || row.created_at
            ]
          );
       }

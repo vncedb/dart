@@ -70,3 +70,10 @@ yarn-error.log*
 .expo/
 *.jks
 *.keystore
+
+# Environment
+.env
+.env.local
+.env.*
+
+hs_err_pid*

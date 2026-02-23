@@ -1,3 +1,4 @@
+// vncedb/dart/dart-dfc370a1cb531fb84d58dfcbf96afcbce8542d4e/app/job/job.tsx
 import {
     Briefcase01Icon,
     Building03Icon,
@@ -5,6 +6,7 @@ import {
     Clock01Icon,
     Delete02Icon,
     DollarCircleIcon,
+    MoreVerticalIcon,
     PencilEdit02Icon,
     PlusSignIcon,
     WifiOffIcon
@@ -15,6 +17,8 @@ import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import {
+    Alert,
+    BackHandler,
     RefreshControl,
     ScrollView,
     StyleSheet,
@@ -194,7 +198,6 @@ const InactiveJobItem = ({ item, onActivate, onEdit, onDelete, theme }: any) => 
     );
 };
 
-
 // --- MAIN SCREEN ---
 export default function MyJobsScreen() {
     const theme = useAppTheme();
@@ -210,6 +213,23 @@ export default function MyJobsScreen() {
     const [loadingMessage, setLoadingMessage] = useState('');
     const [isOffline, setIsOffline] = useState(false);
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+
+    // Handle System Back Navigation
+    useFocusEffect(
+        useCallback(() => {
+            const onBackPress = () => {
+                if (router.canGoBack()) {
+                    router.back();
+                } else {
+                    router.replace('/(tabs)/profile');
+                }
+                return true; // Prevents the app from closing entirely
+            };
+
+            const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+            return () => subscription.remove();
+        }, [router])
+    );
 
     // --- DATA FETCHING ---
     const fetchJobs = useCallback(async () => {
@@ -249,6 +269,18 @@ export default function MyJobsScreen() {
     const inactiveJobs = useMemo(() => jobs.filter(j => j.id !== activeJobId), [jobs, activeJobId]);
 
     // --- ACTIONS ---
+    const handleMoreOptions = () => {
+        Haptics.selectionAsync();
+        Alert.alert(
+            'More Options',
+            'Select an action',
+            [
+                { text: 'Add New Job', onPress: () => router.push('/job/form') },
+                { text: 'Cancel', style: 'cancel' }
+            ]
+        );
+    };
+
     const handleSetActive = async (jobId: string) => {
         Haptics.selectionAsync();
         setLoadingMessage('Activating job...');
@@ -317,12 +349,14 @@ export default function MyJobsScreen() {
             <Header 
                 title="My Jobs" 
                 rightElement={
-                    <TouchableOpacity 
-                        onPress={() => { Haptics.selectionAsync(); router.push('/job/form'); }} 
-                        style={[styles.headerAddBtn, { backgroundColor: theme.colors.primaryLight }]}
-                    >
-                        <HugeiconsIcon icon={PlusSignIcon} size={22} color={theme.colors.primary} />
-                    </TouchableOpacity>
+                    jobs.length > 0 ? (
+                        <TouchableOpacity 
+                            onPress={handleMoreOptions} 
+                            style={[styles.headerAddBtn, { backgroundColor: theme.colors.primaryLight }]}
+                        >
+                            <HugeiconsIcon icon={MoreVerticalIcon} size={22} color={theme.colors.primary} />
+                        </TouchableOpacity>
+                    ) : undefined
                 } 
             />
             
@@ -425,7 +459,7 @@ const styles = StyleSheet.create({
         borderRadius: 24,
         overflow: 'hidden',
         borderWidth: 1,
-        borderColor: 'transparent', // Can enable if needed
+        borderColor: 'transparent',
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.12,
         shadowRadius: 16,
