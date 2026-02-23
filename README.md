@@ -159,4 +159,8 @@ Private Project – All Rights Reserved.
 
 <p align="center">
   Built with precision, scalability, and production readiness in mind.
+<<<<<<< HEAD
 </p>
+=======
+</p>
+>>>>>>> 36e20eb (README.md)
