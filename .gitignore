@@ -1,79 +1,79 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+# =========================================
+# DART - Production .gitignore
+# Expo + React Native + Supabase
+# =========================================
 
-# dependencies
+
+# ================================
+# Dependencies
+# ================================
 node_modules/
+.pnp/
+.pnp.js
 
+
+# ================================
+# Environment Variables (CRITICAL)
+# ================================
+.env
+.env.*
+.env.local
+.env*.local
+
+
+# ================================
 # Expo
+# ================================
 .expo/
 dist/
 web-build/
 expo-env.d.ts
 
-# Native
+
+# ================================
+# Build / Production
+# ================================
+build/
+coverage/
+*.tsbuildinfo
+
+
+# ================================
+# Native (Android / iOS)
+# ================================
 .kotlin/
-*.orig.*
 *.jks
+*.keystore
 *.p8
 *.p12
 *.key
 *.mobileprovision
 
-# Metro
+
+# ================================
+# Metro Bundler
+# ================================
 .metro-health-check*
 
-# debug
-npm-debug.*
-yarn-debug.*
-yarn-error.*
 
-# macOS
-.DS_Store
-*.pem
-
-# local env files
-.env*.local
-
-# typescript
-*.tsbuildinfo
-
-app-example
-
-# Dependencies
-node_modules/
-.pnp
-.pnp.js
-
-# Testing
-coverage/
-
-# Production
-build/
-dist/
-
-# Misc
-.DS_Store
-*.pem
-
-# Debug
+# ================================
+# Logs & Debug
+# ================================
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-
-# Local env files
-.env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# Expo
-.expo/
-*.jks
-*.keystore
-
-# Environment
-.env
-.env.local
-.env.*
-
 hs_err_pid*
+
+
+# ================================
+# macOS / System Files
+# ================================
+.DS_Store
+*.pem
+
+
+# ================================
+# Misc
+# ================================
+*.orig.*
+app-example

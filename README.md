@@ -1,8 +1,9 @@
 # 🚀 DART – Daily Accomplishment Report Tool
+![Version](https://img.shields.io/badge/version-1.0.0-blue)
 
 <p align="center">
   <strong>A Professional Productivity & Work Reporting Mobile Application</strong><br/>
-  Built with Expo (React Native) + Supabase + RevenueCat
+  Built with Expo (React Native) + Supabase
 </p>
 
 <p align="center">
@@ -47,10 +48,10 @@ It provides secure cloud synchronization, report exports, and premium features v
 - Offline-safe architecture
 - Secure edge functions
 
-## 💳 Premium Features
+<!-- ## 💳 Premium Features
 - RevenueCat integration
 - Subscription-based unlocks
-- Feature gating system
+- Feature gating system -->
 
 ## 🎨 UI & Experience
 - Light / Dark mode
@@ -159,8 +160,5 @@ Private Project – All Rights Reserved.
 
 <p align="center">
   Built with precision, scalability, and production readiness in mind.
-<<<<<<< HEAD
 </p>
-=======
 </p>
->>>>>>> 36e20eb (README.md)
