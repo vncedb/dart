@@ -1,11 +1,11 @@
 import {
     Briefcase01Icon,
     Building03Icon,
-    CheckmarkCircle02Icon,
     Delete02Icon,
     MoreVerticalIcon,
     PencilEdit02Icon,
     PlusSignIcon,
+    Tick01Icon,
     WifiOff01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
@@ -63,7 +63,7 @@ const OfflineIndicator = ({ isOffline, theme }: { isOffline: boolean; theme: any
             style={[styles.offlineStatus, { backgroundColor: theme.colors.danger + "10", borderColor: theme.colors.danger + "20" }]}
         >
             <HugeiconsIcon icon={WifiOff01Icon} size={14} color={theme.colors.danger} />
-            <Text style={{ fontSize: 11, fontWeight: "700", color: theme.colors.danger, marginLeft: 6 }}>
+            <Text style={{ fontSize: 11, fontFamily: "Nunito_700Bold", color: theme.colors.danger, marginLeft: 6 }}>
                 You are offline. Data may be unsynced.
             </Text>
         </Animated.View>
@@ -359,7 +359,7 @@ export default function MyJobsScreen() {
                         style={[styles.headerAddBtn, { backgroundColor: 'transparent' }]}
                     >
                         <HugeiconsIcon 
-                            icon={isEditMode ? CheckmarkCircle02Icon : MoreVerticalIcon} 
+                            icon={isEditMode ? Tick01Icon : MoreVerticalIcon} 
                             size={24} 
                             color={theme.colors.primary} 
                         />
@@ -413,7 +413,7 @@ export default function MyJobsScreen() {
                             
                             {!activeJob && inactiveJobs.length > 0 && (
                                 <View style={[styles.selectPrompt, { backgroundColor: theme.colors.primary + '10' }]}>
-                                    <HugeiconsIcon icon={CheckmarkCircle02Icon} size={20} color={theme.colors.primary} />
+                                    <HugeiconsIcon icon={Tick01Icon} size={20} color={theme.colors.primary} />
                                     <Text style={[styles.selectPromptText, { color: theme.colors.primary }]}>
                                         Select a job above to set it as active.
                                     </Text>
@@ -448,37 +448,37 @@ export default function MyJobsScreen() {
 const styles = StyleSheet.create({
     scrollContent: { padding: 24, paddingBottom: 100, flexGrow: 1 },
     headerAddBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
-    sectionTitle: { fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4 },
+    sectionTitle: { fontSize: 11, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 1, marginBottom: 12, marginLeft: 4 },
     offlineStatus: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 8, borderBottomWidth: 1 },
     statusPill: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, alignSelf: 'flex-start' },
-    statusPillText: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+    statusPillText: { fontSize: 10, fontFamily: 'Nunito_800ExtraBold', textTransform: 'uppercase', letterSpacing: 0.5 },
     heroCard: { borderRadius: 24, overflow: 'hidden', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 16, elevation: 6, padding: 0 },
     heroTint: { ...StyleSheet.absoluteFillObject },
     heroHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingBottom: 0 },
     activeBadge: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 100, gap: 6 },
     pulseDot: { width: 6, height: 6, borderRadius: 3 },
-    activeBadgeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.5 },
+    activeBadgeText: { fontSize: 10, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 0.5 },
     heroEditZone: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center' },
     heroContent: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 24 },
-    heroTitle: { fontSize: 24, fontWeight: '800', marginBottom: 12, letterSpacing: -0.5 },
+    heroTitle: { fontSize: 24, fontFamily: 'Nunito_800ExtraBold', marginBottom: 12, letterSpacing: -0.5 },
     heroCompanyRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    heroCompany: { fontSize: 14, fontWeight: '600' },
+    heroCompany: { fontSize: 14, fontFamily: 'Nunito_600SemiBold' },
     listCard: { borderRadius: 20, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.04, shadowRadius: 8, elevation: 2 },
     listCardContent: { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 12 },
     listTextContainer: { flex: 1, justifyContent: 'center' },
-    listTitle: { fontSize: 17, fontWeight: '700', marginBottom: 4, letterSpacing: -0.3 },
-    listSubtitle: { fontSize: 13, fontWeight: '500' },
+    listTitle: { fontSize: 17, fontFamily: 'Nunito_700Bold', marginBottom: 4, letterSpacing: -0.3 },
+    listSubtitle: { fontSize: 13, fontFamily: 'Nunito_500Medium' },
     actionArea: { width: 85, alignItems: 'flex-end', justifyContent: 'center' },
     activateBtn: { paddingVertical: 10, paddingHorizontal: 18, borderRadius: 100 },
-    activateBtnText: { fontSize: 13, fontWeight: '800' },
+    activateBtnText: { fontSize: 13, fontFamily: 'Nunito_800ExtraBold' },
     editActions: { flexDirection: 'row', gap: 8 },
     iconBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
     emptyStateContainer: { alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
     emptyIconCircle: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
-    emptyStateTitle: { fontSize: 20, fontWeight: '800', marginBottom: 8 },
+    emptyStateTitle: { fontSize: 20, fontFamily: 'Nunito_800ExtraBold', marginBottom: 8 },
     emptyStateBody: { fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 32, paddingHorizontal: 40 },
     emptyStateButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 24, borderRadius: 100, gap: 8, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
-    emptyStateButtonText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+    emptyStateButtonText: { color: '#fff', fontSize: 15, fontFamily: 'Nunito_700Bold' },
     selectPrompt: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16, borderRadius: 16, marginTop: 24, gap: 8 },
-    selectPromptText: { fontSize: 13, fontWeight: '600' }
+    selectPromptText: { fontSize: 13, fontFamily: 'Nunito_600SemiBold' }
 });

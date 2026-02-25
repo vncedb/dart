@@ -1,57 +1,37 @@
 import React from 'react';
-import { ScrollViewProps, ViewStyle } from 'react-native';
-import Animated, {
-  FadeInDown,
-  FadeOutDown,
-  LinearTransition
-} from 'react-native-reanimated';
+import { Platform, StyleProp, View, ViewStyle } from 'react-native';
+import Animated, { Easing, FadeInDown, FadeOutUp, LinearTransition } from 'react-native-reanimated';
 
-interface AnimatedListProps<T> extends Omit<ScrollViewProps, 'style'> {
-  data: T[];
-  renderItem: (item: T, index: number) => React.ReactNode;
-  itemStyle?: ViewStyle;
-  style?: ViewStyle;
-  delay?: number;
-  initialDelay?: number;
-  showScrollbar?: boolean;
+interface AnimatedListProps<T> {
+    data: T[];
+    renderItem: (item: T, index: number) => React.ReactNode;
+    style?: StyleProp<ViewStyle>;
+    delay?: number;
 }
 
-export function AnimatedList<T>({ 
-  data, 
-  renderItem, 
-  itemStyle, 
-  style, 
-  delay = 100, 
-  initialDelay = 0,
-  showScrollbar = false,
-  contentContainerStyle,
-  ...props 
-}: AnimatedListProps<T>) {
-  return (
-    <Animated.ScrollView
-      style={style}
-      showsVerticalScrollIndicator={showScrollbar}
-      showsHorizontalScrollIndicator={showScrollbar}
-      contentContainerStyle={[
-          { paddingBottom: 120 }, 
-          contentContainerStyle
-      ]}
-      // FIX: Use LinearTransition with duration to remove list reorder bounce
-      layout={LinearTransition.duration(250)}
-      {...props}
-    >
-      {data.map((item, index) => (
-        <Animated.View
-          key={(item as any).id || index}
-          // FIX: Removed .springify() to stop the entrance bounce
-          entering={FadeInDown.delay(initialDelay + index * delay).duration(300)}
-          exiting={FadeOutDown.duration(200)}
-          // FIX: overflow: 'visible' prevents shadow clipping/grey artifacts during move
-          style={[itemStyle, { overflow: 'visible' }]} 
-        >
-          {renderItem(item, index)}
-        </Animated.View>
-      ))}
-    </Animated.ScrollView>
-  );
+export function AnimatedList<T>({ data, renderItem, style, delay = 80 }: AnimatedListProps<T>) {
+    return (
+        <View style={style}>
+            {data.map((item, index) => {
+                // Securely extract a key to avoid re-renders
+                const key = (item as any)?.id || index.toString();
+                
+                return (
+                    <Animated.View
+                        key={key}
+                        // Smooth, consistent easing with no spring/bounce effects
+                        entering={FadeInDown.delay(index * delay).duration(300).easing(Easing.out(Easing.ease))}
+                        exiting={FadeOutUp.duration(200).easing(Easing.in(Easing.ease))}
+                        layout={LinearTransition.duration(300).easing(Easing.out(Easing.ease))}
+                        // CRITICAL: These prevent the Android black shadow box glitch during opacity animations
+                        renderToHardwareTextureAndroid={Platform.OS === 'android'}
+                        needsOffscreenAlphaCompositing={Platform.OS === 'android'}
+                        style={{ backgroundColor: 'transparent' }}
+                    >
+                        {renderItem(item, index)}
+                    </Animated.View>
+                );
+            })}
+        </View>
+    );
 }

@@ -1,3 +1,4 @@
+// components/DynamicHeader.tsx
 import { format } from 'date-fns';
 import * as Haptics from 'expo-haptics';
 import React, { useEffect, useState } from 'react';
@@ -64,7 +65,8 @@ export default function DynamicHeader({
             }
             return { label: 'Active', color: theme.colors.success, bg: '#F0FDF4' };
         }
-        return { label: 'Offline', color: theme.colors.textSecondary, bg: theme.colors.background };
+        // Changed from 'Offline' to 'Off-Duty'
+        return { label: 'Off-Duty', color: theme.colors.textSecondary, bg: theme.colors.background };
     };
 
     const status = getStatusConfig();
@@ -139,7 +141,7 @@ export default function DynamicHeader({
                                         {format(currentTime, 'h:mm')}
                                     </Text>
                                     <Text style={[styles.ampmText, { color: theme.colors.textSecondary }]}>
-                                        {format(currentTime, 'a')} {/* Removed toLowerCase to keep Uppercase */}
+                                        {format(currentTime, 'a')}
                                     </Text>
                                 </View>
                             )}
@@ -186,7 +188,6 @@ const styles = StyleSheet.create({
         paddingVertical: 12, 
         borderRadius: 16,    
         borderWidth: 1,
-        // Removed elevation/shadow for smoother scroll performance
     },
     rowBetween: {
         flexDirection: 'row',

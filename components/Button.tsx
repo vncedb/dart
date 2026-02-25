@@ -115,8 +115,8 @@ export default function Button({
 
 const styles = StyleSheet.create({
     container: {
-        height: 50, // Approx matching py-3
-        borderRadius: 12, // rounded-xl
+        height: 50, 
+        borderRadius: 12, 
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
@@ -124,6 +124,6 @@ const styles = StyleSheet.create({
     },
     text: {
         fontSize: 15,
-        fontWeight: '700',
+        fontFamily: 'Nunito_700Bold', // Explicitly use Nunito Bold to ensure consistency globally
     }
 });

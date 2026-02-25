@@ -19,9 +19,6 @@ export default function ModalHeader({
 }: ModalHeaderProps) {
     const theme = useAppTheme();
     
-    // Bottom Modals: Left aligned title, Close button on right.
-    // Center Modals: Center aligned title, No close button (usually Cancel in footer).
-    
     return (
         <View style={[
             styles.container, 
@@ -47,11 +44,13 @@ export default function ModalHeader({
                 )}
             </View>
 
-            {/* Close Button only for Bottom Modals */}
-            {position === 'bottom' && onClose && (
+            {onClose && (
                 <TouchableOpacity 
                     onPress={onClose} 
-                    style={[styles.closeBtn, { backgroundColor: theme.colors.background }]}
+                    style={[
+                        styles.closeBtn, 
+                        { backgroundColor: theme.colors.card, borderColor: theme.colors.border }
+                    ]}
                 >
                     <HugeiconsIcon icon={Cancel01Icon} size={20} color={theme.colors.textSecondary} />
                 </TouchableOpacity>
@@ -63,12 +62,12 @@ export default function ModalHeader({
 const styles = StyleSheet.create({
     container: {
         paddingHorizontal: 24,
-        paddingVertical: 16,
+        paddingVertical: 16, 
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         borderBottomWidth: 1,
-        minHeight: 70,
+        minHeight: 76,
     },
     textContainer: {
         flex: 1,
@@ -82,17 +81,21 @@ const styles = StyleSheet.create({
         paddingRight: 16,
     },
     title: {
-        fontSize: 18,
-        fontWeight: '800',
+        fontSize: 20, 
+        fontFamily: 'Nunito_800ExtraBold',
         letterSpacing: -0.4,
     },
     subtitle: {
         fontSize: 13,
-        fontWeight: '500',
-        marginTop: 2,
+        fontFamily: 'Nunito_500Medium',
+        marginTop: 4,
     },
     closeBtn: {
-        padding: 8,
-        borderRadius: 50,
+        width: 36,
+        height: 36,
+        borderRadius: 18,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
     }
 });

@@ -14,6 +14,11 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
 // --- REUSABLE HTML GENERATOR ---
 const generateHtml = (title: string, message: string, code?: string, buttonText?: string, buttonUrl?: string, isDanger = false) => {
   const brandColor = isDanger ? "#ef4444" : "#4f46e5"; // Red for danger, Indigo for normal
@@ -72,7 +77,9 @@ const generateHtml = (title: string, message: string, code?: string, buttonText?
 };
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: { 'Access-Control-Allow-Origin': '*' } });
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
 
   try {
     const { email, type, data, otp } = await req.json();
@@ -125,12 +132,17 @@ serve(async (req) => {
         );
         break;
 
-      // --- NEW: FEEDBACK TYPE ---
       case 'FEEDBACK':
-        subject = `DART App Feedback / Bug Report`;
+        const categoryLabel = data?.category || 'General Feedback';
+        subject = `DART App Feedback: ${categoryLabel}`;
         html = generateHtml(
           "New Feedback Received",
-          `<strong>Sender:</strong> ${data?.sender || email}<br/><br/><strong>Message:</strong><br/><p>${data?.message}</p>`
+          `<strong>Sender:</strong> ${data?.sender || email}<br/>
+           <strong>Category:</strong> ${categoryLabel}<br/><br/>
+           <strong>Message:</strong><br/>
+           <div style="text-align: left; background-color: #F8FAFC; padding: 16px; border-radius: 8px; border: 1px solid #E2E8F0; margin-top: 12px;">
+             ${data?.message?.replace(/\n/g, '<br/>') || 'No message provided.'}
+           </div>`
         );
         break;
 
@@ -145,8 +157,13 @@ serve(async (req) => {
       html,
     });
 
-    return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ success: true }), { 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    });
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 400 });
+    return new Response(JSON.stringify({ error: error.message }), { 
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
   }
 });

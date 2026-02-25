@@ -3,6 +3,7 @@ import {
     Camera01Icon,
     Delete02Icon,
     Image01Icon,
+    PencilEdit02Icon,
     Tick01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
@@ -17,12 +18,16 @@ import {
     KeyboardAvoidingView,
     Platform,
     ScrollView,
+    StyleSheet,
     Text,
     TextInput,
     TouchableOpacity,
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import Button from '../../components/Button';
+import DatePicker from '../../components/DatePicker';
 import Footer from '../../components/Footer';
 import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
@@ -35,29 +40,36 @@ import { supabase } from '../../lib/supabase';
 
 const MAX_PHOTOS = 4;
 
-export default function AddEntry() {
+export default function AddEntryScreen() {
     const router = useRouter();
     const navigation = useNavigation();
     const theme = useAppTheme();
-    const { id, jobId } = useLocalSearchParams();
+    const { triggerSync } = useSync();
     
+    // Params: 'id' (from Timeline Edit), 'jobId' (from Home Add), 'date' (from Reports Add)
+    const { id, jobId, date: paramDate } = useLocalSearchParams();
     const entryId = Array.isArray(id) ? id[0] : id; 
     const passedJobId = Array.isArray(jobId) ? jobId[0] : jobId;
-
-    const { triggerSync } = useSync();
+    
+    // RULE: If we have an explicit ID (Timeline) or JobID (Home Action), lock the Date.
+    // If navigating directly from the Reports tab, allow Date editing.
+    const canEditDate = !passedJobId && !entryId;
     
     const [description, setDescription] = useState('');
     const [remarks, setRemarks] = useState('');
     const [images, setImages] = useState<string[]>([]);
     const [activeJobId, setActiveJobId] = useState<string | null>(null);
 
+    const [selectedDate, setSelectedDate] = useState<Date>(paramDate ? new Date(paramDate as string) : new Date());
+    const [showDatePicker, setShowDatePicker] = useState(false);
+
     const [errors, setErrors] = useState({ description: false });
     const [loading, setLoading] = useState(false);
     const [initialLoading, setInitialLoading] = useState(true);
     const [isDirty, setIsDirty] = useState(false);
-    
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
+    // Warn on unsaved changes
     useEffect(() => {
         const unsubscribe = navigation.addListener('beforeRemove', (e) => {
             if (loading || !isDirty) return;
@@ -80,6 +92,7 @@ export default function AddEntry() {
         return unsubscribe;
     }, [navigation, loading, isDirty]);
 
+    // Initialize logic
     useEffect(() => {
         const init = async () => {
             if (entryId) {
@@ -117,6 +130,8 @@ export default function AddEntry() {
                 setDescription(entry.description);
                 setRemarks(entry.remarks || '');
                 setActiveJobId(entry.job_id);
+                setSelectedDate(new Date(entry.date));
+                
                 if (entry.image_url) {
                     try {
                         const parsed = JSON.parse(entry.image_url);
@@ -132,12 +147,7 @@ export default function AddEntry() {
         const remaining = MAX_PHOTOS - images.length;
         if (remaining <= 0) {
             setAlertConfig({
-                visible: true,
-                type: 'warning',
-                title: 'Limit Reached',
-                message: 'You can only add up to 4 images.',
-                confirmText: 'Okay',
-                onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
+                visible: true, type: 'warning', title: 'Limit Reached', message: `You can only add up to ${MAX_PHOTOS} images.`, confirmText: 'Okay', onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
             });
             return;
         }
@@ -145,7 +155,6 @@ export default function AddEntry() {
         try {
             let result: ImagePicker.ImagePickerResult; 
             const options: ImagePicker.ImagePickerOptions = {
-                // FIXED: Using MediaTypeOptions to fix Type error (even if deprecated)
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
                 quality: 0.7,
                 allowsEditing: true,
@@ -165,26 +174,14 @@ export default function AddEntry() {
                 setImages(prev => [...prev, newUri]);
                 setIsDirty(true);
             }
-        } catch (e) { // FIXED: Changed unused '_' to 'e' or used it
-            setAlertConfig({
-                visible: true,
-                type: 'error',
-                title: 'Error',
-                message: 'Could not capture image.',
-                confirmText: 'Okay',
-                onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
-            });
+        } catch (e) { 
+            setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Could not capture image.', confirmText: 'Okay', onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false })) });
         }
     };
 
     const confirmDeleteImage = (idx: number) => {
         setAlertConfig({
-            visible: true,
-            type: 'confirm',
-            title: 'Remove Image',
-            message: 'Are you sure you want to remove this image?',
-            confirmText: 'Remove',
-            cancelText: 'Cancel',
+            visible: true, type: 'confirm', title: 'Remove Image', message: 'Are you sure you want to remove this image?', confirmText: 'Remove', cancelText: 'Cancel',
             onConfirm: () => {
                 setImages(p => p.filter((_, i) => i !== idx)); 
                 setIsDirty(true);
@@ -197,17 +194,11 @@ export default function AddEntry() {
     const saveEntry = async () => {
         if (!description.trim()) {
             setErrors({ description: true });
+            setAlertConfig({ visible: true, type: 'warning', title: 'Missing Info', message: 'Please enter a description for this entry.', confirmText: 'OK', onConfirm: () => setAlertConfig({ visible: false }) });
             return;
         }
         if (!activeJobId) {
-            setAlertConfig({
-                visible: true,
-                type: 'error',
-                title: 'Error',
-                message: 'No active job context found. Please ensure you have a job selected.',
-                confirmText: 'Okay',
-                onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
-            });
+            setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'No active job context found. Please ensure you have a job selected.', confirmText: 'Okay', onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false })) });
             return;
         }
 
@@ -227,7 +218,8 @@ export default function AddEntry() {
             
             const imagesJson = JSON.stringify(processedImages);
             const now = new Date().toISOString();
-            const dateStr = format(new Date(), 'yyyy-MM-dd');
+            const dateStr = format(selectedDate, 'yyyy-MM-dd'); 
+            
             const db = await getDB();
             const { data: { session } } = await supabase.auth.getSession();
             const userId = session?.user?.id;
@@ -235,20 +227,20 @@ export default function AddEntry() {
 
             if (entryId) {
                 await db.runAsync(
-                    'UPDATE accomplishments SET description = ?, remarks = ?, image_url = ?, updated_at = ? WHERE id = ?',
-                    [description, remarks, imagesJson, now, entryId]
+                    'UPDATE accomplishments SET description = ?, remarks = ?, image_url = ?, date = ?, updated_at = ? WHERE id = ?',
+                    [description.trim(), remarks.trim(), imagesJson, dateStr, now, entryId]
                 );
                 await db.runAsync(
                     'INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)',
-                    ['accomplishments', entryId, 'UPDATE', JSON.stringify({ description, remarks, image_url: imagesJson, updated_at: now })]
+                    ['accomplishments', entryId, 'UPDATE', JSON.stringify({ description: description.trim(), remarks: remarks.trim(), image_url: imagesJson, date: dateStr, updated_at: now })]
                 );
             } else {
                 const newId = generateUUID();
-                const newRecord = { id: newId, user_id: userId, job_id: activeJobId, date: dateStr, description, remarks, image_url: imagesJson, created_at: now, updated_at: now };
+                const newRecord = { id: newId, user_id: userId, job_id: activeJobId, date: dateStr, description: description.trim(), remarks: remarks.trim(), image_url: imagesJson, created_at: now, updated_at: now };
 
                 await db.runAsync(
                     'INSERT INTO accomplishments (id, user_id, job_id, date, description, remarks, image_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [newRecord.id, userId, activeJobId, dateStr, description, remarks, imagesJson, now, now]
+                    [newRecord.id, userId, activeJobId, dateStr, newRecord.description, newRecord.remarks, imagesJson, now, now]
                 );
                 await db.runAsync(
                     'INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)',
@@ -260,129 +252,223 @@ export default function AddEntry() {
             triggerSync(); 
             router.back(); 
         } catch (e: any) { 
-            setAlertConfig({
-                visible: true,
-                type: 'error',
-                title: 'Save Failed',
-                message: e.message || 'An error occurred while saving.',
-                confirmText: 'Okay',
-                onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false }))
-            });
+            setAlertConfig({ visible: true, type: 'error', title: 'Save Failed', message: e.message || 'An error occurred while saving.', confirmText: 'Okay', onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false })) });
         } finally { 
             setLoading(false); 
         }
     };
 
     return (
-        <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
+        <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
             <ModernAlert {...alertConfig} />
             <LoadingOverlay visible={loading} message="Saving entry..." />
             
-            <Header 
-                title={entryId ? 'Edit Task' : 'New Task'} 
+            <DatePicker 
+                visible={showDatePicker} 
+                onClose={() => setShowDatePicker(false)} 
+                onSelect={(date) => { setSelectedDate(date); setIsDirty(true); setShowDatePicker(false); }} 
+                selectedDate={selectedDate} 
+                title="Select Entry Date" 
             />
 
+            <Header title={entryId ? 'Edit Entry' : 'New Entry'} />
+
             {initialLoading ? (
-                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                <View style={styles.center}>
                     <ActivityIndicator size="large" color={theme.colors.primary} />
                 </View>
             ) : (
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-                    <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 100 }}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 24, opacity: 0.6 }}>
-                            <HugeiconsIcon icon={Calendar03Icon} size={16} color={theme.colors.text} />
-                            <Text style={{ marginLeft: 8, color: theme.colors.text, fontWeight: '600', fontSize: 14 }}>
-                                {format(new Date(), 'MMMM d, yyyy')}
-                            </Text>
-                        </View>
-
-                        <View style={{ marginBottom: 20 }}>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '800', marginBottom: 8, textTransform: 'uppercase' }}>Task Description</Text>
-                            <TextInput
-                                value={description}
-                                onChangeText={(t) => { setDescription(t); setIsDirty(true); setErrors({description: false}); }}
-                                placeholder="What did you accomplish?"
-                                placeholderTextColor={theme.colors.textSecondary}
-                                style={{ 
-                                    backgroundColor: theme.colors.card, 
-                                    color: theme.colors.text, 
-                                    padding: 16, borderRadius: 16, borderWidth: 1.5, 
-                                    borderColor: errors.description ? theme.colors.danger : theme.colors.border,
-                                    fontSize: 16, fontWeight: '500'
-                                }}
-                            />
-                        </View>
-
-                        <View style={{ marginBottom: 24 }}>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '800', marginBottom: 8, textTransform: 'uppercase' }}>Remarks</Text>
-                            <TextInput
-                                value={remarks}
-                                onChangeText={(t) => { setRemarks(t); setIsDirty(true); }}
-                                placeholder="Additional details (optional)..."
-                                placeholderTextColor={theme.colors.textSecondary}
-                                multiline
-                                textAlignVertical="top"
-                                style={{ 
-                                    backgroundColor: theme.colors.card, 
-                                    color: theme.colors.text, 
-                                    padding: 16, borderRadius: 16, borderWidth: 1, 
-                                    borderColor: theme.colors.border, 
-                                    minHeight: 120, fontSize: 15, lineHeight: 22
-                                }}
-                            />
-                        </View>
-
-                        <View style={{ marginBottom: 12, flexDirection: 'row', justifyContent: 'space-between' }}>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '800', textTransform: 'uppercase' }}>Attachments</Text>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontWeight: '700' }}>{images.length} / {MAX_PHOTOS}</Text>
-                        </View>
-
-                        <View style={{ flexDirection: 'row', gap: 12, marginBottom: 16 }}>
-                            <TouchableOpacity onPress={() => handleImagePick('camera')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, backgroundColor: theme.colors.card, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border }}>
-                                <HugeiconsIcon icon={Camera01Icon} size={18} color={theme.colors.primary} />
-                                <Text style={{ marginLeft: 8, color: theme.colors.text, fontWeight: '700', fontSize: 13 }}>Camera</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity onPress={() => handleImagePick('gallery')} style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, backgroundColor: theme.colors.card, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border }}>
-                                <HugeiconsIcon icon={Image01Icon} size={18} color={theme.colors.primary} />
-                                <Text style={{ marginLeft: 8, color: theme.colors.text, fontWeight: '700', fontSize: 13 }}>Gallery</Text>
+                    <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                        
+                        {/* Dynamic Date Field */}
+                        <View style={styles.inputBlock}>
+                            <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Date</Text>
+                            <TouchableOpacity 
+                                activeOpacity={canEditDate ? 0.7 : 1}
+                                onPress={() => canEditDate && setShowDatePicker(true)} 
+                                style={[
+                                    styles.inputWrapper, 
+                                    { borderColor: theme.colors.border, backgroundColor: theme.colors.card }
+                                ]}
+                            >
+                                <View style={styles.dateRow}>
+                                    <HugeiconsIcon icon={Calendar03Icon} size={20} color={canEditDate ? theme.colors.primary : theme.colors.textSecondary} />
+                                    <Text style={[styles.dateText, { color: theme.colors.text }]}>
+                                        {format(selectedDate, 'MMMM d, yyyy')}
+                                    </Text>
+                                </View>
+                                {canEditDate && (
+                                    <HugeiconsIcon icon={PencilEdit02Icon} size={18} color={theme.colors.textSecondary} />
+                                )}
                             </TouchableOpacity>
                         </View>
 
-                        <View style={{ gap: 16 }}>
-                            {images.map((uri, idx) => (
-                                <View 
-                                    key={idx} 
-                                    style={{ 
-                                        width: '100%', 
-                                        aspectRatio: 4/3,
-                                        borderRadius: 16, 
-                                        overflow: 'hidden', 
-                                        backgroundColor: theme.colors.card, 
-                                        borderWidth: 1, 
-                                        borderColor: theme.colors.border, 
-                                        position: 'relative' 
-                                    }}
-                                >
-                                    <Image source={{ uri }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
-                                    <TouchableOpacity 
-                                        onPress={() => confirmDeleteImage(idx)} 
-                                        style={{ position: 'absolute', top: 12, right: 12, backgroundColor: 'rgba(0,0,0,0.6)', padding: 8, borderRadius: 20 }}
-                                    >
-                                        <HugeiconsIcon icon={Delete02Icon} size={18} color="#ef4444" />
+                        {/* Description Field (Icon Removed) */}
+                        <View style={styles.inputBlock}>
+                            <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Description <Text style={{color: theme.colors.danger}}>*</Text></Text>
+                            <View style={[styles.inputWrapper, { borderColor: errors.description ? theme.colors.danger : theme.colors.border, backgroundColor: theme.colors.card }]}>
+                                <TextInput
+                                    style={[styles.textInput, { color: theme.colors.text }]}
+                                    placeholder="What did you accomplish?"
+                                    placeholderTextColor={theme.colors.textSecondary}
+                                    value={description}
+                                    onChangeText={(t) => { setDescription(t); setIsDirty(true); setErrors({description: false}); }}
+                                    maxLength={255}
+                                />
+                            </View>
+                        </View>
+
+                        {/* Remarks / Notes Field (Icon Removed) */}
+                        <View style={styles.inputBlock}>
+                            <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Remarks (Optional)</Text>
+                            <View style={[styles.inputWrapper, styles.textAreaWrapper, { borderColor: theme.colors.border, backgroundColor: theme.colors.card }]}>
+                                <TextInput
+                                    style={[styles.textInput, styles.textArea, { color: theme.colors.text }]}
+                                    placeholder="Add any additional details or notes..."
+                                    placeholderTextColor={theme.colors.textSecondary}
+                                    value={remarks}
+                                    onChangeText={(t) => { setRemarks(t); setIsDirty(true); }}
+                                    multiline
+                                    textAlignVertical="top"
+                                />
+                            </View>
+                        </View>
+
+                        {/* Modern Split Attachments Section */}
+                        <View style={styles.inputBlock}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                                <Text style={[styles.label, { marginBottom: 0, color: theme.colors.textSecondary }]}>Attachments</Text>
+                                <Text style={{ fontSize: 11, fontFamily: 'Nunito_800ExtraBold', color: theme.colors.textSecondary }}>{images.length} / {MAX_PHOTOS}</Text>
+                            </View>
+
+                            {images.length < MAX_PHOTOS && (
+                                <View style={{ flexDirection: 'row', gap: 12, marginBottom: images.length > 0 ? 16 : 0 }}>
+                                    <TouchableOpacity onPress={() => handleImagePick('camera')} style={[styles.uploadBtnRow, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                                        <HugeiconsIcon icon={Camera01Icon} size={18} color={theme.colors.primary} />
+                                        <Text style={[styles.uploadBtnText, { color: theme.colors.text }]}>Camera</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity onPress={() => handleImagePick('gallery')} style={[styles.uploadBtnRow, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                                        <HugeiconsIcon icon={Image01Icon} size={18} color={theme.colors.primary} />
+                                        <Text style={[styles.uploadBtnText, { color: theme.colors.text }]}>Gallery</Text>
                                     </TouchableOpacity>
                                 </View>
-                            ))}
+                            )}
+
+                            {images.length > 0 && (
+                                <View style={{ gap: 16 }}>
+                                    {images.map((uri, idx) => (
+                                        <View key={idx} style={[styles.imagePreviewWrapper, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                                            <Image source={{ uri }} style={styles.imagePreview} resizeMode="cover" />
+                                            <TouchableOpacity onPress={() => confirmDeleteImage(idx)} style={styles.removeImageBtn} activeOpacity={0.8}>
+                                                <HugeiconsIcon icon={Delete02Icon} size={18} color="#ef4444" />
+                                            </TouchableOpacity>
+                                        </View>
+                                    ))}
+                                </View>
+                            )}
                         </View>
+
                     </ScrollView>
                 </KeyboardAvoidingView>
             )}
             
             <Footer>
-                <TouchableOpacity onPress={saveEntry} disabled={loading} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.primary, height: 56, borderRadius: 16, shadowColor: theme.colors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}>
-                    <Text style={{ color: 'white', fontSize: 16, fontWeight: '700', marginRight: 8 }}>{entryId ? 'Update Task' : 'Save Task'}</Text>
-                    <HugeiconsIcon icon={Tick01Icon} size={20} color="white" strokeWidth={2.5} />
-                </TouchableOpacity>
+                <Button 
+                    title={entryId ? 'Update Entry' : 'Save Entry'} 
+                    onPress={saveEntry} 
+                    isLoading={loading} 
+                    disabled={loading || !description.trim()}
+                    style={{ width: '100%' }}
+                    icon={<HugeiconsIcon icon={Tick01Icon} size={20} color="#fff" strokeWidth={2.5} />}
+                />
             </Footer>
         </SafeAreaView>
     );
 }
+
+const styles = StyleSheet.create({
+    container: { flex: 1 },
+    center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    scrollContent: { padding: 24, paddingBottom: 100 },
+    
+    inputBlock: { 
+        marginBottom: 24 
+    },
+    label: { 
+        fontSize: 11, 
+        fontFamily: 'Nunito_800ExtraBold', 
+        textTransform: 'uppercase', 
+        letterSpacing: 0.8,
+        marginBottom: 8, 
+        marginLeft: 4 
+    },
+    inputWrapper: { 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        justifyContent: 'space-between',
+        borderWidth: 1, 
+        borderRadius: 16, 
+        paddingHorizontal: 16, 
+        minHeight: 56 
+    },
+    dateRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        flex: 1,
+    },
+    dateText: {
+        fontFamily: 'Nunito_700Bold', 
+        fontSize: 15, 
+        marginLeft: 12
+    },
+    textInput: { 
+        flex: 1, 
+        fontFamily: 'Nunito_600SemiBold', 
+        fontSize: 15, 
+        paddingVertical: 16,
+    },
+    textAreaWrapper: { 
+        alignItems: 'flex-start',
+        minHeight: 120 
+    },
+    textArea: { 
+        height: 100, 
+        paddingTop: 16 
+    },
+
+    uploadBtnRow: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 14,
+        borderRadius: 14,
+        borderWidth: 1,
+    },
+    uploadBtnText: {
+        marginLeft: 8,
+        fontFamily: 'Nunito_700Bold',
+        fontSize: 13,
+    },
+    imagePreviewWrapper: {
+        width: '100%',
+        aspectRatio: 4 / 3,
+        borderRadius: 16,
+        borderWidth: 1,
+        overflow: 'hidden',
+        position: 'relative',
+    },
+    imagePreview: {
+        width: '100%',
+        height: '100%',
+    },
+    removeImageBtn: {
+        position: 'absolute',
+        top: 12,
+        right: 12,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        padding: 8,
+        borderRadius: 20,
+    }
+});

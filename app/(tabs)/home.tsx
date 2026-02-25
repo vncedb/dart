@@ -13,7 +13,7 @@ import { useAudioPlayer } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
     RefreshControl,
@@ -97,11 +97,9 @@ const calculateDailyGoal = (jobSettings: any) => {
     return Number((netMinutes / 60).toFixed(2));
 };
 
-// Hardcoded to strictly align to standard Monday-driven work weeks natively
 const getPeriodStartDate = (payoutType: string) => {
     const now = new Date();
-    const weekStartsOn = 1; // Default Monday
-    
+    const weekStartsOn = 1; 
     switch (payoutType) {
         case 'Weekly': return startOfWeek(now, { weekStartsOn }); 
         case 'Bi-Weekly': return addDays(startOfWeek(now, { weekStartsOn }), -7); 
@@ -283,7 +281,6 @@ export default function Home() {
     const [modernAlertConfig, setModernAlertConfig] = useState<any>({ visible: false });
     const [otModalVisible, setOtModalVisible] = useState(false);
 
-    // Kept fundamental notifications/sound options here
     const [appSettings, setAppSettings] = useState<any>({ vibrationEnabled: true, soundEnabled: true, notificationsEnabled: true });
 
     const scrollY = useSharedValue(0);
@@ -430,7 +427,7 @@ export default function Home() {
                     if (r.clock_in && r.clock_out) {
                         const s = new Date(r.clock_in).getTime();
                         const e = new Date(r.clock_out).getTime();
-                        periodMins += (e - s) / (1000 * 60);
+                        periodMins += Math.max(0, (e - s) / (1000 * 60));
                     }
                 });
                 setPeriodWorkedMinutes(periodMins);
@@ -487,7 +484,7 @@ export default function Home() {
                 setHasShownInitialNotif(false); 
                 setIsBreakMode(false);
                 setAlertMessage("See you later!"); 
-                setAlertType('check-out');
+                setAlertType('check-out'); // Keep internal state the same
             } else {
                 const now = new Date();
                 let remarks = null;
@@ -516,7 +513,7 @@ export default function Home() {
                 await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', ['attendance', record.id, 'INSERT', JSON.stringify(record)]);
                 setHasShownInitialNotif(false);
                 setAlertMessage(isOvertime ? "Overtime Started!" : "Welcome In!"); 
-                setAlertType('check-in');
+                setAlertType('check-in'); // Keep internal state the same
             }
             if (appSettings?.soundEnabled && successPlayer) {
                 try { successPlayer.seekTo(0); successPlayer.play(); } catch (audioErr) { console.log("Audio play failed (non-fatal):", audioErr); }
@@ -548,11 +545,10 @@ export default function Home() {
         if (!isClockedIn) {
             if (jobSettings?.work_schedule?.start && jobSettings?.work_schedule?.end) {
                 const nowMins = new Date().getHours() * 60 + new Date().getMinutes();
-                const startMins = timeToMinutes(jobSettings.work_schedule.start);
                 const endMins = timeToMinutes(jobSettings.work_schedule.end);
-                const isEarly = nowMins < (startMins - 30);
-                const isLate = nowMins > endMins;
-                if (isEarly || isLate) {
+                
+                const isLateCheckIn = nowMins > endMins;
+                if (isLateCheckIn) {
                     setOtModalVisible(true);
                     return;
                 }
@@ -561,7 +557,6 @@ export default function Home() {
         processClockAction(false);
     };
 
-    // HARDCODED AUTO TIMEOUT LOGIC
     const handleAutoTimeoutLogic = useCallback(async () => {
         if (!isClockedIn || !latestRecord) return;
         const now = new Date();
@@ -578,7 +573,6 @@ export default function Home() {
             const [startH, startM] = jobSettings.work_schedule.start.split(':').map(Number);
             const shiftStart = set(new Date(latestRecord.clock_in), { hours: startH, minutes: startM, seconds: 0, milliseconds: 0 });
             
-            // If shift spans past midnight
             if (shiftEnd <= shiftStart) {
                 shiftEnd = addDays(shiftEnd, 1);
             }
@@ -593,7 +587,7 @@ export default function Home() {
         if (diffSeconds > 0 && diffSeconds <= 60 && !hasWarnedTimeout.current) {
             hasWarnedTimeout.current = true;
             await Notifications.scheduleNotificationAsync({
-                content: { title: "Time Out Soon", body: `You will be automatically clocked out in 1 minute.`, sound: true, priority: Notifications.AndroidNotificationPriority.HIGH },
+                content: { title: "Time Out Soon", body: `You will be automatically timed out in 1 minute.`, sound: true, priority: Notifications.AndroidNotificationPriority.HIGH },
                 trigger: null,
             });
             if (appSettings?.vibrationEnabled !== false) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -604,11 +598,12 @@ export default function Home() {
 
             const db = await getDB();
             const endIso = targetTime.toISOString();
+            // Changed "Auto-checkout" to "Auto-timeout"
             await db.runAsync('UPDATE attendance SET clock_out = ?, status = ?, remarks = ? WHERE id = ?', 
-                [endIso, 'completed', `Auto-checkout: ${reason}`, latestRecord.id]);
+                [endIso, 'completed', `Auto-timeout: ${reason}`, latestRecord.id]);
             await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', 
-                ['attendance', latestRecord.id, 'UPDATE', JSON.stringify({ clock_out: endIso, status: 'completed', remarks: `Auto-checkout: ${reason}` })]);
-            await Notifications.scheduleNotificationAsync({ content: { title: "Auto Checked Out", body: `You have been checked out. (${reason})`, sound: true }, trigger: null });
+                ['attendance', latestRecord.id, 'UPDATE', JSON.stringify({ clock_out: endIso, status: 'completed', remarks: `Auto-timeout: ${reason}` })]);
+            await Notifications.scheduleNotificationAsync({ content: { title: "Auto Timed Out", body: `You have been timed out. (${reason})`, sound: true }, trigger: null });
 
             setOtExpiry(null);
             hasWarnedTimeout.current = false;
@@ -616,7 +611,7 @@ export default function Home() {
 
             const timeStr = targetTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 
-            setModernAlertConfig({ visible: true, type: 'info', title: 'Auto Checked Out', message: `Session ended at ${timeStr}.`, confirmText: 'Okay', onConfirm: () => setModernAlertConfig((prev:any) => ({...prev, visible: false})) });
+            setModernAlertConfig({ visible: true, type: 'info', title: 'Auto Timed Out', message: `Session ended at ${timeStr}.`, confirmText: 'Okay', onConfirm: () => setModernAlertConfig((prev:any) => ({...prev, visible: false})) });
             triggerSync();
             loadData(); 
         }
@@ -724,15 +719,46 @@ export default function Home() {
 
     useEffect(() => {
         let timeline: any[] = [];
+        const shiftStart = jobSettings?.work_schedule?.start;
+
         todaysRecords.forEach(record => {
-            const isOT = record.remarks && record.remarks.includes('Overtime');
-            timeline.push({ type: 'check-in', time: record.clock_in, id: record.id, isOvertime: isOT, sortTime: new Date(record.clock_in).getTime() });
-            if (record.clock_out) timeline.push({ type: 'check-out', time: record.clock_out, id: record.id, isOvertime: isOT, sortTime: new Date(record.clock_out).getTime() });
+            const isOTFlag = record.remarks && record.remarks.includes('Overtime');
+            let isEarly = false;
+
+            if (shiftStart && record.clock_in) {
+                const [h, m] = shiftStart.split(':').map(Number);
+                const shiftDate = new Date(record.clock_in);
+                shiftDate.setHours(h, m, 0, 0);
+                
+                if (new Date(record.clock_in).getTime() <= shiftDate.getTime() - 1800000) {
+                    isEarly = true;
+                }
+            }
+
+            timeline.push({ 
+                type: 'check-in', 
+                time: record.clock_in, 
+                id: record.id, 
+                isOvertime: isEarly ? false : isOTFlag, 
+                isEarly: isEarly, 
+                sortTime: new Date(record.clock_in).getTime() 
+            });
+
+            if (record.clock_out) {
+                timeline.push({ 
+                    type: 'check-out', 
+                    time: record.clock_out, 
+                    id: record.id, 
+                    isOvertime: isOTFlag, 
+                    sortTime: new Date(record.clock_out).getTime() 
+                });
+            }
         });
+        
         tasks.forEach(task => { timeline.push({ type: 'task', data: task, sortTime: new Date(task.created_at).getTime() }); });
         timeline.sort((a, b) => a.sortTime - b.sortTime);
         setTimelineData(timeline);
-    }, [todaysRecords, tasks]);
+    }, [todaysRecords, tasks, jobSettings]);
 
     const handleEdit = (t: any) => { router.push({ pathname: '/reports/add-entry', params: { id: t.id } }); };
     
@@ -742,6 +768,22 @@ export default function Home() {
         setCalendarLoading(true);
         setTimeout(() => { setTimelinePickerVisible(true); setCalendarLoading(false); }, 50);
     };
+
+    const shiftEndTarget = useMemo(() => {
+        if (!latestRecord?.clock_in || !jobSettings?.work_schedule?.end) return undefined;
+        
+        const [endH, endM] = jobSettings.work_schedule.end.split(':').map(Number);
+        let shiftEnd = set(new Date(latestRecord.clock_in), { hours: endH, minutes: endM, seconds: 0, milliseconds: 0 });
+        
+        const [startH, startM] = jobSettings.work_schedule.start?.split(':').map(Number) || [0, 0];
+        const shiftStart = set(new Date(latestRecord.clock_in), { hours: startH, minutes: startM, seconds: 0, milliseconds: 0 });
+        
+        if (shiftEnd <= shiftStart) {
+            shiftEnd = addDays(shiftEnd, 1);
+        }
+        
+        return shiftEnd.toISOString();
+    }, [latestRecord?.clock_in, jobSettings?.work_schedule]);
 
     return (
         <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
@@ -764,12 +806,10 @@ export default function Home() {
                 </Svg>
             </View>
             
-            {/* ANIMATED HEADER SECTION */}
             <Animated.View style={headerAnimatedStyle}>
                  <DynamicHeader selectedDate={selectedDate} onSelectDate={(date) => setSelectedDate(date)} isClockedIn={isClockedIn} isOvertime={isSessionOvertime} workedMinutes={workedMinutes} dailyGoal={dailyGoal} isLoading={false} />
             </Animated.View>
 
-            {/* ANIMATED SCROLLVIEW */}
             <Animated.ScrollView 
                 onScroll={scrollHandler}
                 scrollEventThrottle={16} 
@@ -842,19 +882,19 @@ const styles = StyleSheet.create({
     rowBetween: { flexDirection: 'row', justifyContent: 'space-between' },
     jobCard: { borderWidth: 1, padding: 24, borderRadius: 24, flexDirection: 'row', alignItems: 'center' },
     jobIconBox: { width: 56, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 16 },
-    jobTitle: { fontSize: 16, fontWeight: '800', marginBottom: 4 },
+    jobTitle: { fontFamily: 'Nunito_700Bold', fontSize: 16, marginBottom: 4 },
     jobButton: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 10, alignSelf: 'flex-start' },
-    jobButtonText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
+    jobButtonText: { fontFamily: 'Nunito_700Bold', color: '#fff', fontSize: 12 },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    sectionTitle: { fontSize: 18, fontWeight: '800', letterSpacing: -0.5 },
+    sectionTitle: { fontFamily: 'Nunito_700Bold', fontSize: 18, letterSpacing: -0.5 },
     actionRow: { flexDirection: 'row', gap: 12 },
     iconButton: { borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'transparent' },
     badge: { position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, borderWidth: 1.5 },
     timelineCard: { borderRadius: 24, borderWidth: 1, overflow: 'hidden' },
     noJobCard: { borderWidth: 1, padding: 28, borderRadius: 24, flexDirection: 'row', shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3 },
-    noJobTitle: { fontSize: 18, fontWeight: '800', marginBottom: 8, textAlign: 'center' },
-    noJobDesc: { fontSize: 14, lineHeight: 22, textAlign: 'center', opacity: 0.8 },
+    noJobTitle: { fontFamily: 'Nunito_700Bold', fontSize: 18, marginBottom: 8, textAlign: 'center' },
+    noJobDesc: { fontFamily: 'Nunito_400Regular', fontSize: 14, lineHeight: 22, textAlign: 'center', opacity: 0.8 },
     noJobButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 16, width: '100%', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4, gap: 10 },
-    noJobButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+    noJobButtonText: { fontFamily: 'Nunito_700Bold', color: '#fff', fontSize: 16 },
 });

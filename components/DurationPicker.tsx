@@ -174,6 +174,7 @@ interface DurationPickerProps {
   title?: string;
   initialHours?: number;
   initialMinutes?: number;
+  maxHours?: number; // <-- Added this
 }
 
 export default function DurationPicker({
@@ -183,6 +184,7 @@ export default function DurationPicker({
   title = "Set Duration",
   initialHours = 0,
   initialMinutes = 0,
+  maxHours = 24, // <-- Added default 24
 }: DurationPickerProps) {
   const theme = useAppTheme();
   const [showModal, setShowModal] = useState(visible);
@@ -193,13 +195,15 @@ export default function DurationPicker({
   const translateY = useSharedValue(CONTENT_HEIGHT + 350);
   const backdropOpacity = useSharedValue(0);
 
-  const hoursData = useMemo(() => Array.from({ length: 24 }, (_, i) => i), []);
+  // Use maxHours here dynamically
+  const hoursData = useMemo(() => Array.from({ length: maxHours }, (_, i) => i), [maxHours]);
   const minutesData = useMemo(() => Array.from({ length: 60 }, (_, i) => i), []);
 
   useEffect(() => {
     if (visible) {
       setShowModal(true);
-      setHours(initialHours);
+      // Ensure initial hours don't exceed the newly set maxHours bounds
+      setHours(Math.min(initialHours, maxHours - 1));
       setMinutes(initialMinutes);
 
       backdropOpacity.value = withTiming(1, { duration: 250 });
@@ -207,7 +211,7 @@ export default function DurationPicker({
     } else {
       if (showModal) closeModal();
     }
-  }, [visible, initialHours, initialMinutes]);
+  }, [visible, initialHours, initialMinutes, maxHours]);
 
   const closeModal = (callback?: () => void) => {
     translateY.value = withTiming(CONTENT_HEIGHT + 350, { duration: 250 });
@@ -275,13 +279,13 @@ export default function DurationPicker({
 
             <View style={styles.column}>
               <WheelPicker
-                data={minutesData}
-                initialValue={minutes}
-                onChange={setMinutes}
-                formatLabel={(m: number) => m.toString().padStart(2, "0")}
+                data={hoursData}
+                initialValue={hours}
+                onChange={setHours}
+                formatLabel={(h: number) => h.toString()}
                 primaryColor={theme.colors.primary}
                 textSecondaryColor={theme.colors.textSecondary}
-                isInfinite={true}
+                isInfinite={maxHours <= 100}
               />
             </View>
           </View>
@@ -289,7 +293,7 @@ export default function DurationPicker({
           <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
             <Button title="Cancel" variant="neutral" onPress={handleClose} style={{ flex: 1 }} />
             <View style={{ width: 12 }} />
-            <Button title="Confirm Duration" variant="primary" onPress={handleConfirm} style={{ flex: 1 }} />
+            <Button title="Confirm" variant="primary" onPress={handleConfirm} style={{ flex: 1 }} />
           </View>
         </Animated.View>
       </View>

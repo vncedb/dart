@@ -24,7 +24,6 @@ import {
 
 const { width } = Dimensions.get('window');
 
-// ... (ActivityImageContent and ActivityGallery components remain same) ...
 const ActivityImageContent = ({ uri, theme }: { uri: string, theme: any }) => {
     const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
     const [key, setKey] = useState(0);
@@ -47,10 +46,10 @@ const ActivityImageContent = ({ uri, theme }: { uri: string, theme: any }) => {
             {status === 'error' && (
                 <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.card }]}>
                     <HugeiconsIcon icon={Image02Icon} size={32} color={theme.colors.icon} />
-                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 8, marginBottom: 12 }}>Failed to load</Text>
+                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 8, marginBottom: 12, fontFamily: 'Nunito_600SemiBold' }}>Failed to load</Text>
                     <TouchableOpacity onPress={handleRetry} style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.colors.background, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border }}>
                         <HugeiconsIcon icon={RefreshIcon} size={14} color={theme.colors.text} />
-                        <Text style={{ color: theme.colors.text, fontSize: 12, fontWeight: 'bold', marginLeft: 6 }}>Retry</Text>
+                        <Text style={{ color: theme.colors.text, fontSize: 12, fontFamily: 'Nunito_700Bold', marginLeft: 6 }}>Retry</Text>
                     </TouchableOpacity>
                 </View>
             )}
@@ -125,7 +124,7 @@ const ActivityGallery = ({ uri, theme }: { uri: string, theme: any }) => {
                     paddingVertical: 5,
                     zIndex: 10
                 }}>
-                    <Text style={{ color: 'white', fontSize: 11, fontWeight: 'bold' }}>
+                    <Text style={{ color: 'white', fontSize: 11, fontFamily: 'Nunito_800ExtraBold' }}>
                         {activeIndex + 1} / {images.length}
                     </Text>
                 </View>
@@ -148,11 +147,8 @@ export default function ActivityTimeline({ timelineData, theme, onEditTask, onDe
     const sortedTimeline = useMemo(() => {
         if (!timelineData) return [];
         return [...timelineData].sort((a, b) => {
-            // Determine timestamp for A
             const dateA = a.time ? new Date(a.time).getTime() : new Date(a.data?.created_at || 0).getTime();
-            // Determine timestamp for B
             const dateB = b.time ? new Date(b.time).getTime() : new Date(b.data?.created_at || 0).getTime();
-            // Descending order (Newest first)
             return dateB - dateA;
         });
     }, [timelineData]);
@@ -169,7 +165,7 @@ export default function ActivityTimeline({ timelineData, theme, onEditTask, onDe
         return (
             <View style={{ alignItems: 'center', padding: 20, opacity: 0.5 }}>
                 <HugeiconsIcon icon={HourglassIcon} size={32} color={theme.colors.icon} />
-                <Text style={{ color: theme.colors.textSecondary, marginTop: 8, fontSize: 12 }}>No activity yet.</Text>
+                <Text style={{ color: theme.colors.textSecondary, marginTop: 8, fontSize: 12, fontFamily: 'Nunito_500Medium' }}>No activity yet.</Text>
             </View>
         );
     }
@@ -200,7 +196,7 @@ export default function ActivityTimeline({ timelineData, theme, onEditTask, onDe
                         <View style={{ backgroundColor: theme.colors.background, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' }}>
                             <View style={{ padding: 12 }}>
                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                                    <Text style={{ flex: 1, color: theme.colors.text, fontWeight: '700', fontSize: 16, marginRight: 8, lineHeight: 22 }}>
+                                    <Text style={{ flex: 1, color: theme.colors.text, fontFamily: 'Nunito_700Bold', fontSize: 16, marginRight: 8, lineHeight: 22 }}>
                                         {item.data.description || "Accomplishment"}
                                     </Text>
                                     <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -214,7 +210,7 @@ export default function ActivityTimeline({ timelineData, theme, onEditTask, onDe
                                 </View>
 
                                 {item.data.remarks ? (
-                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginBottom: 8 }}>
+                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginBottom: 8, fontFamily: 'Nunito_500Medium' }}>
                                         {item.data.remarks}
                                     </Text>
                                 ) : null}
@@ -223,7 +219,7 @@ export default function ActivityTimeline({ timelineData, theme, onEditTask, onDe
                                 
                                 <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: theme.colors.border }}>
                                     <HugeiconsIcon icon={Clock01Icon} size={12} color={theme.colors.textSecondary} />
-                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600', marginLeft: 4 }}>
+                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontFamily: 'Nunito_600SemiBold', marginLeft: 4 }}>
                                         {format(new Date(item.data.created_at), 'h:mm a')}
                                     </Text>
                                 </View>
@@ -232,16 +228,16 @@ export default function ActivityTimeline({ timelineData, theme, onEditTask, onDe
                     ) : (
                         <View style={{ justifyContent: 'center', minHeight: 32 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: 14, marginRight: 8 }}>
-                                    {item.type === 'check-in' ? 'Checked In' : 'Checked Out'}
+                                <Text style={{ color: theme.colors.text, fontFamily: 'Nunito_700Bold', fontSize: 14, marginRight: 8 }}>
+                                    {item.type === 'check-in' ? 'Time In' : 'Time Out'}
                                 </Text>
                                 {item.isOvertime && (
                                     <View style={{ backgroundColor: theme.colors.warning + '20', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: theme.colors.warning }}>
-                                        <Text style={{ fontSize: 10, fontWeight: '800', color: theme.colors.warning }}>OT</Text>
+                                        <Text style={{ fontSize: 10, fontFamily: 'Nunito_800ExtraBold', color: theme.colors.warning }}>OT</Text>
                                     </View>
                                 )}
                             </View>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2 }}>
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2, fontFamily: 'Nunito_500Medium' }}>
                                 {format(new Date(item.time), 'h:mm a')}
                             </Text>
                         </View>

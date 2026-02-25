@@ -12,7 +12,7 @@ import { Stack, useRootNavigationState, useRouter, useSegments } from "expo-rout
 import * as SplashScreen from "expo-splash-screen";
 import { useColorScheme } from "nativewind";
 import { useEffect, useRef, useState } from "react";
-import { LogBox, StyleSheet, View } from "react-native";
+import { LogBox, StyleSheet, Text, TextInput, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
@@ -22,7 +22,6 @@ import { AuthProvider, useAuth } from "../context/AuthContext";
 import { SyncProvider } from "../context/SyncContext";
 import "../global.css";
 import { initDatabase } from "../lib/database";
-// Import the unified notification initializer
 import { initNotificationSystem } from "../utils/NotificationService";
 
 LogBox.ignoreLogs([
@@ -32,7 +31,18 @@ LogBox.ignoreLogs([
 
 SplashScreen.preventAutoHideAsync();
 
-// NOTE: Handler is now configured inside utils/NotificationService.ts
+// --- GLOBAL FONT OVERRIDE ---
+// Forces all devices to use Nunito instead of system default fonts
+if (!(Text as any).defaultProps) {
+  (Text as any).defaultProps = {};
+}
+(Text as any).defaultProps.style = [{ fontFamily: 'Nunito_400Regular' }];
+
+if (!(TextInput as any).defaultProps) {
+  (TextInput as any).defaultProps = {};
+}
+(TextInput as any).defaultProps.style = [{ fontFamily: 'Nunito_400Regular' }];
+// -----------------------------
 
 function RootLayoutNav() {
   const { isLoading: isAuthLoading, user, isOnboarded } = useAuth();
@@ -52,7 +62,6 @@ function RootLayoutNav() {
     Nunito_700Bold,
   });
 
-  // 1. App Initialization (DB, Theme, Biometrics)
   useEffect(() => {
     if (isInitialized.current) return;
     
@@ -60,8 +69,6 @@ function RootLayoutNav() {
       isInitialized.current = true;
       try {
         await initDatabase();
-        
-        // Initialize Notification Channels & Permissions
         await initNotificationSystem();
 
         const storedSettings = await AsyncStorage.getItem("appSettings");
@@ -86,13 +93,11 @@ function RootLayoutNav() {
     prepare();
   }, []); 
 
-  // 2. Notification Listeners
   useEffect(() => {
     const subscription = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data;
       const actionId = response.actionIdentifier;
 
-      // Handle Taps on Content
       if (data?.action === 'open_saved_reports') {
           router.push('/reports/saved-reports');
       }
@@ -100,17 +105,14 @@ function RootLayoutNav() {
           router.push('/(tabs)/home');
       }
 
-      // Handle Action Buttons (Optional: Basic Navigation)
       if (actionId === 'action_checkout') {
           router.push('/(tabs)/home');
-          // You could trigger a checkout modal here via query params or context
       }
     });
 
     return () => subscription.remove();
   }, []);
 
-  // 3. Navigation Guard
   useEffect(() => {
     if (isAuthLoading || !isReady || !fontsLoaded || !rootNavigationState?.key) return;
 
@@ -163,6 +165,7 @@ function RootLayoutNav() {
           <Stack.Screen name="settings/notifications" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/appearance" options={{ animation: "slide_from_right",headerShown: false }} />
           <Stack.Screen name="settings/privacy-policy" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="settings/feedback" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/about" options={{ animation: "slide_from_right" }} />
           
           <Stack.Screen name="edit-profile" options={{ animation: "slide_from_bottom", presentation: "modal" }} />

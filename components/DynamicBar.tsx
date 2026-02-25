@@ -44,11 +44,9 @@ export default function DynamicBar({
 }: DynamicBarProps) {
     const theme = useAppTheme();
     
-    // Internal State for Cycling
     const [mode, setMode] = useState<'greeting' | 'quote'>('greeting');
     const [currentQuote, setCurrentQuote] = useState(GREETINGS[0]);
 
-    // --- 1. Determine Current Time-Based Content ---
     const timeContent = useMemo(() => {
         if (customGreeting) {
             return { icon: Coffee02Icon, text: customGreeting };
@@ -58,9 +56,8 @@ export default function DynamicBar({
         if (hour < 12) return { icon: Sun03Icon, text: "Good Morning" };
         if (hour < 18) return { icon: Sun03Icon, text: "Good Afternoon" };
         return { icon: Moon02Icon, text: "Good Evening" };
-    }, [customGreeting]); // Fixed: Removed 'mode' dependency
+    }, [customGreeting]); 
 
-    // --- 2. Cycle Logic ---
     useEffect(() => {
         const interval = setInterval(() => {
             if (!alertVisible) {
@@ -77,7 +74,6 @@ export default function DynamicBar({
         return () => clearInterval(interval);
     }, [alertVisible]);
 
-    // --- 3. Alert Auto-Hide ---
     useEffect(() => {
         if (alertVisible && onHideAlert) {
             setMode('greeting'); 
@@ -93,9 +89,9 @@ export default function DynamicBar({
                 case 'error': 
                     icon = AlertCircleIcon; color = theme.colors.danger; bg = theme.colors.dangerLight; title = 'Error'; break;
                 case 'check-in': 
-                    icon = Login03Icon; color = theme.colors.success; bg = theme.colors.successLight; title = 'Check In Success'; break;
+                    icon = Login03Icon; color = theme.colors.success; bg = theme.colors.successLight; title = 'Time In Success'; break;
                 case 'check-out': 
-                    icon = Logout03Icon; color = theme.colors.warning; bg = theme.colors.warningLight; title = 'Check Out Success'; break;
+                    icon = Logout03Icon; color = theme.colors.warning; bg = theme.colors.warningLight; title = 'Time Out Success'; break;
                 case 'success': default: 
                     icon = CheckmarkCircle02Icon; color = theme.colors.success; bg = theme.colors.successLight; title = 'Success'; break;
             }
@@ -103,11 +99,13 @@ export default function DynamicBar({
         } else if (mode === 'quote') {
             return { 
                 key: 'quote', 
-                icon: SparklesIcon, 
+                // FIX: Use currentQuote.icon, fallback to Sparkles if undefined
+                icon: currentQuote.icon || SparklesIcon, 
                 color: theme.colors.primary, 
                 bg: theme.colors.primaryLight, 
                 title: '', 
-                subtitle: currentQuote,
+                // FIX: Must pass a string to subtitle, not the object
+                subtitle: currentQuote.text,
                 borderColor: theme.colors.border 
             };
         } else {
@@ -154,42 +152,27 @@ export default function DynamicBar({
                     }
                 ]}
             >
-                {/* ICON SECTION */}
-                <Animated.View 
-                    style={[styles.iconWrapper, { backgroundColor: data.bg }]} 
-                    layout={LinearTransition.springify()}
-                >
-                    <Animated.View 
-                        key={data.key} 
-                        entering={ZoomIn.duration(300)} 
-                        exiting={ZoomOut.duration(300)}
-                    >
-                        {/* Fixed: Removed invalid 'weight' prop */}
-                        <HugeiconsIcon icon={data.icon} size={20} color={data.color} />
+                <Animated.View style={[styles.iconWrapper, { backgroundColor: data.bg }]} layout={LinearTransition.springify()}>
+                    {/* FIX: Ensure we use currentQuote.text for the key to avoid object-to-string conversion errors */}
+                    <Animated.View key={data.key + (mode === 'quote' ? currentQuote.text : '')} entering={ZoomIn.duration(300)} exiting={ZoomOut.duration(300)}>
+                        <HugeiconsIcon icon={data.icon as any} size={20} color={data.color} />
                     </Animated.View>
                 </Animated.View>
 
-                {/* TEXT SECTION */}
                 <View style={styles.textWrapper}>
-                    <Animated.View 
-                        key={data.key + (mode === 'quote' ? currentQuote : '')} 
-                        entering={FadeIn.duration(400).delay(100)} 
-                        exiting={FadeOut.duration(300)}
-                        style={styles.textContainer}
-                    >
+                    <Animated.View key={data.key + (mode === 'quote' ? currentQuote.text : '')} entering={FadeIn.duration(400).delay(100)} exiting={FadeOut.duration(300)} style={styles.textContainer}>
                         {data.key === 'quote' ? (
-                            <View style={{ justifyContent: 'center', alignItems: 'center', paddingVertical: 4 }}>
-                                <Text style={[styles.quoteText, { color: theme.colors.text }]}>
-                                    {/* Fixed: Escaped quotes */}
-                                    &quot;{data.subtitle}&quot;
+                            <View style={{ justifyContent: 'center', alignItems: 'flex-start', paddingVertical: 4 }}>
+                                <Text style={[styles.quoteText, { color: theme.colors.text }]} numberOfLines={2}>
+                                    “{data.subtitle}”
                                 </Text>
                             </View>
                         ) : (
-                            <View style={{ alignItems: 'center' }}>
-                                <Text style={[styles.label, { color: alertVisible ? data.color : theme.colors.textSecondary, textAlign: 'center' }]}>
+                            <View style={{ alignItems: 'flex-start', justifyContent: 'center' }}>
+                                <Text style={[styles.label, { color: alertVisible ? data.color : theme.colors.textSecondary, textAlign: 'left' }]}>
                                     {data.title}
                                 </Text>
-                                <Text style={[styles.mainText, { color: theme.colors.text, textAlign: 'center' }]} numberOfLines={1}>
+                                <Text style={[styles.mainText, { color: theme.colors.text, textAlign: 'left' }]} numberOfLines={1}>
                                     {data.subtitle}
                                 </Text>
                             </View>
@@ -202,61 +185,12 @@ export default function DynamicBar({
 }
 
 const styles = StyleSheet.create({
-    container: {
-        width: '100%',
-        alignItems: 'center',
-        marginBottom: 32,
-        paddingHorizontal: 24,
-    },
-    bar: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 6,
-        paddingRight: 16, 
-        borderRadius: 24, 
-        width: '100%',
-        maxWidth: 380,
-        height: 64, 
-        borderWidth: 1,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.08,
-        shadowRadius: 12,
-        elevation: 4,
-        overflow: 'hidden',
-    },
-    iconWrapper: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: 14,
-    },
-    textWrapper: {
-        flex: 1,
-        justifyContent: 'center',
-    },
-    textContainer: {
-        justifyContent: 'center',
-        width: '100%',
-    },
-    label: {
-        fontSize: 10,
-        fontWeight: '800',
-        textTransform: 'uppercase',
-        letterSpacing: 0.8,
-        marginBottom: 2,
-    },
-    mainText: {
-        fontSize: 16,
-        fontWeight: '800',
-        letterSpacing: -0.2,
-    },
-    quoteText: {
-        fontSize: 13,
-        fontWeight: '600',
-        lineHeight: 18,
-        fontStyle: 'italic',
-        textAlign: 'center'
-    }
+    container: { width: '100%', alignItems: 'center', marginBottom: 32, paddingHorizontal: 24 },
+    bar: { flexDirection: 'row', alignItems: 'center', padding: 6, paddingRight: 16, borderRadius: 24, width: '100%', maxWidth: 380, height: 64, borderWidth: 1, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 4, overflow: 'hidden' },
+    iconWrapper: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
+    textWrapper: { flex: 1, justifyContent: 'center' },
+    textContainer: { justifyContent: 'center', width: '100%' },
+    label: { fontSize: 10, fontFamily: 'Nunito_800ExtraBold', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
+    mainText: { fontSize: 16, fontFamily: 'Nunito_800ExtraBold', letterSpacing: -0.2 },
+    quoteText: { fontSize: 13, fontFamily: 'Nunito_600SemiBold', lineHeight: 18, fontStyle: 'italic', textAlign: 'left', paddingRight: 6 }
 });

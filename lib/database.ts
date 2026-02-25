@@ -80,13 +80,26 @@ export const initDatabase = async () => {
       updated_at TEXT
     );
 
-    CREATE TABLE IF NOT EXISTS job_positions (id TEXT PRIMARY KEY NOT NULL, user_id TEXT, title TEXT, company TEXT, department TEXT, employment_status TEXT, rate REAL, rate_type TEXT, payout_type TEXT, work_schedule TEXT, break_schedule TEXT, created_at TEXT, updated_at TEXT);
+    CREATE TABLE IF NOT EXISTS job_positions (
+        id TEXT PRIMARY KEY NOT NULL, 
+        user_id TEXT, title TEXT, 
+        company TEXT, 
+        department TEXT, 
+        employment_status TEXT, 
+        rate REAL, 
+        rate_type TEXT, 
+        payout_type TEXT, 
+        period_target INTEGER, 
+        work_schedule TEXT, 
+        break_schedule TEXT, 
+        created_at TEXT, 
+        updated_at TEXT
+    );
   `);
 
   // 2. Run Migrations (Add Columns)
   const addColumn = async (table: string, col: string, type: string) => {
     try {
-      // NOTE: We do not use DEFAULT CURRENT_TIMESTAMP here to avoid "non-constant default" errors on older Android SQLite versions during ALTER TABLE.
       await database.execAsync(
         `ALTER TABLE ${table} ADD COLUMN ${col} ${type};`,
       );
@@ -116,6 +129,7 @@ export const initDatabase = async () => {
   await addColumn("job_positions", "rate", "REAL");
   await addColumn("job_positions", "rate_type", "TEXT");
   await addColumn("job_positions", "payout_type", "TEXT");
+  await addColumn("job_positions", "period_target", "INTEGER"); 
   await addColumn("job_positions", "created_at", "TEXT");
   await addColumn("job_positions", "updated_at", "TEXT");
   
@@ -128,24 +142,20 @@ export const initDatabase = async () => {
   await addColumn("saved_reports", "is_read", "INTEGER DEFAULT 0");
   await addColumn("saved_reports", "period_key", "TEXT");
 
-  // FIX: Explicitly removed "DEFAULT CURRENT_TIMESTAMP" which causes the crash
   await addColumn("notifications", "created_at", "TEXT"); 
   await addColumn("notifications", "updated_at", "TEXT");
   await addColumn("notifications", "type", "TEXT");
   await addColumn("notifications", "is_read", "INTEGER DEFAULT 0");
 
-  // 3. Create Indexes (Safe now that columns exist)
+  // 3. Create Indexes
   await database.execAsync(`
     CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance(user_id, date);
     CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);
     CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
     CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at);
   `);
-
-  console.log("Database initialized and migrated.");
 };
 
-// --- HELPERS ---
 export const generateUUID = () => {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
     let r = (Math.random() * 16) | 0,
@@ -154,24 +164,15 @@ export const generateUUID = () => {
   });
 };
 
-export const queueSyncItem = async (
-  tableName: string,
-  rowId: string,
-  action: string,
-  data: any = null,
-) => {
+export const queueSyncItem = async (tableName: string, rowId: string, action: string, data: any = null) => {
   const db = await getDB();
   if (!rowId) return;
   try {
     if (["attendance", "accomplishments", "saved_reports", "notifications"].includes(tableName)) {
       try {
-        await db.runAsync(
-          `UPDATE ${tableName} SET is_synced = 0 WHERE id = ?`,
-          [rowId],
-        );
-      } catch (e) { /* ignore */ }
+        await db.runAsync(`UPDATE ${tableName} SET is_synced = 0 WHERE id = ?`, [rowId]);
+      } catch (e) { }
     }
-
     await db.runAsync(
       `INSERT INTO sync_queue (table_name, row_id, action, data, status, retry_count) VALUES (?, ?, ?, ?, 'PENDING', 0)`,
       [tableName, rowId, action, data ? JSON.stringify(data) : null],
@@ -183,32 +184,16 @@ export const queueSyncItem = async (
 
 export const getPendingSyncCount = async () => {
   const db = await getDB();
-  const res: any = await db.getFirstAsync(
-    'SELECT COUNT(*) as count FROM sync_queue WHERE status = "PENDING"',
-  );
+  const res: any = await db.getFirstAsync('SELECT COUNT(*) as count FROM sync_queue WHERE status = "PENDING"');
   return res?.count || 0;
 };
-
-// --- LOCAL DATA FUNCTIONS ---
 
 export const saveProfileLocal = async (profile: any) => {
   const db = await getDB();
   await db.runAsync(
     `INSERT OR REPLACE INTO profiles (id, email, first_name, last_name, middle_name, title, professional_suffix, current_job_id, full_name, avatar_url, local_avatar_path, is_onboarded, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      profile.id,
-      profile.email || "",
-      profile.first_name || "",
-      profile.last_name || "",
-      profile.middle_name || "",
-      profile.title || "",
-      profile.professional_suffix || "",
-      profile.current_job_id,
-      profile.full_name || "",
-      profile.avatar_url || null,
-      profile.local_avatar_path || null,
-      profile.is_onboarded ? 1 : 0, 
-      profile.updated_at || new Date().toISOString(),
+      profile.id, profile.email || "", profile.first_name || "", profile.last_name || "", profile.middle_name || "", profile.title || "", profile.professional_suffix || "", profile.current_job_id, profile.full_name || "", profile.avatar_url || null, profile.local_avatar_path || null, profile.is_onboarded ? 1 : 0, profile.updated_at || new Date().toISOString(),
     ],
   );
 };
@@ -216,7 +201,7 @@ export const saveProfileLocal = async (profile: any) => {
 export const saveJobLocal = async (job: any) => {
   const db = await getDB();
   await db.runAsync(
-    `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, payout_type, work_schedule, break_schedule, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, payout_type, period_target, work_schedule, break_schedule, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       job.id,
       job.user_id,
@@ -227,6 +212,7 @@ export const saveJobLocal = async (job: any) => {
       job.rate || 0,
       job.rate_type || "hourly",
       job.payout_type || "Semi-Monthly",
+      job.period_target || null, 
       typeof job.work_schedule === "string" ? job.work_schedule : JSON.stringify(job.work_schedule),
       typeof job.break_schedule === "string" ? job.break_schedule : JSON.stringify(job.break_schedule),
       job.created_at || new Date().toISOString(),
@@ -237,42 +223,20 @@ export const saveJobLocal = async (job: any) => {
 
 export const deleteJobLocal = async (id: string) => {
   const db = await getDB();
-  await db.runAsync(
-    `UPDATE profiles SET current_job_id = NULL WHERE current_job_id = ?`,
-    [id],
-  );
-  const job: any = await db.getFirstAsync(
-    "SELECT user_id FROM job_positions WHERE id = ?",
-    [id],
-  );
+  await db.runAsync(`UPDATE profiles SET current_job_id = NULL WHERE current_job_id = ?`, [id]);
+  const job: any = await db.getFirstAsync("SELECT user_id FROM job_positions WHERE id = ?", [id]);
   if (job && job.user_id) {
-    await queueSyncItem("profiles", job.user_id, "UPDATE", {
-      current_job_id: null,
-    });
+    await queueSyncItem("profiles", job.user_id, "UPDATE", { current_job_id: null });
   }
   await db.runAsync("DELETE FROM job_positions WHERE id = ?", [id]);
   await queueSyncItem("job_positions", id, "DELETE");
 };
 
-// --- REPORT FUNCTIONS ---
-
 export const saveReportLocal = async (report: any) => {
   const db = await getDB();
   await db.runAsync(
     `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, remote_url, created_at, updated_at, is_synced, is_read, period_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-    [
-      report.id,
-      report.user_id,
-      report.title,
-      report.file_path,
-      report.file_type,
-      report.file_size,
-      report.remote_url,
-      report.created_at,
-      new Date().toISOString(),
-      report.is_read ? 1 : 0,
-      report.period_key || null
-    ],
+    [report.id, report.user_id, report.title, report.file_path, report.file_type, report.file_size, report.remote_url, report.created_at, new Date().toISOString(), report.is_read ? 1 : 0, report.period_key || null],
   );
 };
 
@@ -284,33 +248,21 @@ export const deleteReportLocal = async (id: string) => {
 export const renameReportLocal = async (id: string, newTitle: string, newPath?: string) => {
   const db = await getDB();
   if (newPath) {
-    await db.runAsync(
-      "UPDATE saved_reports SET title = ?, file_path = ?, updated_at = ?, is_synced = 0 WHERE id = ?",
-      [newTitle, newPath, new Date().toISOString(), id],
-    );
+    await db.runAsync("UPDATE saved_reports SET title = ?, file_path = ?, updated_at = ?, is_synced = 0 WHERE id = ?", [newTitle, newPath, new Date().toISOString(), id]);
   } else {
-    await db.runAsync(
-      "UPDATE saved_reports SET title = ?, updated_at = ?, is_synced = 0 WHERE id = ?",
-      [newTitle, new Date().toISOString(), id],
-    );
+    await db.runAsync("UPDATE saved_reports SET title = ?, updated_at = ?, is_synced = 0 WHERE id = ?", [newTitle, new Date().toISOString(), id]);
   }
 };
 
 export const checkReportTitleExists = async (title: string, fileType: string, userId: string) => {
   const db = await getDB();
-  const res: any = await db.getFirstAsync(
-    "SELECT COUNT(*) as count FROM saved_reports WHERE user_id = ? AND title = ? AND file_type = ?",
-    [userId, title, fileType]
-  );
+  const res: any = await db.getFirstAsync("SELECT COUNT(*) as count FROM saved_reports WHERE user_id = ? AND title = ? AND file_type = ?", [userId, title, fileType]);
   return (res?.count || 0) > 0;
 };
 
 export const markReportsAsRead = async (userId: string) => {
   const db = await getDB();
-  await db.runAsync(
-    "UPDATE saved_reports SET is_read = 1 WHERE user_id = ? AND is_read = 0",
-    [userId]
-  );
+  await db.runAsync("UPDATE saved_reports SET is_read = 1 WHERE user_id = ? AND is_read = 0", [userId]);
 };
 
 export const markReportRead = async (id: string) => {
@@ -320,91 +272,41 @@ export const markReportRead = async (id: string) => {
 
 export const getUnreadReportsCount = async (userId: string) => {
   const db = await getDB();
-  const res: any = await db.getFirstAsync(
-    "SELECT COUNT(*) as count FROM saved_reports WHERE user_id = ? AND is_read = 0",
-    [userId]
-  );
+  const res: any = await db.getFirstAsync("SELECT COUNT(*) as count FROM saved_reports WHERE user_id = ? AND is_read = 0", [userId]);
   return res?.count || 0;
 };
-
-// --- NOTIFICATION FUNCTIONS ---
 
 export const saveNotificationLocal = async (notif: any) => {
   const db = await getDB();
   const now = new Date().toISOString();
-  
   await db.runAsync(
-    `INSERT OR REPLACE INTO notifications (id, user_id, title, body, type, is_read, created_at, updated_at, is_synced) 
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-    [
-      notif.id,
-      notif.user_id,
-      notif.title,
-      notif.body,
-      notif.type || 'general',
-      notif.is_read ? 1 : 0,
-      notif.created_at || now,
-      now
-    ]
+    `INSERT OR REPLACE INTO notifications (id, user_id, title, body, type, is_read, created_at, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [notif.id, notif.user_id, notif.title, notif.body, notif.type || 'general', notif.is_read ? 1 : 0, notif.created_at || now, now]
   );
-
-  await queueSyncItem('notifications', notif.id, 'INSERT', {
-    id: notif.id,
-    user_id: notif.user_id,
-    title: notif.title,
-    body: notif.body,
-    type: notif.type,
-    is_read: notif.is_read,
-    created_at: notif.created_at || now
-  });
+  await queueSyncItem('notifications', notif.id, 'INSERT', { id: notif.id, user_id: notif.user_id, title: notif.title, body: notif.body, type: notif.type, is_read: notif.is_read, created_at: notif.created_at || now });
 };
 
 export const getNotificationsLocal = async (userId: string) => {
   const db = await getDB();
   try {
-    const rows = await db.getAllAsync(
-      `SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`,
-      [userId]
-    );
-    
-    return rows.map((r: any) => ({
-      id: r.id,
-      title: r.title,
-      body: r.body,
-      read: !!r.is_read,
-      date: new Date(r.created_at).getTime(),
-      type: r.type
-    }));
+    const rows = await db.getAllAsync(`SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`, [userId]);
+    return rows.map((r: any) => ({ id: r.id, title: r.title, body: r.body, read: !!r.is_read, date: new Date(r.created_at).getTime(), type: r.type }));
   } catch (e: any) {
-    if (e.message?.includes('no such column')) {
-        return [];
-    }
+    if (e.message?.includes('no such column')) return [];
     throw e;
   }
 };
 
 export const markNotificationReadLocal = async (id: string) => {
   const db = await getDB();
-  await db.runAsync(
-    `UPDATE notifications SET is_read = 1, is_synced = 0, updated_at = ? WHERE id = ?`,
-    [new Date().toISOString(), id]
-  );
+  await db.runAsync(`UPDATE notifications SET is_read = 1, is_synced = 0, updated_at = ? WHERE id = ?`, [new Date().toISOString(), id]);
   await queueSyncItem('notifications', id, 'UPDATE', { is_read: true });
 };
 
 export const markAllNotificationsReadLocal = async (userId: string) => {
   const db = await getDB();
-  
-  const unread: any[] = await db.getAllAsync(
-    `SELECT id FROM notifications WHERE user_id = ? AND is_read = 0`, 
-    [userId]
-  );
-
-  await db.runAsync(
-    `UPDATE notifications SET is_read = 1, is_synced = 0, updated_at = ? WHERE user_id = ? AND is_read = 0`,
-    [new Date().toISOString(), userId]
-  );
-
+  const unread: any[] = await db.getAllAsync(`SELECT id FROM notifications WHERE user_id = ? AND is_read = 0`, [userId]);
+  await db.runAsync(`UPDATE notifications SET is_read = 1, is_synced = 0, updated_at = ? WHERE user_id = ? AND is_read = 0`, [new Date().toISOString(), userId]);
   for (const item of unread) {
     await queueSyncItem('notifications', item.id, 'UPDATE', { is_read: true });
   }

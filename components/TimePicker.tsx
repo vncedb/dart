@@ -312,7 +312,7 @@ export default function TimePicker({
           <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
             <Button title="Cancel" variant="neutral" onPress={handleClose} style={{ flex: 1 }} />
             <View style={{ width: 12 }} />
-            <Button title="Confirm Time" variant="primary" onPress={handleConfirm} style={{ flex: 1 }} />
+            <Button title="Confirm" variant="primary" onPress={handleConfirm} style={{ flex: 1 }} />
           </View>
         </Animated.View>
       </View>

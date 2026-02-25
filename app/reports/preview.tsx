@@ -1,25 +1,24 @@
 import {
-  CheckmarkCircle03Icon,
+  DocumentValidationIcon,
   Download01Icon,
   File02Icon,
-  Share01Icon,
+  FloppyDiskIcon,
+  Share08Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import { differenceInMinutes, format } from "date-fns";
 import * as FileSystem from "expo-file-system/legacy";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Platform,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { WebView } from "react-native-webview";
 
 import Button from "../../components/Button";
 import Footer from "../../components/Footer";
@@ -28,15 +27,25 @@ import ModernAlert from "../../components/ModernAlert";
 import { useAppTheme } from "../../constants/theme";
 import { useSync } from "../../context/SyncContext";
 import {
-  checkReportTitleExists,
   generateUUID,
   queueSyncItem,
   saveReportLocal,
 } from "../../lib/database";
+import { getDB } from "../../lib/db-client";
 import { supabase } from "../../lib/supabase";
 import { ReportService } from "../../services/ReportService";
 import { exportToExcel } from "../../utils/csvExporter";
 import { generateReport } from "../../utils/reportGenerator";
+
+// Helper to format bytes to readable strings
+const formatBytes = (bytes: number, decimals = 2) => {
+    if (!+bytes) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+};
 
 export default function PreviewReportScreen() {
   const router = useRouter();
@@ -45,16 +54,17 @@ export default function PreviewReportScreen() {
   const { triggerSync } = useSync();
 
   const [fileUri, setFileUri] = useState<string | null>(null);
+  const [fileSize, setFileSize] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+
+  // Memoize parsing to fix exhaustive-deps warning on useCallback
+  const viewOptions = useMemo(() => config ? JSON.parse(config as string) : {}, [config]);
 
   const generateFile = useCallback(async () => {
     setLoading(true);
     try {
-      const options = config ? JSON.parse(config as string) : {};
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
       const job: any = await ReportService.getActiveJob(user.id);
@@ -88,7 +98,7 @@ export default function PreviewReportScreen() {
             .filter((t: any) => t.date === d)
             .map((t: any) => {
               let images: string[] = [];
-              if (options.includeDocs && t.image_url) {
+              if (viewOptions.includeDocs && t.image_url) {
                 try {
                   const raw = t.image_url.trim();
                   if (raw.startsWith("[")) {
@@ -109,14 +119,12 @@ export default function PreviewReportScreen() {
             const start = new Date(att.clock_in);
             const end = new Date(att.clock_out);
             let diff = differenceInMinutes(end, start);
-            if (options.timeFormat === "round_15")
-              diff = Math.round(diff / 15) * 15;
-            else if (options.timeFormat === "round_30")
-              diff = Math.round(diff / 30) * 30;
-            else if (options.timeFormat === "round_60")
-              diff = Math.round(diff / 60) * 60;
+            
+            if (viewOptions.timeFormat === "round_15") diff = Math.round(diff / 15) * 15;
+            else if (viewOptions.timeFormat === "round_30") diff = Math.round(diff / 30) * 30;
+            else if (viewOptions.timeFormat === "round_60") diff = Math.round(diff / 60) * 60;
 
-            if (options.timeFormat === "decimal")
+            if (viewOptions.timeFormat === "decimal")
               durationTxt = (diff / 60).toFixed(2) + "h";
             else {
               const h = Math.floor(diff / 60);
@@ -128,21 +136,17 @@ export default function PreviewReportScreen() {
           const dateObj = new Date(d as string);
           let formattedDate = d;
           try {
-            formattedDate = format(dateObj, options.dateFormat || "MM/dd/yyyy");
-            if (options.includeDay)
+            formattedDate = format(dateObj, viewOptions.dateFormat || "MM/dd/yyyy");
+            if (viewOptions.includeDay)
               formattedDate += `\n${format(dateObj, "EEEE")}`;
-          } catch (e) {
+          } catch {
             formattedDate = d as string;
           }
 
           return {
             date: formattedDate,
-            clockIn: att?.clock_in
-              ? format(new Date(att.clock_in), "h:mm a")
-              : "--:--",
-            clockOut: att?.clock_out
-              ? format(new Date(att.clock_out), "h:mm a")
-              : "--:--",
+            clockIn: att?.clock_in ? format(new Date(att.clock_in), "h:mm a") : "--:--",
+            clockOut: att?.clock_out ? format(new Date(att.clock_out), "h:mm a") : "--:--",
             duration: durationTxt,
             status: att?.status,
             remarks: att?.remarks,
@@ -151,36 +155,43 @@ export default function PreviewReportScreen() {
         });
 
       const meta = {
-        userName: options.meta.name,
-        userTitle: options.meta.title,
-        company: options.meta.company,
-        department: options.includeDept ? options.meta.department : undefined,
+        userName: viewOptions.meta?.name,
+        userTitle: viewOptions.meta?.title,
+        company: viewOptions.meta?.company,
+        department: viewOptions.includeDept ? viewOptions.meta?.department : undefined,
         reportTitle: "ACCOMPLISHMENT REPORT",
-        period: options.meta.period,
-        signatureUri: options.meta.signature,
-        style: options.style,
-        paperSize: options.paperSize,
-        columns: options.columns,
-        dateFormat: options.dateFormat,
+        period: viewOptions.meta?.period,
+        signatureUri: viewOptions.meta?.signature,
+        style: viewOptions.style,
+        paperSize: viewOptions.paperSize,
+        columns: viewOptions.columns,
+        dateFormat: viewOptions.dateFormat,
       };
 
       let uri = "";
-      if (options.format === "pdf") {
+      if (viewOptions.format === "pdf") {
         uri = await generateReport({ ...meta, data: processedData });
       } else {
         uri = await exportToExcel({
           ...meta,
           data: processedData,
-          fileName: options.meta.period,
+          fileName: viewOptions.meta?.period,
         });
       }
+
       setFileUri(uri);
-    } catch (e) {
-      console.error("Preview Generation Error:", e);
+      
+      const info = await FileSystem.getInfoAsync(uri);
+      if (info.exists) {
+          setFileSize(info.size);
+      }
+
+    } catch (error) {
+      console.error("Preview Generation Error:", error);
     } finally {
       setLoading(false);
     }
-  }, [config, date, endDate, startDate]);
+  }, [date, endDate, startDate, viewOptions]);
 
   useEffect(() => {
     generateFile();
@@ -188,61 +199,82 @@ export default function PreviewReportScreen() {
 
   const handleShare = async () => {
     if (fileUri) {
-      const options = config ? JSON.parse(config as string) : {};
       await Sharing.shareAsync(fileUri, {
-        mimeType:
-          options.format === "pdf"
-            ? "application/pdf"
-            : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        dialogTitle: "Report Options",
+        mimeType: viewOptions.format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        dialogTitle: "Share Report",
       });
     }
   };
 
-  const handleSave = async () => {
-    if (!fileUri) return;
-    setLoading(true);
+  const handleSavePress = async () => {
+      if (!fileUri) return;
+      setLoading(true);
+      
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const reportTitle = viewOptions.meta?.period;
+        const fileFormat = viewOptions.format;
+
+        const db = await getDB();
+        const existing: any = await db.getFirstAsync(
+            "SELECT id FROM saved_reports WHERE user_id = ? AND title = ? AND file_type = ?",
+            [user.id, reportTitle, fileFormat]
+        );
+
+        if (existing) {
+            setAlertConfig({
+                visible: true,
+                type: "warning",
+                title: "File Already Exists",
+                message: `A ${fileFormat.toUpperCase()} report named "${reportTitle}" already exists. Do you want to replace it?`,
+                confirmText: "Replace",
+                cancelText: "Cancel",
+                onConfirm: () => {
+                    setAlertConfig((prev: any) => ({ ...prev, visible: false }));
+                    executeSave(existing.id); 
+                },
+                onCancel: () => {
+                    setAlertConfig((prev: any) => ({ ...prev, visible: false }));
+                    setLoading(false);
+                }
+            });
+        } else {
+            executeSave(); 
+        }
+      } catch (error) {
+          console.error("Duplicate Check Error:", error);
+          setLoading(false);
+      }
+  };
+
+  const executeSave = async (overwriteId?: string) => {
     try {
-      const options = config ? JSON.parse(config as string) : {};
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const reportTitle = options.meta.period;
-      const fileFormat = options.format;
-      const exists = await checkReportTitleExists(
-        reportTitle,
-        fileFormat,
-        user.id,
-      );
-
-      if (exists) {
-        setAlertConfig({
-          visible: true,
-          type: "warning",
-          title: "Duplicate File",
-          message: `A ${fileFormat.toUpperCase()} report named "${reportTitle}" already exists.`,
-          confirmText: "OK",
-          onConfirm: () =>
-            setAlertConfig((prev: any) => ({ ...prev, visible: false })),
-        });
-        setLoading(false);
-        return;
-      }
+      const reportTitle = viewOptions.meta?.period;
+      const fileFormat = viewOptions.format;
 
       const safeFilename = reportTitle.replace(/[^a-zA-Z0-9 _-]/g, "_");
       const ext = fileFormat === "pdf" ? "pdf" : "xlsx";
       const fileName = `${safeFilename}.${ext}`;
       const baseDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
       const reportsDir = (baseDir || "") + "reports/";
+      
       await FileSystem.makeDirectoryAsync(reportsDir, { intermediates: true });
       const permUri = reportsDir + fileName;
 
-      await FileSystem.copyAsync({ from: fileUri, to: permUri });
+      if (overwriteId) {
+          try { await FileSystem.deleteAsync(permUri, { idempotent: true }); } catch(_ignore) {}
+      }
+
+      await FileSystem.copyAsync({ from: fileUri!, to: permUri });
       const info = await FileSystem.getInfoAsync(permUri);
 
-      const reportId = generateUUID();
+      const reportId = overwriteId || generateUUID();
       const reportData = {
         id: reportId,
         user_id: user.id,
@@ -255,80 +287,42 @@ export default function PreviewReportScreen() {
       };
 
       await saveReportLocal(reportData);
-      await queueSyncItem("saved_reports", reportId, "INSERT", reportData);
+      await queueSyncItem("saved_reports", reportId, overwriteId ? "UPDATE" : "INSERT", reportData);
       triggerSync();
 
       setAlertConfig({
         visible: true,
         type: "success",
-        title: "Report Saved",
-        message: "Your report has been saved successfully.",
+        title: overwriteId ? "Report Replaced" : "Report Saved",
+        message: "Your report has been securely saved to your device.",
         cancelText: "View",
         confirmText: "Done",
         onCancel: () => {
           setAlertConfig((prev: any) => ({ ...prev, visible: false }));
-          // Use replace to swap current screen with saved reports
-          // This prevents triggering 'beforeRemove' on previous screens (Unsaved Changes)
-          router.replace("/reports/saved-reports");
+          router.dismissAll();
+          setTimeout(() => {
+              router.push("/reports/saved-reports");
+          }, 350); 
         },
         onConfirm: () => {
           setAlertConfig((prev: any) => ({ ...prev, visible: false }));
           router.dismissAll();
-          router.replace("/(tabs)/reports");
         },
       });
-    } catch (e) {
-      console.error("Save Error:", e);
+    } catch (error) {
+      console.error("Save Error:", error);
       setAlertConfig({
         visible: true,
         type: "error",
         title: "Save Failed",
         message: "Could not save the report. Please try again.",
         confirmText: "OK",
-        onConfirm: () =>
-          setAlertConfig((prev: any) => ({ ...prev, visible: false })),
+        onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
       });
     } finally {
       setLoading(false);
     }
   };
-
-  const renderPlaceholder = (type: "pdf" | "xlsx") => (
-    <View style={styles.center}>
-      <View
-        style={[
-          styles.iconCircle,
-          {
-            backgroundColor:
-              type === "pdf" ? theme.colors.primary : theme.colors.success,
-          },
-        ]}
-      >
-        <HugeiconsIcon
-          icon={type === "pdf" ? File02Icon : Download01Icon}
-          size={48}
-          color="#fff"
-        />
-      </View>
-      <Text style={[styles.successTitle, { color: theme.colors.text }]}>
-        {type === "pdf" ? "PDF Document Ready" : "Excel File Ready"}
-      </Text>
-      <Text
-        style={{
-          color: theme.colors.textSecondary,
-          textAlign: "center",
-          marginTop: 8,
-          paddingHorizontal: 40,
-        }}
-      >
-        {type === "pdf"
-          ? "Preview is available below. Save the report to access it offline."
-          : "Spreadsheets cannot be previewed here. Save the report to open it."}
-      </Text>
-    </View>
-  );
-
-  const viewOptions = config ? JSON.parse(config as string) : {};
 
   return (
     <SafeAreaView
@@ -336,19 +330,15 @@ export default function PreviewReportScreen() {
       edges={["top", "bottom"]}
     >
       <ModernAlert {...alertConfig} />
-      <Header
-        title="Preview"
+      <Header 
+        title="Report Summary" 
         rightElement={
           <TouchableOpacity
             onPress={handleShare}
             disabled={loading || !fileUri}
             style={{ padding: 8, opacity: loading || !fileUri ? 0.5 : 1 }}
           >
-            <HugeiconsIcon
-              icon={Share01Icon}
-              size={24}
-              color={theme.colors.text}
-            />
+            <HugeiconsIcon icon={Share08Icon} size={24} color={theme.colors.text} />
           </TouchableOpacity>
         }
       />
@@ -357,41 +347,68 @@ export default function PreviewReportScreen() {
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text style={{ marginTop: 16, color: theme.colors.textSecondary }}>
-              Generating File...
+            <Text style={{ marginTop: 16, color: theme.colors.textSecondary, fontFamily: 'Nunito_600SemiBold' }}>
+              Finalizing Document...
             </Text>
           </View>
         ) : (
-          <View style={[styles.previewFrame, { backgroundColor: "#f2f2f2" }]}>
-            {viewOptions.format === "pdf" &&
-            Platform.OS === "ios" &&
-            fileUri ? (
-              <WebView
-                source={{ uri: fileUri }}
-                style={{ flex: 1 }}
-                originWhitelist={["*"]}
-                scalesPageToFit={true}
-              />
-            ) : (
-              renderPlaceholder(viewOptions.format)
-            )}
+          <View style={styles.successContainer}>
+              
+              {/* Graphic Icon Area */}
+              <View style={[styles.iconGlow, { backgroundColor: theme.colors.success + '15' }]}>
+                  <View style={[styles.iconCircle, { backgroundColor: theme.colors.success }]}>
+                      <HugeiconsIcon icon={DocumentValidationIcon} size={42} color="#fff" />
+                  </View>
+              </View>
+
+              <Text style={[styles.mainTitle, { color: theme.colors.text }]}>Your Report is Ready!</Text>
+              <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
+                  Your accomplishment document has been successfully compiled and is ready to be saved to your device.
+              </Text>
+
+              {/* Document Summary Card */}
+              <View style={[styles.summaryCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                  <View style={styles.cardHeader}>
+                      <HugeiconsIcon icon={viewOptions.format === 'pdf' ? File02Icon : Download01Icon} size={20} color={theme.colors.primary} />
+                      <Text style={[styles.cardTitle, { color: theme.colors.text }]}>Document Details</Text>
+                  </View>
+                  
+                  <View style={[styles.divider, { backgroundColor: theme.colors.border }]} />
+
+                  <View style={styles.detailRow}>
+                      <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>File Name</Text>
+                      <Text style={[styles.detailValue, { color: theme.colors.text }]} numberOfLines={1}>{viewOptions.meta?.period}</Text>
+                  </View>
+                  
+                  <View style={styles.detailRow}>
+                      <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Format</Text>
+                      <View style={[styles.badge, { backgroundColor: theme.colors.primary + '15' }]}>
+                          <Text style={[styles.badgeText, { color: theme.colors.primary }]}>{String(viewOptions.format).toUpperCase()}</Text>
+                      </View>
+                  </View>
+
+                  <View style={styles.detailRow}>
+                      <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>File Size</Text>
+                      <Text style={[styles.detailValue, { color: theme.colors.text }]}>{formatBytes(fileSize)}</Text>
+                  </View>
+
+                  <View style={[styles.detailRow, { marginBottom: 0 }]}>
+                      <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Generated</Text>
+                      <Text style={[styles.detailValue, { color: theme.colors.text }]}>{format(new Date(), "MMM d, yyyy • h:mm a")}</Text>
+                  </View>
+              </View>
+
           </View>
         )}
       </View>
 
       <Footer>
         <Button
-          title="Save Report"
-          onPress={handleSave}
+          title="Save to Device"
+          onPress={handleSavePress}
           variant="primary"
           disabled={loading || !fileUri}
-          icon={
-            <HugeiconsIcon
-              icon={CheckmarkCircle03Icon}
-              size={20}
-              color="#fff"
-            />
-          }
+          icon={<HugeiconsIcon icon={FloppyDiskIcon} size={20} color="#fff" />}
           style={{ width: "100%" }}
         />
       </Footer>
@@ -401,28 +418,102 @@ export default function PreviewReportScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { flex: 1 },
+  content: { flex: 1, padding: 24, justifyContent: 'center' },
   center: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    padding: 20,
   },
-  previewFrame: {
-    flex: 1,
-    margin: 16,
-    borderRadius: 12,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "#e0e0e0",
+  successContainer: {
+    alignItems: 'center',
+    paddingBottom: 20
+  },
+  iconGlow: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
   },
   iconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    alignItems: "center",
-    justifyContent: "center",
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  mainTitle: {
+    fontSize: 24,
+    fontFamily: 'Nunito_800ExtraBold',
+    marginBottom: 8,
+    letterSpacing: -0.5,
+  },
+  subtitle: {
+    fontSize: 15,
+    fontFamily: 'Nunito_500Medium',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 32,
+    paddingHorizontal: 16,
+  },
+  summaryCard: {
+    width: '100%',
+    borderWidth: 1,
+    borderRadius: 20,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
     marginBottom: 16,
   },
-  successTitle: { fontSize: 20, fontWeight: "800" },
+  cardTitle: {
+    fontSize: 15,
+    fontFamily: 'Nunito_700Bold',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  divider: {
+    height: 1,
+    width: '100%',
+    marginBottom: 16,
+    opacity: 0.6,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 14,
+  },
+  detailLabel: {
+    fontSize: 14,
+    fontFamily: 'Nunito_600SemiBold',
+  },
+  detailValue: {
+    fontSize: 14,
+    fontFamily: 'Nunito_700Bold',
+    maxWidth: '65%',
+    textAlign: 'right',
+  },
+  badge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  badgeText: {
+    fontSize: 12,
+    fontFamily: 'Nunito_800ExtraBold',
+  }
 });

@@ -1,4 +1,3 @@
-// FIXED: Import from legacy to resolve deprecation errors in SDK 52+
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 
@@ -27,15 +26,22 @@ const convertImageToBase64 = async (uri: string): Promise<string> => {
             if (uri.startsWith('/')) {
                 processUri = 'file://' + uri;
             } else {
-                processUri = FileSystem.documentDirectory + uri;
+                processUri = (FileSystem.documentDirectory || '') + uri;
             }
+        }
+
+        // FIX: Verify the file exists locally before trying to read it
+        const fileInfo = await FileSystem.getInfoAsync(processUri);
+        if (!fileInfo.exists) {
+            console.warn(`File does not exist locally: ${processUri}`);
+            return ''; // Gracefully return empty so the report doesn't break
         }
 
         const base64 = await FileSystem.readAsStringAsync(processUri, { encoding: 'base64' });
         return `data:image/jpeg;base64,${base64}`;
     } catch (e) {
         console.warn("Failed to convert image to base64:", e);
-        return uri;
+        return '';
     }
 };
 
@@ -61,6 +67,7 @@ const getDocumentationHtml = (reportData: any[]) => {
     reportData.forEach(day => {
         if (day.summary && Array.isArray(day.summary)) {
             day.summary.forEach((task: any) => {
+                // Ensure imgs array contains valid items after filtering
                 if (task.images && task.images.length > 0) {
                      const plainDate = day.date.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
                      tasksWithImages.push({
@@ -114,7 +121,8 @@ export const generateReport = async ({
             const processedImages = await Promise.all((task.images || []).map(async (img: string) => {
                 return await convertImageToBase64(img);
             }));
-            return { ...task, images: processedImages };
+            // Filter out any images that failed to convert (returned '')
+            return { ...task, images: processedImages.filter(Boolean) };
         }));
         
         const displayDate = day.date.replace('\n', '<br/><span style="font-size: 8px; font-weight: 500; color: #666; text-transform: uppercase;">');

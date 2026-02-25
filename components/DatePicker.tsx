@@ -515,7 +515,7 @@ export default function DatePicker({
           <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
             <Button title="Cancel" variant="neutral" onPress={handleClose} style={{ flex: 1 }} />
             <View style={{ width: 12 }} />
-            <Button title="Confirm Date" variant="primary" onPress={handleConfirm} style={{ flex: 1 }} />
+            <Button title="Confirm" variant="primary" onPress={handleConfirm} style={{ flex: 1 }} />
           </View>
         </Animated.View>
       </View>

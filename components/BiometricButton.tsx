@@ -142,7 +142,7 @@ export default function BiometricButton({ onSuccess, isClockedIn, isLoading }: B
       </Pressable>
       
       <Text style={[styles.label, { color: theme.colors.textSecondary }]}>
-        {isLoading ? "Processing..." : isClockedIn ? "Hold to Time Out" : "Hold to Check In"}
+        {isLoading ? "Processing..." : isClockedIn ? "Hold to Time Out" : "Hold to Time In"}
       </Text>
     </View>
   );

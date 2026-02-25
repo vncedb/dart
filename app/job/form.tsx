@@ -5,12 +5,10 @@ import {
     Calendar03Icon,
     Clock01Icon,
     Delete02Icon,
-    DollarCircleIcon,
     InformationCircleIcon,
     PencilEdit02Icon,
     PlusSignIcon,
     Target02Icon,
-    Tick01Icon,
     UserGroupIcon,
     UserIcon
 } from '@hugeicons/core-free-icons';
@@ -23,6 +21,7 @@ import {
     Modal,
     Platform,
     ScrollView,
+    StyleSheet,
     Text,
     TextInput,
     TouchableOpacity,
@@ -32,6 +31,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AddBreakModal from '../../components/AddBreakModal';
 import DatePicker from '../../components/DatePicker';
+import DurationPicker from '../../components/DurationPicker'; // Imported the Duration Picker
 import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
@@ -52,7 +52,7 @@ const formatCurrency = (val: string) => {
     const parts = numericValue.split('.');
     if (parts[1] && parts[1].length > 2) parts[1] = parts[1].substring(0, 2);
     parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-    return `₱ ${parts.join('.')}`;
+    return parts.join('.');
 };
 const parseCurrency = (val: string) => parseFloat(val.replace(/[^0-9.]/g, '')) || 0;
 
@@ -97,8 +97,8 @@ const Tooltip = ({ message, theme }: { message: string, theme: any }) => (
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
                     <HugeiconsIcon icon={InformationCircleIcon} size={16} color="#ef4444" />
                     <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 11, fontWeight: '800', marginBottom: 2, color: theme.colors.text }}>Attention Needed</Text>
-                        <Text style={{ fontSize: 11, lineHeight: 15, color: theme.colors.textSecondary }}>{message}</Text>
+                        <Text style={{ fontSize: 11, fontFamily: 'Nunito_800ExtraBold', marginBottom: 2, color: theme.colors.text }}>Attention Needed</Text>
+                        <Text style={{ fontSize: 11, lineHeight: 15, fontFamily: 'Nunito_500Medium', color: theme.colors.textSecondary }}>{message}</Text>
                     </View>
                 </View>
             </View>
@@ -106,14 +106,14 @@ const Tooltip = ({ message, theme }: { message: string, theme: any }) => (
     </View>
 );
 
-const StyledInput = ({ label, value, onChange, placeholder, icon, required, errorKey, readonly, onPress, theme, errors, setErrors, visibleTooltip, setVisibleTooltip }: any) => {
+const StyledInput = ({ label, value, onChange, placeholder, icon, prefix, required, errorKey, readonly, onPress, theme, errors, setErrors, visibleTooltip, setVisibleTooltip }: any) => {
     const isError = errorKey && errors[errorKey];
     const showTooltip = errorKey && visibleTooltip === errorKey;
     const hasValue = value && value.length > 0;
     
     return (
         <View style={{ marginBottom: 20, zIndex: showTooltip ? 50 : 1 }}>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>
+            <Text style={{ fontSize: 11, fontFamily: 'Nunito_800ExtraBold', color: theme.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8, marginLeft: 4 }}>
                 {label} {required && <Text style={{ color: '#ef4444' }}>*</Text>}
             </Text>
             <View style={{ position: 'relative' }}>
@@ -125,18 +125,26 @@ const StyledInput = ({ label, value, onChange, placeholder, icon, required, erro
                         borderColor: isError ? '#ef4444' : theme.colors.border,
                         height: 56, paddingHorizontal: 16 
                     }}>
-                        <HugeiconsIcon icon={icon} size={22} color={isError ? "#ef4444" : (readonly && hasValue ? theme.colors.primary : theme.colors.textSecondary)} />
+                        {prefix ? (
+                            <Text style={{ fontSize: 20, fontFamily: 'Nunito_800ExtraBold', color: isError ? "#ef4444" : (readonly && hasValue ? theme.colors.primary : theme.colors.textSecondary) }}>
+                                {prefix}
+                            </Text>
+                        ) : icon ? (
+                            <HugeiconsIcon icon={icon} size={22} color={isError ? "#ef4444" : (readonly && hasValue ? theme.colors.primary : theme.colors.textSecondary)} />
+                        ) : null}
+
                         {readonly ? (
-                            <Text numberOfLines={1} style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: hasValue ? theme.colors.text : theme.colors.textSecondary }}>
+                            <Text numberOfLines={1} style={{ flex: 1, marginLeft: 12, fontSize: 15, fontFamily: 'Nunito_700Bold', color: hasValue ? theme.colors.text : theme.colors.textSecondary }}>
                                 {hasValue ? value : placeholder}
                             </Text>
                         ) : (
                             <TextInput 
                                 value={value} 
                                 onChangeText={(t) => { onChange(t); if(errorKey) { setErrors((prev:any) => ({...prev, [errorKey]: undefined})); setVisibleTooltip(null); }}} 
-                                style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text }} 
+                                style={{ flex: 1, marginLeft: 12, fontSize: 15, fontFamily: 'Nunito_600SemiBold', color: theme.colors.text }} 
                                 placeholder={placeholder} 
                                 placeholderTextColor={theme.colors.textSecondary}
+                                keyboardType={prefix ? 'numeric' : 'default'}
                                 onFocus={() => setVisibleTooltip(null)}
                             />
                         )}
@@ -180,6 +188,7 @@ export default function JobForm() {
     // Period Target State
     const [targetHours, setTargetHours] = useState<string>('');
     const [targetMinutes, setTargetMinutes] = useState<string>('');
+    const [durationPickerVisible, setDurationPickerVisible] = useState(false);
 
     const [startDate, setStartDate] = useState(new Date());
     const [workStart, setWorkStart] = useState<Date>(() => { const d = new Date(); d.setHours(9, 0, 0, 0); return d; });
@@ -401,6 +410,23 @@ export default function JobForm() {
             <ModernAlert {...alertConfig} />
             <TimePickerModal visible={pickerVisible} onClose={() => setPickerVisible(false)} onConfirm={handleTimeConfirm} initialHours={pickerConfig.currentValue?.getHours()} initialMinutes={pickerConfig.currentValue?.getMinutes()} initialPeriod={pickerConfig.currentValue && pickerConfig.currentValue.getHours() >= 12 ? 'PM' : 'AM'} title={pickerConfig.mode.includes('Start') ? "Start Time" : "End Time"} />
             
+            {/* Embedded Duration Picker */}
+            <DurationPicker 
+                visible={durationPickerVisible} 
+                onClose={() => setDurationPickerVisible(false)} 
+                onConfirm={(h, m) => { 
+                    // Force them strictly to their designated states
+                    setTargetHours(h.toString()); 
+                    setTargetMinutes(m.toString()); 
+                    setIsDirty(true); 
+                    setDurationPickerVisible(false);
+                }} 
+                initialHours={parseInt(targetHours || '0', 10)} 
+                initialMinutes={parseInt(targetMinutes || '0', 10)} 
+                title="Target Duration"
+                maxHours={200}
+            />
+            
             <AddBreakModal visible={addBreakModalVisible} onClose={() => setAddBreakModalVisible(false)} onAdd={handleAddBreak} />
             <SearchableSelectionModal visible={jobSelectorVisible} onClose={() => setJobSelectorVisible(false)} onSelect={handleJobSelect} title="Select Job Title" options={jobOptions} placeholder="Search job title..." currentValue={position} />
             <SearchableSelectionModal visible={statusSelectorVisible} onClose={() => setStatusSelectorVisible(false)} onSelect={(val) => markDirty(setEmploymentStatus, val)} title="Employment Status" options={EMPLOYMENT_STATUS_OPTIONS} placeholder="Select Status" currentValue={employmentStatus} />
@@ -410,13 +436,13 @@ export default function JobForm() {
             <Modal transparent={true} visible={breakTitleModalVisible} animationType="fade" onRequestClose={() => setBreakTitleModalVisible(false)}>
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)' }}>
                     <View style={{ width: '85%', backgroundColor: theme.colors.card, borderRadius: 24, padding: 24, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 5 }}>
-                        <Text style={{ fontSize: 18, fontWeight: 'bold', color: theme.colors.text, marginBottom: 8, textAlign: 'center' }}>Rename Break</Text>
+                        <Text style={{ fontSize: 18, fontFamily: 'Nunito_800ExtraBold', color: theme.colors.text, marginBottom: 8, textAlign: 'center' }}>Rename Break</Text>
                         <View style={{ backgroundColor: theme.colors.background, borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 8 }}>
-                            <TextInput placeholder="e.g. Lunch Break" placeholderTextColor={theme.colors.textSecondary} value={newBreakTitle} onChangeText={setNewBreakTitle} autoFocus maxLength={16} style={{ fontSize: 16, color: theme.colors.text }} />
+                            <TextInput placeholder="e.g. Lunch Break" placeholderTextColor={theme.colors.textSecondary} value={newBreakTitle} onChangeText={setNewBreakTitle} autoFocus maxLength={16} style={{ fontSize: 16, fontFamily: 'Nunito_600SemiBold', color: theme.colors.text }} />
                         </View>
                         <View style={{ flexDirection: 'row', gap: 12, marginTop: 12 }}>
-                            <TouchableOpacity onPress={() => { setBreakTitleModalVisible(false); setEditingBreakId(null); }} style={{ flex: 1, padding: 14, borderRadius: 14, backgroundColor: theme.colors.background, alignItems: 'center' }}><Text style={{ color: theme.colors.textSecondary, fontWeight: 'bold' }}>Cancel</Text></TouchableOpacity>
-                            <TouchableOpacity onPress={saveBreakTitle} style={{ flex: 1, padding: 14, borderRadius: 14, backgroundColor: theme.colors.primary, alignItems: 'center' }}><Text style={{ color: '#fff', fontWeight: 'bold' }}>Save</Text></TouchableOpacity>
+                            <TouchableOpacity onPress={() => { setBreakTitleModalVisible(false); setEditingBreakId(null); }} style={{ flex: 1, padding: 14, borderRadius: 14, backgroundColor: theme.colors.background, alignItems: 'center' }}><Text style={{ color: theme.colors.textSecondary, fontFamily: 'Nunito_700Bold' }}>Cancel</Text></TouchableOpacity>
+                            <TouchableOpacity onPress={saveBreakTitle} style={{ flex: 1, padding: 14, borderRadius: 14, backgroundColor: theme.colors.primary, alignItems: 'center' }}><Text style={{ color: '#fff', fontFamily: 'Nunito_700Bold' }}>Save</Text></TouchableOpacity>
                         </View>
                     </View>
                 </KeyboardAvoidingView>
@@ -424,19 +450,18 @@ export default function JobForm() {
 
             <Header title={jobId ? 'Edit Job' : 'Add New Job'} />
 
-            {/* KEYBOARD HANDLING & SCROLLING FIXES */}
             <KeyboardAvoidingView 
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
                 style={{ flex: 1 }}
             >
                 <ScrollView 
-                    contentContainerStyle={{ padding: 24, paddingBottom: 150, flexGrow: 1 }} 
+                    contentContainerStyle={styles.scrollContent} 
                     showsVerticalScrollIndicator={false}
                     keyboardShouldPersistTaps="handled"
-                    keyboardDismissMode="on-drag" // Allows natural keyboard dismissal
+                    keyboardDismissMode="on-drag"
                 >
                     <View style={{ marginBottom: 24 }}>
-                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Job Details</Text>
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Job Details</Text>
                         <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
                             <StyledInput label="Job Title" value={position || 'Select Title'} onPress={() => setJobSelectorVisible(true)} readonly icon={Briefcase01Icon} required errorKey="position" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
                             <StyledInput label="Company Name" value={company} onChange={(t:string) => markDirty(setCompany, t)} placeholder="Enter Company Name" icon={Building03Icon} required errorKey="company" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
@@ -447,17 +472,20 @@ export default function JobForm() {
                     </View>
                     
                     <View style={{ marginBottom: 24 }}>
-                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Compensation</Text>
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Compensation</Text>
                         <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
-                            <StyledInput label="Pay Rate" value={salaryDisplay} onChange={handleSalaryChange} placeholder="₱ 0.00" icon={DollarCircleIcon} required errorKey="salary" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                            
+                            <StyledInput label="Pay Rate" prefix="₱" value={salaryDisplay} onChange={handleSalaryChange} placeholder="0.00" required errorKey="salary" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                            
                             <View style={{ flexDirection: 'row', backgroundColor: theme.colors.background, padding: 4, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 20 }}>
                                 {(['hourly', 'daily', 'monthly'] as const).map((type) => (
                                     <TouchableOpacity key={type} onPress={() => markDirty(setRateType, type)} style={{ flex: 1, paddingVertical: 10, borderRadius: 12, backgroundColor: rateType === type ? theme.colors.primary : 'transparent', alignItems: 'center' }}>
-                                        <Text style={{ color: rateType === type ? '#fff' : theme.colors.textSecondary, fontWeight: '700', fontSize: 13, textTransform: 'capitalize' }}>{type}</Text>
+                                        <Text style={{ color: rateType === type ? '#fff' : theme.colors.textSecondary, fontFamily: 'Nunito_700Bold', fontSize: 13, textTransform: 'capitalize' }}>{type}</Text>
                                     </TouchableOpacity>
                                 ))}
                             </View>
-                            <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>
+                            
+                            <Text style={{ fontSize: 11, fontFamily: 'Nunito_800ExtraBold', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>
                                 Payout Schedule <Text style={{ color: '#ef4444' }}>*</Text>
                             </Text>
                             <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 }}>
@@ -465,72 +493,72 @@ export default function JobForm() {
                                     const isSelected = payoutType === opt.value;
                                     return (
                                         <TouchableOpacity key={opt.value} onPress={() => markDirty(setPayoutType, opt.value)} style={{ width: '48%', backgroundColor: isSelected ? theme.colors.primary : theme.colors.card, borderColor: isSelected ? theme.colors.primary : theme.colors.border, borderWidth: 1, borderRadius: 16, padding: 14 }}>
-                                            <Text style={{ color: isSelected ? '#fff' : theme.colors.text, fontWeight: '700', fontSize: 14, marginBottom: 2 }}>{opt.label}</Text>
-                                            <Text style={{ color: isSelected ? '#ffffffcc' : theme.colors.textSecondary, fontSize: 10, fontWeight: '500' }}>{opt.desc}</Text>
+                                            <Text style={{ color: isSelected ? '#fff' : theme.colors.text, fontFamily: 'Nunito_700Bold', fontSize: 14, marginBottom: 2 }}>{opt.label}</Text>
+                                            <Text style={{ color: isSelected ? '#ffffffcc' : theme.colors.textSecondary, fontSize: 10, fontFamily: 'Nunito_600SemiBold' }}>{opt.desc}</Text>
                                         </TouchableOpacity>
                                     );
                                 })}
                             </View>
 
-                            <View style={{ marginBottom: 20 }}>
-                                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>
+                            <View style={{ marginBottom: 8 }}>
+                                <Text style={{ fontSize: 11, fontFamily: 'Nunito_800ExtraBold', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>
                                     {payoutType} Target Duration
                                 </Text>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.card, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, height: 56, paddingHorizontal: 16 }}>
-                                    <HugeiconsIcon icon={Target02Icon} size={22} color={theme.colors.textSecondary} />
-                                    <TextInput 
-                                        value={targetHours}
-                                        onChangeText={(t) => { setTargetHours(t.replace(/[^0-9]/g, '')); setIsDirty(true); }}
-                                        placeholder="0"
-                                        placeholderTextColor={theme.colors.textSecondary}
-                                        keyboardType="number-pad"
-                                        style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text, textAlign: 'right' }}
-                                    />
-                                    <Text style={{ marginLeft: 6, marginRight: 12, color: theme.colors.textSecondary, fontWeight: '600' }}>hrs</Text>
-                                    <View style={{ width: 1, height: 20, backgroundColor: theme.colors.border }} />
-                                    <TextInput 
-                                        value={targetMinutes}
-                                        onChangeText={(t) => { setTargetMinutes(t.replace(/[^0-9]/g, '')); setIsDirty(true); }}
-                                        placeholder="0"
-                                        placeholderTextColor={theme.colors.textSecondary}
-                                        keyboardType="number-pad"
-                                        maxLength={2}
-                                        style={{ width: 40, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text, textAlign: 'right' }}
-                                    />
-                                    <Text style={{ marginLeft: 6, color: theme.colors.textSecondary, fontWeight: '600' }}>min</Text>
-                                </View>
+                                
+                                <TouchableOpacity 
+                                    activeOpacity={0.7}
+                                    onPress={() => setDurationPickerVisible(true)}
+                                    style={{ 
+                                        flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                                        backgroundColor: theme.colors.card, borderRadius: 16, borderWidth: 1, 
+                                        borderColor: theme.colors.border, height: 56, paddingHorizontal: 16 
+                                    }}
+                                >
+                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                        {/* Target Icon Added Here */}
+                                        <HugeiconsIcon 
+                                            icon={Target02Icon} 
+                                            size={22} 
+                                            color={(targetHours || targetMinutes) ? theme.colors.primary : theme.colors.textSecondary} 
+                                        />
+                                        <Text style={{ marginLeft: 12, fontSize: 15, fontFamily: 'Nunito_700Bold', color: (targetHours || targetMinutes) ? theme.colors.text : theme.colors.textSecondary }}>
+                                            {(targetHours || targetMinutes) ? `${targetHours || '0'} hrs ${targetMinutes || '0'} mins` : 'Select Target Duration'}
+                                        </Text>
+                                    </View>
+                                    <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.icon} />
+                                </TouchableOpacity>
                             </View>
                         </View>
                     </View>
 
                     <View style={{ marginBottom: 24 }}>
-                        <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>
+                        <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>
                             Schedule <Text style={{ color: '#ef4444' }}>*</Text>
                         </Text>
                         <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
                             <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
                                 <TouchableOpacity onPress={() => openPicker('workStart')} style={{ flex: 1, backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 16, padding: 12 }}>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}><Text style={{ color: theme.colors.textSecondary, fontSize: 10, fontWeight: 'bold' }}>START</Text><HugeiconsIcon icon={Clock01Icon} size={16} color={theme.colors.primary} /></View>
-                                    <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800' }}>{formatTime12h(workStart)}</Text>
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}><Text style={{ color: theme.colors.textSecondary, fontSize: 10, fontFamily: 'Nunito_800ExtraBold' }}>START</Text><HugeiconsIcon icon={Clock01Icon} size={16} color={theme.colors.primary} /></View>
+                                    <Text style={{ color: theme.colors.text, fontSize: 18, fontFamily: 'Nunito_800ExtraBold' }}>{formatTime12h(workStart)}</Text>
                                 </TouchableOpacity>
                                 <TouchableOpacity onPress={() => openPicker('workEnd')} style={{ flex: 1, backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 16, padding: 12 }}>
-                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}><Text style={{ color: theme.colors.textSecondary, fontSize: 10, fontWeight: 'bold' }}>END</Text><HugeiconsIcon icon={Clock01Icon} size={16} color="#ef4444" /></View>
-                                    <Text style={{ color: theme.colors.text, fontSize: 18, fontWeight: '800' }}>{formatTime12h(workEnd)}</Text>
-                                    {isOvernightShift() && <Text style={{ position: 'absolute', bottom: 12, right: 12, fontSize: 9, color: theme.colors.primary, fontWeight: 'bold', backgroundColor: theme.colors.primary + '15', paddingHorizontal: 4, borderRadius: 4 }}>+1 DAY</Text>}
+                                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 }}><Text style={{ color: theme.colors.textSecondary, fontSize: 10, fontFamily: 'Nunito_800ExtraBold' }}>END</Text><HugeiconsIcon icon={Clock01Icon} size={16} color="#ef4444" /></View>
+                                    <Text style={{ color: theme.colors.text, fontSize: 18, fontFamily: 'Nunito_800ExtraBold' }}>{formatTime12h(workEnd)}</Text>
+                                    {isOvernightShift() && <Text style={{ position: 'absolute', bottom: 12, right: 12, fontSize: 9, color: theme.colors.primary, fontFamily: 'Nunito_800ExtraBold', backgroundColor: theme.colors.primary + '15', paddingHorizontal: 4, borderRadius: 4 }}>+1 DAY</Text>}
                                 </TouchableOpacity>
                             </View>
 
                             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                                <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase' }}>Unpaid Breaks</Text>
+                                <Text style={{ fontSize: 11, fontFamily: 'Nunito_800ExtraBold', color: theme.colors.textSecondary, textTransform: 'uppercase' }}>Unpaid Breaks</Text>
                                 <TouchableOpacity onPress={() => setAddBreakModalVisible(true)} style={{ flexDirection: 'row', alignItems: 'center' }}>
                                     <HugeiconsIcon icon={PlusSignIcon} size={16} color={theme.colors.primary} />
-                                    <Text style={{ color: theme.colors.primary, marginLeft: 4, fontSize: 12, fontWeight: '700' }}>Add</Text>
+                                    <Text style={{ color: theme.colors.primary, marginLeft: 4, fontSize: 12, fontFamily: 'Nunito_700Bold' }}>Add</Text>
                                 </TouchableOpacity>
                             </View>
 
                             {breaks.length === 0 ? (
                                 <View style={{ padding: 16, alignItems: 'center', justifyContent: 'center', borderStyle: 'dashed', borderWidth: 2, borderColor: theme.colors.border, borderRadius: 16 }}>
-                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '500' }}>No breaks added.</Text>
+                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontFamily: 'Nunito_600SemiBold' }}>No breaks added.</Text>
                                 </View>
                             ) : (
                                 <View style={{ gap: 10 }}>
@@ -538,20 +566,20 @@ export default function JobForm() {
                                         <View key={brk.id} style={{ backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 16, padding: 12 }}>
                                             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                                                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                                    <Text style={{ color: theme.colors.text, fontWeight: '700', fontSize: 14, marginRight: 8 }}>{brk.title || "Break"}</Text>
+                                                    <Text style={{ color: theme.colors.text, fontFamily: 'Nunito_700Bold', fontSize: 14, marginRight: 8 }}>{brk.title || "Break"}</Text>
                                                     <TouchableOpacity onPress={() => openEditBreakTitle(brk.id, brk.title || '')}><HugeiconsIcon icon={PencilEdit02Icon} size={14} color={theme.colors.textSecondary} /></TouchableOpacity>
                                                 </View>
                                                 <TouchableOpacity onPress={() => removeBreak(brk.id)}><HugeiconsIcon icon={Delete02Icon} size={16} color="#ef4444" /></TouchableOpacity>
                                             </View>
                                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                                                 <TouchableOpacity onPress={() => openPicker('breakStart', brk.id)} style={{ flex: 1, padding: 8, backgroundColor: theme.colors.card, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border }}>
-                                                    <Text style={{ fontSize: 10, color: theme.colors.textSecondary, fontWeight: '700' }}>START</Text>
-                                                    <Text style={{ fontSize: 13, color: theme.colors.text, fontWeight: '700' }}>{formatTime12h(brk.start)}</Text>
+                                                    <Text style={{ fontSize: 10, color: theme.colors.textSecondary, fontFamily: 'Nunito_800ExtraBold' }}>START</Text>
+                                                    <Text style={{ fontSize: 13, color: theme.colors.text, fontFamily: 'Nunito_700Bold' }}>{formatTime12h(brk.start)}</Text>
                                                 </TouchableOpacity>
                                                 <HugeiconsIcon icon={ArrowDown01Icon} size={16} color={theme.colors.textSecondary} style={{ transform: [{ rotate: '-90deg' }] }} />
                                                 <TouchableOpacity onPress={() => openPicker('breakEnd', brk.id)} style={{ flex: 1, padding: 8, backgroundColor: theme.colors.card, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border }}>
-                                                    <Text style={{ fontSize: 10, color: theme.colors.textSecondary, fontWeight: '700' }}>END</Text>
-                                                    <Text style={{ fontSize: 13, color: theme.colors.text, fontWeight: '700' }}>{formatTime12h(brk.end)}</Text>
+                                                    <Text style={{ fontSize: 10, color: theme.colors.textSecondary, fontFamily: 'Nunito_800ExtraBold' }}>END</Text>
+                                                    <Text style={{ fontSize: 13, color: theme.colors.text, fontFamily: 'Nunito_700Bold' }}>{formatTime12h(brk.end)}</Text>
                                                 </TouchableOpacity>
                                             </View>
                                         </View>
@@ -560,20 +588,40 @@ export default function JobForm() {
                             )}
                             
                             <View style={{ marginTop: 20, alignItems: 'center', backgroundColor: theme.colors.primary + '10', padding: 12, borderRadius: 12 }}>
-                                <Text style={{ color: theme.colors.textSecondary, fontSize: 13, fontWeight: '600' }}>Total Daily Goal: <Text style={{ color: theme.colors.primary, fontWeight: '800' }}>{formatHoursDisplay(calculateDailyHours())}</Text></Text>
+                                <Text style={{ color: theme.colors.textSecondary, fontSize: 13, fontFamily: 'Nunito_600SemiBold' }}>Total Daily Goal: <Text style={{ color: theme.colors.primary, fontFamily: 'Nunito_800ExtraBold' }}>{formatHoursDisplay(calculateDailyHours())}</Text></Text>
                             </View>
                         </View>
                     </View>
                 </ScrollView>
 
-                {/* Footer is now inside KeyboardAvoidingView to stick above keyboard */}
                 <View style={{ padding: 24, paddingTop: 12, backgroundColor: theme.colors.background, borderTopWidth: 1, borderColor: theme.colors.border }}>
-                    <TouchableOpacity onPress={handleSave} disabled={saving} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.primary, height: 56, borderRadius: 16, shadowColor: theme.colors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}>
-                        <Text style={{ color: 'white', fontSize: 16, fontWeight: '700', marginRight: 8 }}>{jobId ? 'Update Job' : 'Save Job'}</Text>
-                        <HugeiconsIcon icon={Tick01Icon} size={20} color="white" strokeWidth={2.5} />
+                    <TouchableOpacity 
+                        onPress={handleSave} 
+                        disabled={saving} 
+                        style={{ 
+                            flexDirection: 'row', 
+                            alignItems: 'center', 
+                            justifyContent: 'center', 
+                            backgroundColor: theme.colors.primary, 
+                            height: 56, 
+                            borderRadius: 16, 
+                            shadowColor: theme.colors.primary, 
+                            shadowOffset: { width: 0, height: 4 }, 
+                            shadowOpacity: 0.3, 
+                            shadowRadius: 10, 
+                            elevation: 5 
+                        }}
+                    >
+                        <Text style={{ color: 'white', fontSize: 16, fontFamily: 'Nunito_700Bold' }}>
+                            {jobId ? 'Update Job Profile' : 'Save Job Profile'}
+                        </Text>
                     </TouchableOpacity>
                 </View>
             </KeyboardAvoidingView>
         </SafeAreaView>
     );
 }
+
+const styles = StyleSheet.create({
+    scrollContent: { padding: 24, paddingBottom: 150, flexGrow: 1 }
+});

@@ -4,34 +4,23 @@ import {
     DatabaseSyncIcon,
     Target02Icon,
     Task01Icon,
-    Tick02Icon,
     WifiOff01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { differenceInMinutes, format } from 'date-fns';
 import React, { useMemo } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Animated, {
-    useAnimatedStyle,
-    withTiming
-} from 'react-native-reanimated';
 import { useAppTheme } from '../constants/theme';
 
 interface ReportItemProps {
     item: any;
     index: number;
-    selectionMode: boolean;
-    isSelected: boolean;
     onPress: () => void;
-    onLongPress: () => void;
 }
 
 const ReportItem = ({
     item,
-    selectionMode,
-    isSelected,
-    onPress,
-    onLongPress
+    onPress
 }: ReportItemProps) => {
     const theme = useAppTheme();
 
@@ -39,10 +28,7 @@ const ReportItem = ({
     const [y, m, d] = item.date.split('-').map(Number);
     const dateObj = new Date(y, m - 1, d);
 
-    // --- ACCURATE STATUS ---
-    // If it's 1 or true, it's synced. If 0 or false or null, it's unsynced.
     const isSynced = item.is_synced === 1 || item.is_synced === true || item.is_synced === 'true';
-    
     const taskCount = item.accomplishments?.length || 0;
 
     const { durationText, isOvertime, isGoalMet } = useMemo(() => {
@@ -59,148 +45,199 @@ const ReportItem = ({
         const isOT = diffMins > 540;    // 9 hours
 
         return {
-            durationText: `${hours}h ${minutes > 0 ? ` ${minutes}m` : ''}`,
+            durationText: `${hours}h ${minutes > 0 ? `${minutes}m` : ''}`,
             isOvertime: isOT,
             isGoalMet: isGoal
         };
     }, [hasAttendance, item.clock_in, item.clock_out]);
 
-    // --- GLITCH-FREE ANIMATION ---
-    // Only animate the border color. No scale, no background color changes.
-    const containerStyle = useAnimatedStyle(() => ({
-        borderColor: withTiming(isSelected ? theme.colors.primary : theme.colors.card, { duration: 150 }),
-    }));
-
     return (
-        <Animated.View style={[styles.container, containerStyle, { backgroundColor: theme.colors.card }]}>
+        <View style={[styles.container, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
             <TouchableOpacity
                 activeOpacity={0.7}
                 onPress={onPress}
-                onLongPress={onLongPress}
                 style={styles.touchable}
             >
-                {/* DATE BLOCK */}
-                <View style={[styles.dateBlock, { backgroundColor: theme.colors.background }]}>
-                    <Text style={[styles.monthText, { color: theme.colors.primary }]}>{format(dateObj, 'MMM')}</Text>
+                {/* MODERN DATE BADGE */}
+                <View style={[styles.dateBadge, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+                    <Text style={[styles.monthText, { color: theme.colors.textSecondary }]}>{format(dateObj, 'MMM')}</Text>
                     <Text style={[styles.dayText, { color: theme.colors.text }]}>{format(dateObj, 'dd')}</Text>
-                    <Text style={[styles.weekdayText, { color: theme.colors.textSecondary }]}>{format(dateObj, 'EEE')}</Text>
                 </View>
 
-                {/* INFO */}
-                <View style={styles.infoBlock}>
-                    <View style={styles.row}>
-                        <HugeiconsIcon icon={Clock01Icon} size={14} color={theme.colors.textSecondary} />
+                {/* CONTENT AREA */}
+                <View style={styles.contentBlock}>
+                    <View style={styles.topRow}>
                         {hasAttendance ? (
-                            <Text style={[styles.timeText, { color: theme.colors.text }]}>
-                                {format(new Date(item.clock_in), 'h:mm a')} 
-                                <Text style={{ color: theme.colors.textSecondary }}> - </Text> 
-                                {format(new Date(item.clock_out), 'h:mm a')}
-                            </Text>
+                            <View style={styles.timeWrapper}>
+                                <HugeiconsIcon icon={Clock01Icon} size={14} color={theme.colors.textSecondary} />
+                                <Text style={[styles.timeText, { color: theme.colors.text }]}>
+                                    {format(new Date(item.clock_in), 'h:mm a')} 
+                                    <Text style={{ color: theme.colors.textSecondary, fontWeight: '400' }}> → </Text> 
+                                    {format(new Date(item.clock_out), 'h:mm a')}
+                                </Text>
+                            </View>
                         ) : (
-                            <Text style={[styles.absentText, { color: theme.colors.danger }]}>No Attendance</Text>
+                            <Text style={[styles.absentText, { color: theme.colors.danger }]}>Missed / No Record</Text>
                         )}
-                    </View>
 
-                    {hasAttendance && (
-                        <View style={[styles.row, { marginTop: 2 }]}>
-                            <Text style={[styles.durationLabel, { color: theme.colors.textSecondary }]}>
-                                Total: <Text style={{ color: theme.colors.text, fontWeight: '700' }}>{durationText}</Text>
-                            </Text>
-                        </View>
-                    )}
-
-                    <View style={styles.footerRow}>
-                        <View style={[styles.activityPill, { backgroundColor: theme.colors.background }]}>
-                            <HugeiconsIcon icon={Task01Icon} size={12} color={theme.colors.textSecondary} />
-                            <Text style={[styles.activityText, { color: theme.colors.textSecondary }]}>
-                                {taskCount} {taskCount === 1 ? 'Activity' : 'Activities'}
-                            </Text>
-                        </View>
-
-                        <View style={styles.badgeContainer}>
-                            {/* SYNC STATUS */}
-                            {hasAttendance && (
-                                isSynced ? (
-                                    <View style={[styles.miniBadge, { backgroundColor: theme.colors.primary + '15' }]}>
-                                        <HugeiconsIcon icon={DatabaseSyncIcon} size={12} color={theme.colors.primary} />
-                                    </View>
-                                ) : (
-                                    <View style={[styles.miniBadge, { backgroundColor: theme.colors.danger + '15' }]}>
-                                        <HugeiconsIcon icon={WifiOff01Icon} size={12} color={theme.colors.danger} />
-                                    </View>
-                                )
+                        {/* STATUS ICONS (Overtime / Goal / Sync) */}
+                        <View style={styles.iconRow}>
+                            {hasAttendance && isOvertime && (
+                                <View style={[styles.otBadge, { backgroundColor: theme.colors.warning + '15' }]}>
+                                    <Text style={[styles.otText, { color: theme.colors.warning }]}>OT</Text>
+                                </View>
                             )}
-                            
-                            {/* GOAL */}
-                            {isGoalMet && !isOvertime && (
-                                <View style={[styles.miniBadge, { backgroundColor: theme.colors.success + '15' }]}>
+                            {hasAttendance && isGoalMet && !isOvertime && (
+                                <View style={[styles.otBadge, { backgroundColor: theme.colors.success + '15' }]}>
                                     <HugeiconsIcon icon={Target02Icon} size={12} color={theme.colors.success} />
                                 </View>
                             )}
+                            {hasAttendance && isSynced ? (
+                                <HugeiconsIcon icon={DatabaseSyncIcon} size={14} color={theme.colors.primary} />
+                            ) : hasAttendance ? (
+                                <HugeiconsIcon icon={WifiOff01Icon} size={14} color={theme.colors.danger} />
+                            ) : null}
+                        </View>
+                    </View>
 
-                            {/* OVERTIME */}
-                            {isOvertime && (
-                                <View style={[styles.miniBadge, { backgroundColor: theme.colors.warning + '20', paddingHorizontal: 6 }]}>
-                                    <Text style={[styles.miniBadgeText, { color: theme.colors.warning }]}>OT</Text>
-                                </View>
-                            )}
+                    {/* BOTTOM METRICS ROW */}
+                    <View style={styles.metricsRow}>
+                        {hasAttendance && (
+                            <View style={styles.metricItem}>
+                                <Text style={[styles.metricLabel, { color: theme.colors.textSecondary }]}>Logged:</Text>
+                                <Text style={[styles.metricValue, { color: theme.colors.text }]}>{durationText}</Text>
+                            </View>
+                        )}
+                        
+                        <View style={[styles.taskPill, { backgroundColor: theme.colors.background }]}>
+                            <HugeiconsIcon icon={Task01Icon} size={12} color={theme.colors.textSecondary} />
+                            <Text style={[styles.taskPillText, { color: theme.colors.textSecondary }]}>
+                                {taskCount} {taskCount === 1 ? 'Entry' : 'Entries'}
+                            </Text>
                         </View>
                     </View>
                 </View>
 
-                {/* ACTION COLUMN (Fixed Width) */}
-                <View style={styles.actionColumn}>
-                    {selectionMode ? (
-                        <View style={[
-                            styles.checkbox, 
-                            { 
-                                borderColor: isSelected ? theme.colors.primary : theme.colors.border,
-                                backgroundColor: isSelected ? theme.colors.primary : 'transparent'
-                            }
-                        ]}>
-                            {isSelected && <HugeiconsIcon icon={Tick02Icon} size={12} color="#fff" strokeWidth={4} />}
-                        </View>
-                    ) : (
-                        <HugeiconsIcon icon={ArrowRight01Icon} size={20} color={theme.colors.border} />
-                    )}
+                {/* CHEVRON */}
+                <View style={styles.actionZone}>
+                    <HugeiconsIcon icon={ArrowRight01Icon} size={20} color={theme.colors.textSecondary} />
                 </View>
             </TouchableOpacity>
-        </Animated.View>
+        </View>
     );
 };
 
 const styles = StyleSheet.create({
     container: {
         marginHorizontal: 20,
-        marginBottom: 10,
-        borderRadius: 18,
-        borderWidth: 2,
-        overflow: 'hidden',
-        // Minimal shadow to avoid Android grey glitch
+        marginBottom: 12,
+        borderRadius: 20,
+        borderWidth: 1,
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 3,
-        elevation: 2,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.03,
+        shadowRadius: 10,
+        elevation: 1,
     },
-    touchable: { flexDirection: 'row', padding: 12, alignItems: 'center' },
-    dateBlock: { width: 60, height: 72, borderRadius: 14, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
-    monthText: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase', marginBottom: 1 },
-    dayText: { fontSize: 22, fontWeight: '800', lineHeight: 24 },
-    weekdayText: { fontSize: 10, fontWeight: '600', opacity: 0.6, marginTop: 2, textTransform: 'uppercase' },
-    infoBlock: { flex: 1, justifyContent: 'center', gap: 2 },
-    row: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    timeText: { fontSize: 14, fontWeight: '700' },
-    absentText: { fontSize: 14, fontWeight: '600', fontStyle: 'italic' },
-    durationLabel: { fontSize: 12, fontWeight: '500', marginLeft: 20 },
-    footerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
-    activityPill: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
-    activityText: { fontSize: 11, fontWeight: '600' },
-    badgeContainer: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    miniBadge: { height: 22, width: 22, alignItems: 'center', justifyContent: 'center', borderRadius: 8 },
-    miniBadgeText: { fontSize: 9, fontWeight: '800' },
-    actionColumn: { width: 44, alignItems: 'center', justifyContent: 'center', paddingLeft: 8 },
-    checkbox: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+    touchable: {
+        flexDirection: 'row',
+        padding: 16,
+        alignItems: 'center',
+    },
+    dateBadge: {
+        width: 52,
+        height: 56,
+        borderRadius: 14,
+        borderWidth: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: 16,
+    },
+    monthText: {
+        fontSize: 10,
+        fontFamily: 'Nunito_800ExtraBold',
+        textTransform: 'uppercase',
+        marginBottom: 2,
+    },
+    dayText: {
+        fontSize: 18,
+        fontFamily: 'Nunito_800ExtraBold',
+        lineHeight: 20,
+    },
+    contentBlock: {
+        flex: 1,
+        justifyContent: 'center',
+    },
+    topRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        marginBottom: 8,
+    },
+    timeWrapper: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    timeText: {
+        fontSize: 14,
+        fontFamily: 'Nunito_700Bold',
+    },
+    absentText: {
+        fontSize: 14,
+        fontFamily: 'Nunito_600SemiBold',
+        fontStyle: 'italic',
+    },
+    iconRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    otBadge: {
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 6,
+        alignItems: 'center',
+        justifyContent: 'center'
+    },
+    otText: {
+        fontSize: 9,
+        fontFamily: 'Nunito_800ExtraBold',
+    },
+    metricsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    metricItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+    },
+    metricLabel: {
+        fontSize: 12,
+        fontFamily: 'Nunito_500Medium',
+    },
+    metricValue: {
+        fontSize: 13,
+        fontFamily: 'Nunito_800ExtraBold',
+    },
+    taskPill: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 10,
+    },
+    taskPillText: {
+        fontSize: 11,
+        fontFamily: 'Nunito_700Bold',
+    },
+    actionZone: {
+        paddingLeft: 12,
+        justifyContent: 'center',
+    }
 });
 
 export default React.memo(ReportItem);

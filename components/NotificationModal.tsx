@@ -48,7 +48,6 @@ export default function NotificationModal({ visible, onClose, notifications, onM
         onClose();
     };
 
-    // Drag-to-dismiss gesture configuration
     const pan = Gesture.Pan()
         .onChange((event) => {
             if (event.translationY > 0) {
@@ -73,19 +72,18 @@ export default function NotificationModal({ visible, onClose, notifications, onM
             style={[
                 styles.itemContainer, 
                 { 
-                    backgroundColor: item.read ? theme.colors.background : theme.colors.primary + '08', // Very subtle tint for unread
+                    backgroundColor: item.read ? theme.colors.background : theme.colors.primary + '08',
                     borderBottomColor: theme.colors.border 
                 }
             ]}
         >
             <View style={styles.itemContent}>
-                {/* Unread Indicator */}
                 <View style={[
                     styles.unreadDot, 
                     { backgroundColor: item.read ? 'transparent' : theme.colors.primary } 
                 ]} />
                 
-                <View style={{ flex: 1 }}>
+                <View style={styles.textBlock}>
                     <View style={styles.itemHeader}>
                         <Text style={[styles.itemTitle, { color: theme.colors.text }]}>
                             {item.title}
@@ -105,22 +103,19 @@ export default function NotificationModal({ visible, onClose, notifications, onM
         </TouchableOpacity>
     );
 
-    // Footer component shown at the bottom of the list
     const renderFooter = () => {
         if (notifications.length === 0) return null;
-        
         return (
             <View style={styles.footerContainer}>
                 <View style={[styles.footerLine, { backgroundColor: theme.colors.border }]} />
                 <Text style={[styles.footerText, { color: theme.colors.textSecondary }]}>
-                    No more notifications
+                    End of notifications
                 </Text>
                 <View style={[styles.footerLine, { backgroundColor: theme.colors.border }]} />
             </View>
         );
     };
 
-    // Unmount when not visible to ensure entry animations trigger correctly on re-mount
     if (!visible) return null;
 
     return (
@@ -132,7 +127,6 @@ export default function NotificationModal({ visible, onClose, notifications, onM
             statusBarTranslucent
         >
             <GestureHandlerRootView style={styles.overlay}>
-                {/* Backdrop Fade */}
                 <Animated.View 
                     entering={FadeIn.duration(300)} 
                     exiting={FadeOut.duration(300)} 
@@ -141,7 +135,6 @@ export default function NotificationModal({ visible, onClose, notifications, onM
                     <TouchableOpacity style={StyleSheet.absoluteFill} onPress={close} activeOpacity={1} />
                 </Animated.View>
 
-                {/* Draggable Sheet - Slide Up */}
                 <Animated.View 
                     entering={SlideInDown.duration(400).easing(Easing.out(Easing.quad))} 
                     exiting={SlideOutDown.duration(300)}
@@ -156,26 +149,38 @@ export default function NotificationModal({ visible, onClose, notifications, onM
                         animatedSheetStyle
                     ]}>
                         
-                        {/* Header Area - Draggable (Allows dragging the modal down without blocking list scroll) */}
                         <GestureDetector gesture={pan}>
                             <View style={{ backgroundColor: theme.colors.background }}>
-                                {/* Reusable Header */}
+                                {/* Drag Indicator Pill */}
+                                <View style={styles.dragPillContainer}>
+                                    <View style={[styles.dragPill, { backgroundColor: theme.colors.border }]} />
+                                </View>
+
+                                {/* Modal Header (Maintains your exact setup) */}
                                 <ModalHeader 
                                     title="Notifications"
-                                    subtitle={unreadCount > 0 ? `${unreadCount} unread` : 'No new notifications'}
+                                    subtitle={unreadCount > 0 ? `You have ${unreadCount} unread message${unreadCount > 1 ? 's' : ''}` : 'You are completely caught up.'}
                                     position="bottom"
                                     onClose={close}
                                 />
 
-                                {/* Actions Bar */}
+                                {/* Action Bar */}
                                 {notifications.length > 0 && (
                                     <View style={[styles.actionBar, { borderBottomColor: theme.colors.border }]}>
                                         <TouchableOpacity 
                                             onPress={onMarkAllRead} 
-                                            style={[styles.markReadBtn, { backgroundColor: theme.colors.card }]}
+                                            disabled={unreadCount === 0}
+                                            style={[
+                                                styles.markReadBtn, 
+                                                { 
+                                                    backgroundColor: unreadCount > 0 ? theme.colors.primary + '15' : theme.colors.card,
+                                                    borderWidth: 1,
+                                                    borderColor: unreadCount > 0 ? theme.colors.primary + '30' : theme.colors.border
+                                                }
+                                            ]}
                                         >
-                                            <HugeiconsIcon icon={Tick02Icon} size={16} color={theme.colors.primary} />
-                                            <Text style={[styles.markReadText, { color: theme.colors.primary }]}>
+                                            <HugeiconsIcon icon={Tick02Icon} size={14} color={unreadCount > 0 ? theme.colors.primary : theme.colors.textSecondary} />
+                                            <Text style={[styles.markReadText, { color: unreadCount > 0 ? theme.colors.primary : theme.colors.textSecondary }]}>
                                                 Mark all as read
                                             </Text>
                                         </TouchableOpacity>
@@ -184,7 +189,6 @@ export default function NotificationModal({ visible, onClose, notifications, onM
                             </View>
                         </GestureDetector>
 
-                        {/* List */}
                         <FlatList
                             data={notifications}
                             keyExtractor={(item) => item.id}
@@ -194,12 +198,12 @@ export default function NotificationModal({ visible, onClose, notifications, onM
                             ListFooterComponent={renderFooter}
                             ListEmptyComponent={
                                 <View style={styles.emptyState}>
-                                    <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.card }]}>
-                                        <HugeiconsIcon icon={CheckmarkCircle02Icon} size={40} color={theme.colors.textSecondary} />
+                                    <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                                        <HugeiconsIcon icon={CheckmarkCircle02Icon} size={36} color={theme.colors.textSecondary} />
                                     </View>
-                                    <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>All caught up!</Text>
+                                    <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No New Alerts</Text>
                                     <Text style={[styles.emptySubtitle, { color: theme.colors.textSecondary }]}>
-                                        You have no new notifications at this time.
+                                        When you receive notifications, they will securely appear here.
                                     </Text>
                                 </View>
                             }
@@ -218,26 +222,38 @@ const styles = StyleSheet.create({
     },
     backdrop: {
         ...StyleSheet.absoluteFillObject,
-        backgroundColor: 'rgba(0,0,0,0.5)',
+        backgroundColor: 'rgba(0,0,0,0.6)',
     },
     modalContainerWrapper: { 
         flex: 1, 
         justifyContent: 'flex-end' 
     },
     sheet: {
-        borderTopLeftRadius: 28,
-        borderTopRightRadius: 28,
+        borderTopLeftRadius: 32,
+        borderTopRightRadius: 32,
         overflow: 'hidden',
-        maxHeight: '90%', 
+        maxHeight: '92%', 
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: -5 },
-        shadowOpacity: 0.1,
-        shadowRadius: 20,
-        elevation: 10,
+        shadowOffset: { width: 0, height: -10 },
+        shadowOpacity: 0.15,
+        shadowRadius: 30,
+        elevation: 20,
         width: '100%',
     },
+    dragPillContainer: {
+        width: '100%',
+        alignItems: 'center',
+        paddingTop: 12,
+        paddingBottom: 4,
+    },
+    dragPill: {
+        width: 40,
+        height: 5,
+        borderRadius: 3,
+        opacity: 0.5,
+    },
     actionBar: {
-        paddingHorizontal: 20,
+        paddingHorizontal: 24,
         paddingVertical: 12,
         flexDirection: 'row',
         justifyContent: 'flex-end',
@@ -246,21 +262,21 @@ const styles = StyleSheet.create({
     markReadBtn: {
         flexDirection: 'row',
         alignItems: 'center',
-        paddingVertical: 6,
-        paddingHorizontal: 12,
+        paddingVertical: 8,
+        paddingHorizontal: 16,
         borderRadius: 20,
     },
     markReadText: {
-        fontSize: 12,
-        fontWeight: '600',
+        fontSize: 13,
+        fontFamily: 'Nunito_700Bold',
         marginLeft: 6,
     },
     listContent: {
         flexGrow: 1,
     },
     itemContainer: {
-        paddingVertical: 16,
-        paddingHorizontal: 20,
+        paddingVertical: 18,
+        paddingHorizontal: 24,
         borderBottomWidth: 1,
     },
     itemContent: {
@@ -268,11 +284,14 @@ const styles = StyleSheet.create({
         alignItems: 'flex-start',
     },
     unreadDot: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
+        width: 10,
+        height: 10,
+        borderRadius: 5,
         marginTop: 6,
-        marginRight: 12,
+        marginRight: 14,
+    },
+    textBlock: {
+        flex: 1,
     },
     itemHeader: {
         flexDirection: 'row',
@@ -282,60 +301,64 @@ const styles = StyleSheet.create({
     },
     itemTitle: {
         fontSize: 15,
-        fontWeight: '700',
+        fontFamily: 'Nunito_800ExtraBold',
         flex: 1,
-        marginRight: 8,
+        marginRight: 12,
     },
     itemDate: {
         fontSize: 11,
-        fontWeight: '500',
+        fontFamily: 'Nunito_600SemiBold',
     },
     itemBody: {
         fontSize: 14,
-        lineHeight: 20,
+        fontFamily: 'Nunito_500Medium',
+        lineHeight: 22,
     },
-    // Footer Styles
     footerContainer: {
-        paddingVertical: 24,
+        paddingVertical: 32,
         paddingHorizontal: 40,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 12,
-        opacity: 0.6,
+        gap: 16,
+        opacity: 0.4,
     },
     footerLine: {
         height: 1,
         flex: 1,
-        maxWidth: 40,
+        maxWidth: 60,
     },
     footerText: {
         fontSize: 12,
-        fontWeight: '500',
+        fontFamily: 'Nunito_700Bold',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5,
     },
-    // Empty State Styles
     emptyState: {
         padding: 40,
         alignItems: 'center',
         justifyContent: 'center',
-        marginTop: 40,
+        marginTop: 60,
     },
     emptyIconContainer: {
         width: 80,
         height: 80,
         borderRadius: 40,
+        borderWidth: 1,
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: 16,
+        marginBottom: 20,
     },
     emptyTitle: {
-        fontSize: 18,
-        fontWeight: '700',
+        fontSize: 20,
+        fontFamily: 'Nunito_800ExtraBold',
         marginBottom: 8,
     },
     emptySubtitle: {
-        fontSize: 14,
+        fontSize: 15,
+        fontFamily: 'Nunito_500Medium',
         textAlign: 'center',
-        lineHeight: 20,
+        lineHeight: 22,
+        paddingHorizontal: 20,
     }
 });
