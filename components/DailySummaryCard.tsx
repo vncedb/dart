@@ -58,14 +58,12 @@ const DailySummaryCard = ({
 }: DailySummaryCardProps) => {
     const [now, setNow] = useState(new Date());
     
-    // Precise 1s timer
     useEffect(() => {
         if (!isClockedIn) return;
         const interval = setInterval(() => setNow(new Date()), 1000);
         return () => clearInterval(interval);
     }, [isClockedIn]);
 
-    // --- Daily Calculations ---
     const safeMinutes = Math.max(0, totalMinutes);
     const h = Math.floor(safeMinutes / 60);
     const m = Math.floor(safeMinutes % 60);
@@ -77,7 +75,6 @@ const DailySummaryCard = ({
     const displayPercentage = Math.round(rawPercentage * 100);
     const isGoalMet = displayPercentage >= 100;
 
-    // --- Period Calculations ---
     const showPeriodTarget = !!periodTargetMinutes && periodTargetMinutes > 0;
 
     const periodData = useMemo(() => {
@@ -96,7 +93,6 @@ const DailySummaryCard = ({
         };
     }, [payoutType, periodWorkedMinutes, periodTargetMinutes, showPeriodTarget]);
 
-    // --- Countdown Logic ---
     const remainingSeconds = useMemo(() => {
         if (!isClockedIn || !targetEndTime) return null;
         const target = new Date(targetEndTime);
@@ -105,12 +101,8 @@ const DailySummaryCard = ({
 
     const isNearTimeout = remainingSeconds !== null && remainingSeconds > 0 && remainingSeconds <= 300;
     
-    // --- UPDATED: Predicted End Time Logic ---
     const predictedEndTime = useMemo(() => {
-        // 1. If we have a specific target (Overtime expiry or Shift End), use it.
         if (targetEndTime) return new Date(targetEndTime);
-        
-        // 2. Fallback: Calculate based on Daily Goal
         if (!startTime) return null;
         return addMinutes(new Date(startTime), goalMinutes);
     }, [startTime, goalMinutes, targetEndTime]);
@@ -124,7 +116,6 @@ const DailySummaryCard = ({
         return `${rH > 0 ? rH + ':' : ''}${rM.toString().padStart(2, '0')}:${rS.toString().padStart(2, '0')}`;
     }, [remainingSeconds]);
 
-    // --- Animations ---
     const progressValue = useSharedValue(0);
     const periodProgressValue = useSharedValue(0);
     const pulseOpacity = useSharedValue(1);
@@ -149,7 +140,6 @@ const DailySummaryCard = ({
         scaleValue.value = withSequence(withSpring(0.98), withSpring(1));
     };
 
-    // --- Styling Config ---
     const SIZE = 100;
     const RADIUS = 42; 
     const STROKE_WIDTH = 8; 
@@ -197,7 +187,6 @@ const DailySummaryCard = ({
     return (
         <Pressable onPress={handlePress}>
             <AnimatedView style={[styles.card, cardAnimatedStyle, { backgroundColor: theme.colors.card, borderColor }]}>
-                {/* Background */}
                 <View style={StyleSheet.absoluteFill}>
                     <Svg height="100%" width="100%">
                         <Defs>
@@ -227,7 +216,7 @@ const DailySummaryCard = ({
                                     {h}<Text style={styles.unitText}>h</Text> {m.toString().padStart(2, '0')}<Text style={styles.unitText}>m</Text>
                                 </Text>
                                 {isClockedIn && (
-                                    <Text style={{ fontSize: 14, fontWeight: '700', color: theme.colors.textSecondary, marginLeft: 6, opacity: 0.6, fontVariant: ['tabular-nums'] }}>
+                                    <Text style={{ fontSize: 14, fontFamily: 'Nunito_700Bold', color: theme.colors.textSecondary, marginLeft: 6, opacity: 0.6, fontVariant: ['tabular-nums'] }}>
                                         {s.toString().padStart(2, '0')}s
                                     </Text>
                                 )}
@@ -249,9 +238,10 @@ const DailySummaryCard = ({
                                         <AnimatedCircle cx={SIZE/2} cy={SIZE/2} r={RADIUS} stroke={accentColor} strokeWidth={STROKE_WIDTH} fill="none" strokeDasharray={CIRCUMFERENCE} animatedProps={animatedCircleProps} strokeLinecap="round" />
                                     </G>
                                 </Svg>
-                                <View style={StyleSheet.absoluteFillObject} className="items-center justify-center">
-                                    <Text style={{ fontSize: 20, fontWeight: '800', color: theme.colors.text, fontVariant: ['tabular-nums'] }}>
-                                        {displayPercentage}<Text style={{ fontSize: 10, fontWeight: '600', color: theme.colors.textSecondary }}>%</Text>
+                                {/* FIX: Removed duplicate 'style' prop and merged */}
+                                <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
+                                    <Text style={{ fontSize: 20, fontFamily: 'Nunito_700Bold', color: theme.colors.text, fontVariant: ['tabular-nums'] }}>
+                                        {displayPercentage}<Text style={{ fontSize: 10, fontFamily: 'Nunito_700Bold', color: theme.colors.textSecondary }}>%</Text>
                                     </Text>
                                 </View>
                             </View>
@@ -300,11 +290,11 @@ const DailySummaryCard = ({
                         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                                 <HugeiconsIcon icon={Calendar03Icon} size={12} color={theme.colors.primary} />
-                                <Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.textSecondary, marginLeft: 6, textTransform: 'uppercase' }}>
+                                <Text style={{ fontSize: 10, fontFamily: 'Nunito_700Bold', color: theme.colors.textSecondary, marginLeft: 6, textTransform: 'uppercase' }}>
                                     {periodData.label}
                                 </Text>
                             </View>
-                            <Text style={{ fontSize: 10, fontWeight: '700', color: theme.colors.text }}>
+                            <Text style={{ fontSize: 10, fontFamily: 'Nunito_700Bold', color: theme.colors.text }}>
                                 <Text style={{ color: theme.colors.primary }}>{periodData.currentFormatted}</Text>
                                 <Text style={{ color: theme.colors.textSecondary }}> / {periodData.targetFormatted}</Text>
                             </Text>
@@ -350,14 +340,14 @@ const styles = StyleSheet.create({
     },
     statusText: {
         fontSize: 10, 
-        fontWeight: '800', 
+        fontFamily: 'Nunito_700Bold',
         letterSpacing: 0.5, 
         marginLeft: 4,
         textTransform: 'uppercase'
     },
     labelSmall: {
         fontSize: 10,
-        fontWeight: '700',
+        fontFamily: 'Nunito_700Bold',
         letterSpacing: 0.8,
         textTransform: 'uppercase',
         marginBottom: 0,
@@ -365,14 +355,14 @@ const styles = StyleSheet.create({
     },
     timerText: {
         fontSize: 32,
-        fontWeight: '800',
+        fontFamily: 'Nunito_700Bold',
         fontVariant: ['tabular-nums'],
         letterSpacing: -1,
         lineHeight: 38
     },
     unitText: {
         fontSize: 16,
-        fontWeight: '600',
+        fontFamily: 'Nunito_600SemiBold',
         opacity: 0.5
     },
     countdownBadge: {
@@ -381,8 +371,8 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center'
     },
-    countdownLabel: { fontSize: 9, fontWeight: '800', marginBottom: 2 },
-    countdownValue: { fontSize: 16, fontWeight: '800', fontVariant: ['tabular-nums'] },
+    countdownLabel: { fontSize: 9, fontFamily: 'Nunito_700Bold', marginBottom: 2 },
+    countdownValue: { fontSize: 16, fontFamily: 'Nunito_700Bold', fontVariant: ['tabular-nums'] },
     dividerLine: { height: 1, width: '100%', opacity: 0.1 },
     gridSection: {
         flexDirection: 'row',
@@ -402,8 +392,8 @@ const styles = StyleSheet.create({
     },
     metaColRight: {},
     metaHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 2, opacity: 0.7 },
-    metaLabel: { fontSize: 9, fontWeight: '700', marginLeft: 4, textTransform: 'uppercase' },
-    metaValue: { fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
+    metaLabel: { fontSize: 9, fontFamily: 'Nunito_700Bold', marginLeft: 4, textTransform: 'uppercase' },
+    metaValue: { fontSize: 13, fontFamily: 'Nunito_700Bold', fontVariant: ['tabular-nums'] },
     footerSection: {
         paddingHorizontal: 20,
         paddingVertical: 12,

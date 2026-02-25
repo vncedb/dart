@@ -58,6 +58,17 @@ import {
     updateAttendanceNotification
 } from '../../utils/NotificationService';
 
+// PREVENT NOTIFICATION ACTION FROM FORCING APP TO FOREGROUND TAB
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+    shouldShowBanner: true, // Fixed: Added required property
+    shouldShowList: true,   // Fixed: Added required property
+  }),
+});
+
 const timeToMinutes = (timeStr: string) => {
     if (!timeStr) return 0;
     const [h, m] = timeStr.split(':').map(Number);
@@ -484,7 +495,7 @@ export default function Home() {
                 setHasShownInitialNotif(false); 
                 setIsBreakMode(false);
                 setAlertMessage("See you later!"); 
-                setAlertType('check-out'); // Keep internal state the same
+                setAlertType('check-out'); 
             } else {
                 const now = new Date();
                 let remarks = null;
@@ -513,7 +524,7 @@ export default function Home() {
                 await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', ['attendance', record.id, 'INSERT', JSON.stringify(record)]);
                 setHasShownInitialNotif(false);
                 setAlertMessage(isOvertime ? "Overtime Started!" : "Welcome In!"); 
-                setAlertType('check-in'); // Keep internal state the same
+                setAlertType('check-in'); 
             }
             if (appSettings?.soundEnabled && successPlayer) {
                 try { successPlayer.seekTo(0); successPlayer.play(); } catch (audioErr) { console.log("Audio play failed (non-fatal):", audioErr); }
@@ -598,7 +609,6 @@ export default function Home() {
 
             const db = await getDB();
             const endIso = targetTime.toISOString();
-            // Changed "Auto-checkout" to "Auto-timeout"
             await db.runAsync('UPDATE attendance SET clock_out = ?, status = ?, remarks = ? WHERE id = ?', 
                 [endIso, 'completed', `Auto-timeout: ${reason}`, latestRecord.id]);
             await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', 
@@ -882,19 +892,19 @@ const styles = StyleSheet.create({
     rowBetween: { flexDirection: 'row', justifyContent: 'space-between' },
     jobCard: { borderWidth: 1, padding: 24, borderRadius: 24, flexDirection: 'row', alignItems: 'center' },
     jobIconBox: { width: 56, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 16 },
-    jobTitle: { fontFamily: 'Nunito_700Bold', fontSize: 16, marginBottom: 4 },
+    jobTitle: { fontFamily: 'Nunito_500Medium', fontSize: 16, marginBottom: 4 },
     jobButton: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 10, alignSelf: 'flex-start' },
-    jobButtonText: { fontFamily: 'Nunito_700Bold', color: '#fff', fontSize: 12 },
+    jobButtonText: { fontFamily: 'Nunito_500Medium', color: '#fff', fontSize: 12 },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    sectionTitle: { fontFamily: 'Nunito_700Bold', fontSize: 18, letterSpacing: -0.5 },
+    sectionTitle: { fontFamily: 'Nunito_500Medium', fontSize: 18, letterSpacing: -0.5 },
     actionRow: { flexDirection: 'row', gap: 12 },
     iconButton: { borderRadius: 20, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'transparent' },
     badge: { position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, borderWidth: 1.5 },
     timelineCard: { borderRadius: 24, borderWidth: 1, overflow: 'hidden' },
     noJobCard: { borderWidth: 1, padding: 28, borderRadius: 24, flexDirection: 'row', shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3 },
-    noJobTitle: { fontFamily: 'Nunito_700Bold', fontSize: 18, marginBottom: 8, textAlign: 'center' },
+    noJobTitle: { fontFamily: 'Nunito_500Medium', fontSize: 18, marginBottom: 8, textAlign: 'center' },
     noJobDesc: { fontFamily: 'Nunito_400Regular', fontSize: 14, lineHeight: 22, textAlign: 'center', opacity: 0.8 },
     noJobButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 16, width: '100%', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4, gap: 10 },
-    noJobButtonText: { fontFamily: 'Nunito_700Bold', color: '#fff', fontSize: 16 },
+    noJobButtonText: { fontFamily: 'Nunito_500Medium', color: '#fff', fontSize: 16 },
 });

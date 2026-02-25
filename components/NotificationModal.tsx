@@ -301,7 +301,7 @@ const styles = StyleSheet.create({
     },
     itemTitle: {
         fontSize: 15,
-        fontFamily: 'Nunito_800ExtraBold',
+        fontFamily: 'Nunito_700Bold',
         flex: 1,
         marginRight: 12,
     },
@@ -351,7 +351,7 @@ const styles = StyleSheet.create({
     },
     emptyTitle: {
         fontSize: 20,
-        fontFamily: 'Nunito_800ExtraBold',
+        fontFamily: 'Nunito_700Bold',
         marginBottom: 8,
     },
     emptySubtitle: {

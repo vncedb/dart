@@ -1,7 +1,7 @@
 import {
     Add01Icon,
     Delete02Icon,
-    Menu01Icon
+    DragDropVerticalIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -16,8 +16,7 @@ import {
     View
 } from 'react-native';
 import DraggableFlatList, {
-    RenderItemParams,
-    ShadowDecorator
+    RenderItemParams
 } from 'react-native-draggable-flatlist';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
@@ -39,6 +38,7 @@ export const AVAILABLE_JOB_FIELDS = [
     { key: 'rate', label: 'Pay Rate' },
     { key: 'rate_type', label: 'Pay Type' },
     { key: 'payroll', label: 'Payroll Schedule' },
+    { key: 'period_target', label: 'Target Duration' },
     { key: 'breaks', label: 'Unpaid Breaks' },
 ];
 
@@ -117,50 +117,41 @@ export default function EditDisplayModal({
 
     const renderActiveItem = ({ item, drag, isActive }: RenderItemParams<typeof AVAILABLE_JOB_FIELDS[0]>) => {
         return (
-            <ShadowDecorator>
-                <View style={[{ paddingVertical: 5 }, isActive && { zIndex: 999 }]}>
-                    <TouchableOpacity
-                        activeOpacity={0.95}
-                        style={[
-                            styles.item,
-                            {
-                                // When active/dragging use card, otherwise use background to contrast with the modal sheet
-                                backgroundColor: isActive ? theme.colors.card : theme.colors.background,
-                                borderColor: isActive ? theme.colors.primary : theme.colors.border,
-                                borderWidth: 1,
-                                shadowColor: "#000",
-                                shadowOffset: { width: 0, height: isActive ? 6 : 0 },
-                                shadowOpacity: isActive ? 0.15 : 0,
-                                shadowRadius: isActive ? 8 : 0,
-                                elevation: isActive ? 8 : 0,
-                                transform: [{ scale: isActive ? 1.03 : 1 }]
-                            }
-                        ]}
-                    >
-                        <View style={styles.itemLeft}>
-                            {/* Smooth drag execution with hitSlop */}
-                            <TouchableOpacity 
-                                onPressIn={drag} 
-                                style={[styles.iconBox, { backgroundColor: isActive ? theme.colors.primary + '15' : theme.colors.card }]}
-                                hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-                            >
-                                <HugeiconsIcon icon={Menu01Icon} size={20} color={isActive ? theme.colors.primary : theme.colors.textSecondary} />
-                            </TouchableOpacity>
-                            
-                            {/* Fixed structural wrapper to prevent text glitches on active */}
-                            <View style={{ flex: 1, paddingRight: 10 }}>
-                                <Text style={[styles.itemLabel, { color: theme.colors.text }]} numberOfLines={1}>
-                                    {item.label}
-                                </Text>
-                            </View>
-                        </View>
-
-                        <TouchableOpacity onPress={() => toggleItem(item.key, true)} hitSlop={12} style={[styles.removeBtn, { backgroundColor: theme.colors.danger + '10' }]}>
-                            <HugeiconsIcon icon={Delete02Icon} size={18} color={theme.colors.danger} />
+            <View style={[{ paddingVertical: 5 }, isActive && { zIndex: 999 }]}>
+                <TouchableOpacity
+                    activeOpacity={1}
+                    onLongPress={drag}
+                    disabled={isActive}
+                    style={[
+                        styles.item,
+                        {
+                            backgroundColor: isActive ? theme.colors.primary + '10' : theme.colors.card,
+                            borderColor: theme.colors.border,
+                            borderWidth: 1,
+                        }
+                    ]}
+                >
+                    <View style={styles.itemLeft}>
+                        <TouchableOpacity 
+                            onPressIn={drag} 
+                            style={[styles.iconBox, { backgroundColor: isActive ? theme.colors.primary + '20' : theme.colors.background }]}
+                            hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                        >
+                            <HugeiconsIcon icon={DragDropVerticalIcon} size={20} color={isActive ? theme.colors.primary : theme.colors.textSecondary} />
                         </TouchableOpacity>
+                        
+                        <View style={{ flex: 1, paddingRight: 10 }}>
+                            <Text style={[styles.itemLabel, { color: theme.colors.text }]} numberOfLines={1}>
+                                {item.label}
+                            </Text>
+                        </View>
+                    </View>
+
+                    <TouchableOpacity onPress={() => toggleItem(item.key, true)} hitSlop={12} style={[styles.removeBtn, { backgroundColor: theme.colors.danger + '10' }]}>
+                        <HugeiconsIcon icon={Delete02Icon} size={18} color={theme.colors.danger} />
                     </TouchableOpacity>
-                </View>
-            </ShadowDecorator>
+                </TouchableOpacity>
+            </View>
         );
     };
 
@@ -179,7 +170,6 @@ export default function EditDisplayModal({
 
                 <Animated.View style={[
                     styles.sheet, 
-                    // Set exactly to theme.colors.card to match EditAvatarModal
                     { backgroundColor: theme.colors.card, height: SHEET_HEIGHT },
                     animatedStyle
                 ]}>
@@ -273,7 +263,7 @@ const styles = StyleSheet.create({
     },
     sectionTitle: { 
         fontSize: 11, 
-        fontWeight: '800', 
+        fontFamily: 'Nunito_700Bold', 
         opacity: 0.6, 
         marginBottom: 12, 
         letterSpacing: 1, 
@@ -313,12 +303,12 @@ const styles = StyleSheet.create({
     itemLabel: { 
         fontSize: 15, 
         letterSpacing: -0.2,
-        fontWeight: '700'
+        fontFamily: 'Nunito_700Bold'
     },
     inactiveItemLabel: {
         fontSize: 15, 
         letterSpacing: -0.2,
-        fontWeight: '600'
+        fontFamily: 'Nunito_600SemiBold'
     },
     removeBtn: {
         width: 34,

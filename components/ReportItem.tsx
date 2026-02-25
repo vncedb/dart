@@ -9,7 +9,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { differenceInMinutes, format } from 'date-fns';
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAppTheme } from '../constants/theme';
 
 interface ReportItemProps {
@@ -41,8 +41,8 @@ const ReportItem = ({
         const hours = Math.floor(diffMins / 60);
         const minutes = diffMins % 60;
         
-        const isGoal = diffMins >= 480; // 8 hours
-        const isOT = diffMins > 540;    // 9 hours
+        const isGoal = diffMins >= 480; 
+        const isOT = diffMins > 540;    
 
         return {
             durationText: `${hours}h ${minutes > 0 ? `${minutes}m` : ''}`,
@@ -72,7 +72,7 @@ const ReportItem = ({
                                 <HugeiconsIcon icon={Clock01Icon} size={14} color={theme.colors.textSecondary} />
                                 <Text style={[styles.timeText, { color: theme.colors.text }]}>
                                     {format(new Date(item.clock_in), 'h:mm a')} 
-                                    <Text style={{ color: theme.colors.textSecondary, fontWeight: '400' }}> → </Text> 
+                                    <Text style={{ color: theme.colors.textSecondary, fontFamily: 'Nunito_500Medium' }}> → </Text> 
                                     {format(new Date(item.clock_out), 'h:mm a')}
                                 </Text>
                             </View>
@@ -80,7 +80,7 @@ const ReportItem = ({
                             <Text style={[styles.absentText, { color: theme.colors.danger }]}>Missed / No Record</Text>
                         )}
 
-                        {/* STATUS ICONS (Overtime / Goal / Sync) */}
+                        {/* STATUS ICONS */}
                         <View style={styles.iconRow}>
                             {hasAttendance && isOvertime && (
                                 <View style={[styles.otBadge, { backgroundColor: theme.colors.warning + '15' }]}>
@@ -109,7 +109,7 @@ const ReportItem = ({
                             </View>
                         )}
                         
-                        <View style={[styles.taskPill, { backgroundColor: theme.colors.background }]}>
+                        <View style={[styles.taskPill, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
                             <HugeiconsIcon icon={Task01Icon} size={12} color={theme.colors.textSecondary} />
                             <Text style={[styles.taskPillText, { color: theme.colors.textSecondary }]}>
                                 {taskCount} {taskCount === 1 ? 'Entry' : 'Entries'}
@@ -120,7 +120,7 @@ const ReportItem = ({
 
                 {/* CHEVRON */}
                 <View style={styles.actionZone}>
-                    <HugeiconsIcon icon={ArrowRight01Icon} size={20} color={theme.colors.textSecondary} />
+                    <HugeiconsIcon icon={ArrowRight01Icon} size={20} color={theme.colors.border} />
                 </View>
             </TouchableOpacity>
         </View>
@@ -131,13 +131,12 @@ const styles = StyleSheet.create({
     container: {
         marginHorizontal: 20,
         marginBottom: 12,
-        borderRadius: 20,
+        borderRadius: 24,
         borderWidth: 1,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.03,
-        shadowRadius: 10,
-        elevation: 1,
+        ...Platform.select({
+            ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 10 },
+            android: { elevation: 2 }
+        })
     },
     touchable: {
         flexDirection: 'row',
@@ -145,9 +144,9 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     dateBadge: {
-        width: 52,
-        height: 56,
-        borderRadius: 14,
+        width: 56,
+        height: 60,
+        borderRadius: 16,
         borderWidth: 1,
         alignItems: 'center',
         justifyContent: 'center',
@@ -155,14 +154,15 @@ const styles = StyleSheet.create({
     },
     monthText: {
         fontSize: 10,
-        fontFamily: 'Nunito_800ExtraBold',
+        fontFamily: 'Nunito_700Bold',
         textTransform: 'uppercase',
-        marginBottom: 2,
+        marginBottom: 1,
+        letterSpacing: 0.5,
     },
     dayText: {
-        fontSize: 18,
-        fontFamily: 'Nunito_800ExtraBold',
-        lineHeight: 20,
+        fontSize: 19,
+        fontFamily: 'Nunito_700Bold',
+        lineHeight: 22,
     },
     contentBlock: {
         flex: 1,
@@ -182,6 +182,7 @@ const styles = StyleSheet.create({
     timeText: {
         fontSize: 14,
         fontFamily: 'Nunito_700Bold',
+        letterSpacing: -0.2,
     },
     absentText: {
         fontSize: 14,
@@ -195,14 +196,15 @@ const styles = StyleSheet.create({
     },
     otBadge: {
         paddingHorizontal: 6,
-        paddingVertical: 2,
+        paddingVertical: 3,
         borderRadius: 6,
         alignItems: 'center',
         justifyContent: 'center'
     },
     otText: {
         fontSize: 9,
-        fontFamily: 'Nunito_800ExtraBold',
+        fontFamily: 'Nunito_700Bold',
+        letterSpacing: 0.5,
     },
     metricsRow: {
         flexDirection: 'row',
@@ -212,23 +214,24 @@ const styles = StyleSheet.create({
     metricItem: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 4,
+        gap: 6,
     },
     metricLabel: {
-        fontSize: 12,
-        fontFamily: 'Nunito_500Medium',
+        fontSize: 11,
+        fontFamily: 'Nunito_600SemiBold',
     },
     metricValue: {
         fontSize: 13,
-        fontFamily: 'Nunito_800ExtraBold',
+        fontFamily: 'Nunito_700Bold',
     },
     taskPill: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        paddingHorizontal: 10,
+        paddingHorizontal: 8,
         paddingVertical: 4,
-        borderRadius: 10,
+        borderRadius: 8,
+        borderWidth: 1,
     },
     taskPillText: {
         fontSize: 11,

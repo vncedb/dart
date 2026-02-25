@@ -35,7 +35,6 @@ export default function BiometricButton({ onSuccess, isClockedIn, isLoading }: B
   
   const [isCompleted, setIsCompleted] = useState(false);
 
-  // --- DIMENSIONS ---
   const SIZE = 120;
   const STROKE_WIDTH = 6;
   const RADIUS = SIZE / 2;
@@ -90,12 +89,10 @@ export default function BiometricButton({ onSuccess, isClockedIn, isLoading }: B
     progress.value = withTiming(0, { duration: 200 });
   };
 
-  // Shadow Scale
   const containerStyle = useAnimatedStyle(() => ({
     transform: [{ scale: isCompleted ? 1 : Math.max(scale.value, pulse.value) }] 
   }));
 
-  // Ring Progress
   const progressProps = useAnimatedProps(() => ({
     strokeDashoffset: CIRCUMFERENCE * (1 - progress.value),
   }));
@@ -103,13 +100,10 @@ export default function BiometricButton({ onSuccess, isClockedIn, isLoading }: B
   return (
     <View style={styles.wrapper}>
       <Pressable onPressIn={handlePressIn} onPressOut={handlePressOut}>
-        {/* We use SVG for the shape to guarantee perfect circle on Android, avoiding "octagon" glitch from elevation + borderRadius */}
         <Animated.View style={[styles.container, { width: SIZE, height: SIZE }, containerStyle]}>
             <Svg width={SIZE} height={SIZE} style={StyleSheet.absoluteFill}>
-                {/* 1. Background Fill Circle */}
                 <Circle cx={SIZE/2} cy={SIZE/2} r={RADIUS} fill={theme.colors.card} />
                 
-                {/* 2. Passive Track Ring */}
                 <Circle 
                     cx={SIZE/2} cy={SIZE/2} r={CIRCLE_RADIUS} 
                     stroke={theme.colors.border} 
@@ -117,7 +111,6 @@ export default function BiometricButton({ onSuccess, isClockedIn, isLoading }: B
                     fill="none" 
                 />
                 
-                {/* 3. Active Progress Ring */}
                 <AnimatedCircle
                     cx={SIZE/2} cy={SIZE/2} r={CIRCLE_RADIUS}
                     stroke={isClockedIn ? theme.colors.danger : theme.colors.primary}
@@ -156,8 +149,6 @@ const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
     justifyContent: 'center',
-    // Removing native shadow here to avoid artifacts. 
-    // If shadow is needed, it should be a separate SVG layer below this.
   },
   iconContainer: {
     position: 'absolute',
@@ -165,9 +156,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   label: {
-    marginTop: 20,
+    marginTop: 24,
     fontSize: 12,
-    fontWeight: '800',
+    fontFamily: 'Nunito_700Bold',
     letterSpacing: 1.5,
     textTransform: 'uppercase',
   }

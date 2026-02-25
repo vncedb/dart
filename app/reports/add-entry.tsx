@@ -339,7 +339,7 @@ export default function AddEntryScreen() {
                         <View style={styles.inputBlock}>
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                                 <Text style={[styles.label, { marginBottom: 0, color: theme.colors.textSecondary }]}>Attachments</Text>
-                                <Text style={{ fontSize: 11, fontFamily: 'Nunito_800ExtraBold', color: theme.colors.textSecondary }}>{images.length} / {MAX_PHOTOS}</Text>
+                                <Text style={{ fontSize: 11, fontFamily: 'Nunito_500Medium', color: theme.colors.textSecondary }}>{images.length} / {MAX_PHOTOS}</Text>
                             </View>
 
                             {images.length < MAX_PHOTOS && (
@@ -397,7 +397,7 @@ const styles = StyleSheet.create({
     },
     label: { 
         fontSize: 11, 
-        fontFamily: 'Nunito_800ExtraBold', 
+        fontFamily: 'Nunito_500Medium', 
         textTransform: 'uppercase', 
         letterSpacing: 0.8,
         marginBottom: 8, 
@@ -418,13 +418,13 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     dateText: {
-        fontFamily: 'Nunito_700Bold', 
+        fontFamily: 'Nunito_500Medium', 
         fontSize: 15, 
         marginLeft: 12
     },
     textInput: { 
         flex: 1, 
-        fontFamily: 'Nunito_600SemiBold', 
+        fontFamily: 'Nunito_500Medium', 
         fontSize: 15, 
         paddingVertical: 16,
     },
@@ -448,7 +448,7 @@ const styles = StyleSheet.create({
     },
     uploadBtnText: {
         marginLeft: 8,
-        fontFamily: 'Nunito_700Bold',
+        fontFamily: 'Nunito_500Medium',
         fontSize: 13,
     },
     imagePreviewWrapper: {

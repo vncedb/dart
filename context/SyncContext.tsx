@@ -1,4 +1,3 @@
-// vncedb/dart/dart-dfc370a1cb531fb84d58dfcbf96afcbce8542d4e/context/SyncContext.tsx
 import NetInfo from '@react-native-community/netinfo';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
@@ -100,6 +99,16 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
 
   useEffect(() => {
     if (user) triggerSync();
+  }, [user]);
+
+  // Background Auto-Sync Interval
+  useEffect(() => {
+    if (!user) return;
+    const intervalId = setInterval(() => {
+      triggerSync();
+    }, 3 * 60 * 1000); // 3 minutes
+    
+    return () => clearInterval(intervalId);
   }, [user]);
 
   return (

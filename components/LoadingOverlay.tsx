@@ -14,8 +14,6 @@ export default function LoadingOverlay({ visible, message = "Loading..." }: Load
   const isDark = colorScheme === 'dark';
   const animationRef = useRef<LottieView>(null);
 
-  // [FIX] Updated to use .json files. 
-  // Ensure these files exist in your 'assets/loading/' folder.
   const animationSource = isDark 
     ? require('../assets/loading/loading-darkmode.json') 
     : require('../assets/loading/loading-lightmode.json');
@@ -102,7 +100,7 @@ const styles = StyleSheet.create({
   iconContainer: {
     width: 80,
     height: 80,
-    marginBottom: 12,
+    marginBottom: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -112,7 +110,7 @@ const styles = StyleSheet.create({
   },
   text: {
     fontSize: 15,
-    fontWeight: '700',
+    fontFamily: 'Nunito_700Bold',
     textAlign: 'center',
     letterSpacing: 0.5,
   },

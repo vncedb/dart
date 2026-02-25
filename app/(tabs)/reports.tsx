@@ -1,10 +1,10 @@
 import {
-  File02Icon,
-  FileVerifiedIcon,
-  PlusSignIcon,
-  RefreshIcon,
-  Search01Icon,
-  WifiOff01Icon,
+    File02Icon,
+    FileVerifiedIcon,
+    PlusSignIcon,
+    RefreshIcon,
+    Search01Icon,
+    WifiOff01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import NetInfo from "@react-native-community/netinfo";
@@ -12,22 +12,22 @@ import { endOfMonth, format } from "date-fns";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Platform,
-  RefreshControl,
-  SectionList,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  UIManager,
-  View,
+    Platform,
+    RefreshControl,
+    SectionList,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    UIManager,
+    View,
 } from "react-native";
 import Animated, {
-  cancelAnimation,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
+    cancelAnimation,
+    useAnimatedStyle,
+    useSharedValue,
+    withRepeat,
+    withTiming,
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -39,7 +39,7 @@ import LoadingScreen from "../../components/LoadingScreen";
 import ModernAlert from "../../components/ModernAlert";
 import ReportFilterBar from "../../components/ReportFilterBar";
 import ReportFilterModal, {
-  DateRange,
+    DateRange,
 } from "../../components/ReportFilterModal";
 import ReportItem from "../../components/ReportItem";
 import TabHeader from "../../components/TabHeader";
@@ -63,7 +63,7 @@ const OfflineIndicator = ({ isOffline, theme }: { isOffline: boolean; theme: any
   return (
     <View style={[styles.offlineStatus, { backgroundColor: theme.colors.danger + "10", borderColor: theme.colors.danger + "20" }]}>
       <HugeiconsIcon icon={WifiOff01Icon} size={14} color={theme.colors.danger} />
-      <Text style={{ fontSize: 11, fontFamily: 'Nunito_700Bold', color: theme.colors.danger, marginLeft: 6 }}>
+      <Text style={{ fontSize: 11, fontFamily: 'Nunito_500Medium', color: theme.colors.danger, marginLeft: 6 }}>
         You are offline. Data may be unsynced.
       </Text>
     </View>
@@ -320,7 +320,7 @@ export default function ReportsScreen() {
                 <HugeiconsIcon icon={FileVerifiedIcon} size={20} color={theme.colors.text} />
                 {unreadCount > 0 ? (
                   <View style={[styles.badge, { backgroundColor: theme.colors.danger, borderColor: theme.colors.card }]}>
-                    <Text style={{ color: "#fff", fontSize: 9, fontFamily: 'Nunito_800ExtraBold', lineHeight: 12 }}>
+                    <Text style={{ color: "#fff", fontSize: 9, fontFamily: 'Nunito_500Medium', lineHeight: 12 }}>
                       {unreadCount > 9 ? "9+" : unreadCount}
                     </Text>
                   </View>
@@ -394,9 +394,9 @@ const styles = StyleSheet.create({
   offlineStatus: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 8, borderBottomWidth: 1 },
   separator: { height: 1, marginHorizontal: 20, opacity: 0.5, marginBottom: 8 },
   sectionHeader: { paddingHorizontal: 20, paddingVertical: 12 },
-  sectionTitle: { fontSize: 12, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 0.8, textTransform: "uppercase" },
+  sectionTitle: { fontSize: 12, fontFamily: 'Nunito_500Medium', letterSpacing: 0.8, textTransform: "uppercase" },
   emptyContainer: { alignItems: "center", justifyContent: "center", marginTop: 100 },
   emptyIcon: { width: 80, height: 80, borderRadius: 40, alignItems: "center", justifyContent: "center", marginBottom: 16, borderWidth: 1 },
-  emptyTitle: { fontSize: 16, fontFamily: 'Nunito_700Bold', marginBottom: 4 },
-  emptySub: { fontSize: 14, fontFamily: 'Nunito_500Medium' },
+  emptyTitle: { fontSize: 16, fontFamily: 'Nunito_500Medium', marginBottom: 4 },
+  emptySub: { fontSize: 14, fontFamily: 'Nunito_400Regular' },
 });

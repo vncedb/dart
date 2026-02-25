@@ -51,7 +51,6 @@ const ITEM_HEIGHT = 60;
 const CONTENT_HEIGHT = 340;
 const PADDING_VERTICAL = (CONTENT_HEIGHT - ITEM_HEIGHT) / 2;
 
-// --- STATIC DATA (Extracted to prevent re-creation on every render) ---
 const MONTHS_DATA = Array.from({ length: 12 }, (_, i) => new Date(0, i));
 const START_YEAR = 1900;
 const CURRENT_YEAR = new Date().getFullYear();
@@ -72,7 +71,6 @@ interface DatePickerProps {
 
 type ViewMode = "calendar" | "month" | "year";
 
-// --- MEMOIZED DAY CELL ---
 const DayCell = React.memo(
   ({
     day,
@@ -96,17 +94,14 @@ const DayCell = React.memo(
     textSecondaryColor: string;
   }) => {
     
-    // 1. Prioritize Selection Colors
     let cellTextColor = textColor;
     if (isToday && !isSelected) cellTextColor = primaryColor;
-    if (isSelected) cellTextColor = "#FFFFFF"; // Forces white when selected
+    if (isSelected) cellTextColor = "#FFFFFF";
 
-    // 2. Adjust Opacity (Visibility)
-    // Reduce greyness of non-current month dates but keep them distinct
-    let cellOpacity = (isCurrentMonth || isSelected) ? 1 : 0.45; 
+    let cellOpacity = (isCurrentMonth || isSelected) ? 1 : 0.4; 
 
-    // 3. Adjust Font Weight
-    let cellFontWeight: any = isSelected ? "800" : (isToday ? "700" : "500");
+    // Using exact font families instead of font weights
+    let cellFontFamily = isSelected ? "Nunito_700Bold" : (isToday ? "Nunito_700Bold" : "Nunito_600SemiBold");
 
     return (
       <View style={styles.dayCellWrapper}>
@@ -123,7 +118,7 @@ const DayCell = React.memo(
               styles.dayText,
               {
                 color: cellTextColor,
-                fontWeight: cellFontWeight,
+                fontFamily: cellFontFamily,
                 opacity: cellOpacity,
               },
             ]}
@@ -147,7 +142,6 @@ const DayCell = React.memo(
       </View>
     );
   },
-  // Strict comparison to entirely prevent unnecessary grid re-renders
   (prev, next) =>
     prev.isSelected === next.isSelected &&
     prev.isCurrentMonth === next.isCurrentMonth &&
@@ -158,7 +152,6 @@ const DayCell = React.memo(
 );
 DayCell.displayName = "DayCell";
 
-// --- WHEEL ITEM ---
 const WheelItem = React.memo(
   ({ item, index, scrollY, onPress, formatLabel, primaryColor, textSecondaryColor }: any) => {
     const animatedStyle = useAnimatedStyle(() => {
@@ -197,7 +190,7 @@ const WheelItem = React.memo(
           alignItems: "center",
         }}
       >
-        <Animated.Text style={[{ fontSize: 18, fontWeight: "600" }, animatedStyle]}>
+        <Animated.Text style={[{ fontSize: 18, fontFamily: "Nunito_700Bold" }, animatedStyle]}>
           {formatLabel(item)}
         </Animated.Text>
       </TouchableOpacity>
@@ -207,7 +200,6 @@ const WheelItem = React.memo(
 );
 WheelItem.displayName = "WheelItem";
 
-// --- WHEEL PICKER ---
 const WheelPicker = React.memo(
   ({ data, initialIndex, onChange, formatLabel, primaryColor, textSecondaryColor }: any) => {
     const scrollY = useSharedValue(initialIndex * ITEM_HEIGHT);
@@ -284,7 +276,6 @@ const WheelPicker = React.memo(
 );
 WheelPicker.displayName = "WheelPicker";
 
-// --- MAIN COMPONENT ---
 export default function DatePicker({
   visible,
   onClose,
@@ -339,7 +330,7 @@ export default function DatePicker({
 
   const handleDaySelect = useCallback((day: Date) => {
     setTempDate(day);
-    setCurrentMonth(day); // Immediately aligns the displayed month view if picking adjacent days
+    setCurrentMonth(day);
     if (Platform.OS !== "web") Haptics.selectionAsync();
   }, []);
 
@@ -528,17 +519,17 @@ const styles = StyleSheet.create({
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)" },
   bottomSheet: {
     width: "100%",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    borderTopLeftRadius: 32, // Increased for a smoother curve
+    borderTopRightRadius: 32,
     overflow: "hidden",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
+    shadowOffset: { width: 0, height: -10 },
     shadowOpacity: 0.1,
-    shadowRadius: 16,
+    shadowRadius: 20,
     elevation: 20,
   },
-  handleContainer: { width: '100%', alignItems: 'center', paddingTop: 12, paddingBottom: 4 },
-  handle: { width: 36, height: 4, borderRadius: 2, opacity: 0.4 },
+  handleContainer: { width: '100%', alignItems: 'center', paddingTop: 14, paddingBottom: 4 },
+  handle: { width: 40, height: 5, borderRadius: 3, opacity: 0.3 },
   navBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -552,7 +543,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.03)",
+    backgroundColor: "rgba(0,0,0,0.04)",
   },
   viewToggleContainer: {
     flexDirection: "row",
@@ -566,11 +557,11 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 4,
     borderRadius: 12,
-    backgroundColor: "rgba(0,0,0,0.03)",
+    backgroundColor: "rgba(0,0,0,0.02)",
     alignItems: "center",
     justifyContent: "center",
   },
-  dropdownText: { fontSize: 16, fontWeight: "700", letterSpacing: 0.3 },
+  dropdownText: { fontSize: 15, fontFamily: "Nunito_700Bold", letterSpacing: 0.3 },
   contentFrame: { height: CONTENT_HEIGHT, overflow: "hidden", marginVertical: 8 },
   calendarContainer: { flex: 1, paddingHorizontal: 20 },
   weekHeader: {
@@ -580,10 +571,10 @@ const styles = StyleSheet.create({
     borderColor: "rgba(0,0,0,0.05)",
     paddingBottom: 8,
   },
-  weekText: { width: "14.28%", textAlign: "center", fontSize: 12, fontWeight: "700", textTransform: "uppercase", opacity: 0.6 },
+  weekText: { width: "14.28%", textAlign: "center", fontSize: 11, fontFamily: "Nunito_700Bold", textTransform: "uppercase", opacity: 0.5, letterSpacing: 1 },
   daysGrid: { flexDirection: "row", flexWrap: "wrap", rowGap: 4 },
   dayCellWrapper: { width: "14.28%", aspectRatio: 1, alignItems: "center", justifyContent: "center" },
-  dayCell: { width: 42, height: 42, borderRadius: 9999, alignItems: "center", justifyContent: "center", overflow: "hidden" },
-  dayText: { fontSize: 16, fontWeight: "500" },
+  dayCell: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  dayText: { fontSize: 16 },
   footer: { flexDirection: "row", padding: 24, paddingBottom: Platform.OS === 'ios' ? 40 : 24, borderTopWidth: 1 },
 });

@@ -212,7 +212,7 @@ export const saveJobLocal = async (job: any) => {
       job.rate || 0,
       job.rate_type || "hourly",
       job.payout_type || "Semi-Monthly",
-      job.period_target || null, 
+      job.period_target !== undefined ? job.period_target : null, // FIX: Strictly evaluate undefined
       typeof job.work_schedule === "string" ? job.work_schedule : JSON.stringify(job.work_schedule),
       typeof job.break_schedule === "string" ? job.break_schedule : JSON.stringify(job.break_schedule),
       job.created_at || new Date().toISOString(),

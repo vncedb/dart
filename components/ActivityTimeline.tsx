@@ -30,14 +30,7 @@ const ActivityImageContent = ({ uri, theme }: { uri: string, theme: any }) => {
     const handleRetry = () => { setStatus('loading'); setKey(prev => prev + 1); };
     return (
         <>
-            <Image
-                key={key}
-                source={{ uri }}
-                style={[StyleSheet.absoluteFill, { opacity: status === 'success' ? 1 : 0 }]}
-                resizeMode="cover"
-                onLoad={() => setStatus('success')}
-                onError={() => setStatus('error')}
-            />
+            <Image key={key} source={{ uri }} style={[StyleSheet.absoluteFill, { opacity: status === 'success' ? 1 : 0 }]} resizeMode="cover" onLoad={() => setStatus('success')} onError={() => setStatus('error')} />
             {status === 'loading' && (
                 <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
                     <ActivityIndicator size="small" color={theme.colors.primary} />
@@ -68,9 +61,7 @@ const ActivityGallery = ({ uri, theme }: { uri: string, theme: any }) => {
             const parsed = JSON.parse(uri);
             if (Array.isArray(parsed)) setImages(parsed);
             else setImages([uri]);
-        } catch {
-            setImages([uri]);
-        }
+        } catch { setImages([uri]); }
     }, [uri]);
 
     const handleScroll = (event: any) => {
@@ -78,34 +69,15 @@ const ActivityGallery = ({ uri, theme }: { uri: string, theme: any }) => {
         if (slideSize === 0) return;
         const index = event.nativeEvent.contentOffset.x / slideSize;
         const roundIndex = Math.round(index);
-        if (roundIndex !== activeIndex) {
-            setActiveIndex(roundIndex);
-        }
+        if (roundIndex !== activeIndex) setActiveIndex(roundIndex);
     };
 
     if (images.length === 0) return null;
 
     return (
-        <View
-            style={{
-                width: '100%',
-                aspectRatio: 4 / 3, // 3:4 height:width ratio
-                backgroundColor: theme.colors.card,
-                position: 'relative',
-                marginTop: 8
-            }}
-            onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
-        >
+        <View style={{ width: '100%', aspectRatio: 4 / 3, backgroundColor: theme.colors.card, position: 'relative', marginTop: 12, borderRadius: 12, overflow: 'hidden' }} onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}>
             {containerWidth > 0 && (
-                <ScrollView
-                    horizontal
-                    pagingEnabled
-                    showsHorizontalScrollIndicator={false}
-                    onScroll={handleScroll}
-                    scrollEventThrottle={16}
-                    contentContainerStyle={{ width: containerWidth * images.length }}
-                    decelerationRate="fast"
-                >
+                <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} onScroll={handleScroll} scrollEventThrottle={16} contentContainerStyle={{ width: containerWidth * images.length }} decelerationRate="fast">
                     {images.map((imgUri, index) => (
                         <View key={index} style={{ width: containerWidth, height: '100%' }}>
                             <ActivityImageContent uri={imgUri} theme={theme} />
@@ -114,19 +86,8 @@ const ActivityGallery = ({ uri, theme }: { uri: string, theme: any }) => {
                 </ScrollView>
             )}
             {images.length > 1 && (
-                <View style={{
-                    position: 'absolute',
-                    top: 10,
-                    right: 10,
-                    backgroundColor: 'rgba(0,0,0,0.6)',
-                    borderRadius: 12,
-                    paddingHorizontal: 10,
-                    paddingVertical: 5,
-                    zIndex: 10
-                }}>
-                    <Text style={{ color: 'white', fontSize: 11, fontFamily: 'Nunito_800ExtraBold' }}>
-                        {activeIndex + 1} / {images.length}
-                    </Text>
+                <View style={{ position: 'absolute', top: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5, zIndex: 10 }}>
+                    <Text style={{ color: 'white', fontSize: 11, fontFamily: 'Nunito_700Bold' }}>{activeIndex + 1} / {images.length}</Text>
                 </View>
             )}
         </View>
@@ -142,8 +103,6 @@ interface ActivityTimelineProps {
 }
 
 export default function ActivityTimeline({ timelineData, theme, onEditTask, onDeleteTask, isLoading }: ActivityTimelineProps) {
-    
-    // Sort Timeline Data: Latest -> Oldest
     const sortedTimeline = useMemo(() => {
         if (!timelineData) return [];
         return [...timelineData].sort((a, b) => {
@@ -154,18 +113,14 @@ export default function ActivityTimeline({ timelineData, theme, onEditTask, onDe
     }, [timelineData]);
 
     if (isLoading) {
-        return (
-            <View style={{ padding: 20, alignItems: 'center' }}>
-                <ActivityIndicator size="small" color={theme.colors.primary} />
-            </View>
-        );
+        return <View style={{ padding: 20, alignItems: 'center' }}><ActivityIndicator size="small" color={theme.colors.primary} /></View>;
     }
 
     if (sortedTimeline.length === 0) {
         return (
             <View style={{ alignItems: 'center', padding: 20, opacity: 0.5 }}>
                 <HugeiconsIcon icon={HourglassIcon} size={32} color={theme.colors.icon} />
-                <Text style={{ color: theme.colors.textSecondary, marginTop: 8, fontSize: 12, fontFamily: 'Nunito_500Medium' }}>No activity yet.</Text>
+                <Text style={{ color: theme.colors.textSecondary, marginTop: 8, fontSize: 13, fontFamily: 'Nunito_600SemiBold' }}>No activity yet.</Text>
             </View>
         );
     }
@@ -173,10 +128,7 @@ export default function ActivityTimeline({ timelineData, theme, onEditTask, onDe
     return (
         <View style={{ borderLeftWidth: 2, borderLeftColor: theme.colors.border, marginLeft: 8, paddingLeft: 16 }}>
             {sortedTimeline.map((item: any) => (
-                <View
-                    key={item.type === 'task' ? `task-${item.data.id}` : `${item.type}-${item.id}`}
-                    style={{ marginBottom: 24 }}
-                >
+                <View key={item.type === 'task' ? `task-${item.data.id}` : `${item.type}-${item.id}`} style={{ marginBottom: 24 }}>
                     <View style={{ position: 'absolute', left: -32, top: '50%', marginTop: -16 }}>
                         {item.type === 'check-in' ? (
                             <View style={{ backgroundColor: theme.colors.card, borderRadius: 16, padding: 4, borderWidth: 2, borderColor: theme.colors.success }}>
@@ -191,53 +143,52 @@ export default function ActivityTimeline({ timelineData, theme, onEditTask, onDe
                         )}
                     </View>
 
-                    {/* TASK ITEM */}
                     {item.type === 'task' ? (
-                        <View style={{ backgroundColor: theme.colors.background, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' }}>
-                            <View style={{ padding: 12 }}>
+                        <View style={{ backgroundColor: theme.colors.background, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, overflow: 'hidden' }}>
+                            <View style={{ padding: 16 }}>
                                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-                                    <Text style={{ flex: 1, color: theme.colors.text, fontFamily: 'Nunito_700Bold', fontSize: 16, marginRight: 8, lineHeight: 22 }}>
+                                    <Text style={{ flex: 1, color: theme.colors.text, fontFamily: 'Nunito_700Bold', fontSize: 15, marginRight: 8, lineHeight: 22, letterSpacing: -0.2 }}>
                                         {item.data.description || "Accomplishment"}
                                     </Text>
-                                    <View style={{ flexDirection: 'row', gap: 12 }}>
+                                    <View style={{ flexDirection: 'row', gap: 14 }}>
                                         <TouchableOpacity onPress={() => onEditTask(item.data)} hitSlop={10}>
-                                            <HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.textSecondary} />
+                                            <HugeiconsIcon icon={PencilEdit02Icon} size={18} color={theme.colors.textSecondary} />
                                         </TouchableOpacity>
                                         <TouchableOpacity onPress={() => onDeleteTask(item.data)} hitSlop={10}>
-                                            <HugeiconsIcon icon={Delete02Icon} size={16} color="#ef4444" />
+                                            <HugeiconsIcon icon={Delete02Icon} size={18} color={theme.colors.danger} />
                                         </TouchableOpacity>
                                     </View>
                                 </View>
 
                                 {item.data.remarks ? (
-                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginBottom: 8, fontFamily: 'Nunito_500Medium' }}>
+                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 13, marginBottom: 8, fontFamily: 'Nunito_600SemiBold', lineHeight: 18 }}>
                                         {item.data.remarks}
                                     </Text>
                                 ) : null}
 
                                 {item.data.image_url && <ActivityGallery uri={item.data.image_url} theme={theme} />}
                                 
-                                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: theme.colors.border }}>
-                                    <HugeiconsIcon icon={Clock01Icon} size={12} color={theme.colors.textSecondary} />
-                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontFamily: 'Nunito_600SemiBold', marginLeft: 4 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.colors.border }}>
+                                    <HugeiconsIcon icon={Clock01Icon} size={14} color={theme.colors.textSecondary} />
+                                    <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontFamily: 'Nunito_700Bold', marginLeft: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                                         {format(new Date(item.data.created_at), 'h:mm a')}
                                     </Text>
                                 </View>
                             </View>
                         </View>
                     ) : (
-                        <View style={{ justifyContent: 'center', minHeight: 32 }}>
+                        <View style={{ justifyContent: 'center', minHeight: 32, paddingLeft: 6 }}>
                             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <Text style={{ color: theme.colors.text, fontFamily: 'Nunito_700Bold', fontSize: 14, marginRight: 8 }}>
+                                <Text style={{ color: theme.colors.text, fontFamily: 'Nunito_700Bold', fontSize: 15, marginRight: 8, letterSpacing: -0.2 }}>
                                     {item.type === 'check-in' ? 'Time In' : 'Time Out'}
                                 </Text>
                                 {item.isOvertime && (
-                                    <View style={{ backgroundColor: theme.colors.warning + '20', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: theme.colors.warning }}>
-                                        <Text style={{ fontSize: 10, fontFamily: 'Nunito_800ExtraBold', color: theme.colors.warning }}>OT</Text>
+                                    <View style={{ backgroundColor: theme.colors.warning + '15', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6 }}>
+                                        <Text style={{ fontSize: 9, fontFamily: 'Nunito_700Bold', color: theme.colors.warning, textTransform: 'uppercase', letterSpacing: 0.5 }}>Overtime</Text>
                                     </View>
                                 )}
                             </View>
-                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2, fontFamily: 'Nunito_500Medium' }}>
+                            <Text style={{ color: theme.colors.textSecondary, fontSize: 12, marginTop: 2, fontFamily: 'Nunito_600SemiBold' }}>
                                 {format(new Date(item.time), 'h:mm a')}
                             </Text>
                         </View>

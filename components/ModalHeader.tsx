@@ -82,7 +82,7 @@ const styles = StyleSheet.create({
     },
     title: {
         fontSize: 20, 
-        fontFamily: 'Nunito_800ExtraBold',
+        fontFamily: 'Nunito_700Bold',
         letterSpacing: -0.4,
     },
     subtitle: {

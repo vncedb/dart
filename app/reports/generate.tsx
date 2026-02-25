@@ -1,19 +1,19 @@
 import {
-    ArrowRight01Icon,
-    Calendar03Icon,
-    CheckListIcon,
-    Clock01Icon,
-    Delete02Icon,
-    Image01Icon,
-    Note02Icon,
-    Pdf01Icon,
-    PencilEdit02Icon,
-    PrinterIcon,
-    SignatureIcon,
-    Tick01Icon,
-    Timer01Icon,
-    UserGroupIcon,
-    Xls01Icon,
+  ArrowRight01Icon,
+  Calendar03Icon,
+  CheckListIcon,
+  Clock01Icon,
+  Delete02Icon,
+  Image01Icon,
+  Note02Icon,
+  Pdf01Icon,
+  PencilEdit02Icon,
+  PrinterIcon,
+  SignatureIcon,
+  Tick01Icon,
+  Timer01Icon,
+  UserGroupIcon,
+  Xls01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -21,17 +21,17 @@ import { format } from "date-fns";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Image,
-    KeyboardAvoidingView,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 

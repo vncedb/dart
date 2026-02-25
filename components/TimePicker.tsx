@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 import Animated, {
+  Easing,
   Extrapolation,
   interpolate,
   interpolateColor,
@@ -18,54 +19,34 @@ import Animated, {
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
-  withSpring,
   withTiming,
 } from "react-native-reanimated";
 import { useAppTheme } from "../constants/theme";
 import Button from "./Button";
 import ModalHeader from "./ModalHeader";
 
-const ITEM_HEIGHT = 60; 
-const CONTENT_HEIGHT = 300; 
+const ITEM_HEIGHT = 56; 
+const CONTENT_HEIGHT = 280; 
 const PADDING_VERTICAL = (CONTENT_HEIGHT - ITEM_HEIGHT) / 2;
 const COLUMN_WIDTH = 90;
 
-// --- WHEEL ITEM ---
 const WheelItem = React.memo(
-  ({ item, index, scrollY, onPress, formatLabel, primaryColor, textSecondaryColor }: any) => {
+  ({ item, index, scrollY, onPress, formatLabel, activeColor, inactiveColor }: any) => {
     const animatedStyle = useAnimatedStyle(() => {
       const itemCenter = index * ITEM_HEIGHT;
       const viewCenter = scrollY.value;
       const distance = Math.abs(viewCenter - itemCenter);
 
-      const scale = interpolate(
-        distance,
-        [0, ITEM_HEIGHT, ITEM_HEIGHT * 2],
-        [1.15, 0.9, 0.8],
-        Extrapolation.CLAMP
-      );
-      const opacity = interpolate(
-        distance,
-        [0, ITEM_HEIGHT, ITEM_HEIGHT * 2],
-        [1, 0.4, 0.2],
-        Extrapolation.CLAMP
-      );
-      const color = interpolateColor(
-        distance,
-        [0, ITEM_HEIGHT],
-        [primaryColor, textSecondaryColor]
-      );
+      const scale = interpolate(distance, [0, ITEM_HEIGHT, ITEM_HEIGHT * 2], [1.25, 0.85, 0.7], Extrapolation.CLAMP);
+      const opacity = interpolate(distance, [0, ITEM_HEIGHT, ITEM_HEIGHT * 2], [1, 0.35, 0.15], Extrapolation.CLAMP);
+      const color = interpolateColor(distance, [0, ITEM_HEIGHT], [activeColor, inactiveColor]);
 
       return { transform: [{ scale }], opacity, color };
     });
 
     return (
-      <TouchableOpacity
-        activeOpacity={1}
-        onPress={() => onPress(index)}
-        style={{ height: ITEM_HEIGHT, width: '100%', justifyContent: "center", alignItems: "center" }}
-      >
-        <Animated.Text style={[{ fontSize: 18, fontWeight: "600", textAlign: "center" }, animatedStyle]}>
+      <TouchableOpacity activeOpacity={1} onPress={() => onPress(index)} style={styles.wheelItem}>
+        <Animated.Text style={[styles.wheelText, animatedStyle]}>
           {formatLabel(item)}
         </Animated.Text>
       </TouchableOpacity>
@@ -75,11 +56,9 @@ const WheelItem = React.memo(
 );
 WheelItem.displayName = "WheelItem";
 
-// --- WHEEL PICKER ---
 const WheelPicker = React.memo(
-  ({ data, initialValue, onChange, formatLabel, primaryColor, textSecondaryColor, isInfinite = false }: any) => {
-    
-    const MULTIPLIER = 100;
+  ({ data, initialValue, onChange, formatLabel, activeColor, inactiveColor, isInfinite = false }: any) => {
+    const MULTIPLIER = 50; 
     const baseLength = data.length;
     
     const extendedData = useMemo(() => {
@@ -88,75 +67,65 @@ const WheelPicker = React.memo(
     }, [data, isInfinite, baseLength]);
 
     const initialBaseIndex = data.indexOf(initialValue) !== -1 ? data.indexOf(initialValue) : 0;
-    const startIndex = isInfinite
-      ? Math.floor(MULTIPLIER / 2) * baseLength + initialBaseIndex
-      : initialBaseIndex;
+    const startIndex = isInfinite ? Math.floor(MULTIPLIER / 2) * baseLength + initialBaseIndex : initialBaseIndex;
 
     const scrollY = useSharedValue(startIndex * ITEM_HEIGHT);
-    const [activeIndex, setActiveIndex] = useState(startIndex);
+    const currentIndex = useSharedValue(startIndex);
     const flatListRef = useRef<FlatList>(null);
 
-    const onScroll = useAnimatedScrollHandler((event) => {
-      scrollY.value = event.contentOffset.y;
-    });
-
-    const handleMomentumEnd = useCallback(
-      (e: any) => {
-        const index = Math.round(e.nativeEvent.contentOffset.y / ITEM_HEIGHT);
-        const safeIndex = Math.max(0, Math.min(index, extendedData.length - 1));
-        if (safeIndex !== activeIndex) {
-          setActiveIndex(safeIndex);
-          onChange(extendedData[safeIndex]);
-          if (Platform.OS !== "web") Haptics.selectionAsync();
+    const onScroll = useAnimatedScrollHandler({
+      onScroll: (event) => {
+        scrollY.value = event.contentOffset.y;
+        const index = Math.round(event.contentOffset.y / ITEM_HEIGHT);
+        
+        // INSTANT REF UPDATE: Triggers the exact millisecond a new number crosses the center
+        if (index !== currentIndex.value) {
+          currentIndex.value = index;
+          if (Platform.OS !== "web") runOnJS(Haptics.selectionAsync)();
+          
+          const safeIndex = Math.max(0, Math.min(index, extendedData.length - 1));
+          runOnJS(onChange)(extendedData[safeIndex]);
         }
       },
-      [extendedData, activeIndex, onChange]
-    );
+      onMomentumEnd: (event) => {
+        const index = Math.round(event.contentOffset.y / ITEM_HEIGHT);
+        const safeIndex = Math.max(0, Math.min(index, extendedData.length - 1));
+        runOnJS(onChange)(extendedData[safeIndex]);
+      },
+      onEndDrag: (event) => {
+        const index = Math.round(event.contentOffset.y / ITEM_HEIGHT);
+        const safeIndex = Math.max(0, Math.min(index, extendedData.length - 1));
+        runOnJS(onChange)(extendedData[safeIndex]);
+      }
+    });
 
-    const handlePress = useCallback(
-      (index: number) => {
+    const handlePress = useCallback((index: number) => {
         flatListRef.current?.scrollToOffset({ offset: index * ITEM_HEIGHT, animated: true });
-        setActiveIndex(index);
         onChange(extendedData[index]);
         if (Platform.OS !== "web") Haptics.selectionAsync();
-      },
-      [extendedData, onChange]
-    );
+    }, [extendedData, onChange]);
 
     return (
-      <View style={{ flex: 1, height: CONTENT_HEIGHT, overflow: "hidden", width: '100%' }}>
+      <View style={styles.wheelContainer}>
         <Animated.FlatList
           ref={flatListRef}
           data={extendedData}
           keyExtractor={(_, i) => i.toString()}
           renderItem={({ item, index }) => (
-            <WheelItem
-              item={item}
-              index={index}
-              scrollY={scrollY}
-              onPress={handlePress}
-              formatLabel={formatLabel}
-              primaryColor={primaryColor}
-              textSecondaryColor={textSecondaryColor}
-            />
+            <WheelItem item={item} index={index} scrollY={scrollY} onPress={handlePress} formatLabel={formatLabel} activeColor={activeColor} inactiveColor={inactiveColor} />
           )}
-          getItemLayout={(_, index) => ({
-            length: ITEM_HEIGHT,
-            offset: ITEM_HEIGHT * index,
-            index,
-          })}
+          getItemLayout={(_, index) => ({ length: ITEM_HEIGHT, offset: ITEM_HEIGHT * index, index })}
           initialScrollIndex={startIndex}
           snapToInterval={ITEM_HEIGHT}
           snapToAlignment="start"
-          decelerationRate="normal"
+          decelerationRate="fast" 
           bounces={false}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingVertical: PADDING_VERTICAL }}
           onScroll={onScroll}
           scrollEventThrottle={16}
-          onMomentumScrollEnd={handleMomentumEnd}
           removeClippedSubviews={Platform.OS === 'android'}
-          initialNumToRender={10}
+          initialNumToRender={15}
           maxToRenderPerBatch={10}
           windowSize={5}
         />
@@ -166,7 +135,6 @@ const WheelPicker = React.memo(
 );
 WheelPicker.displayName = "WheelPicker";
 
-// --- MAIN COMPONENT ---
 interface TimePickerProps {
   visible: boolean;
   onClose: () => void;
@@ -177,21 +145,14 @@ interface TimePickerProps {
   initialPeriod?: "AM" | "PM";
 }
 
-export default function TimePicker({
-  visible,
-  onClose,
-  onConfirm,
-  title = "Select Time",
-  initialHours = 12,
-  initialMinutes = 0,
-  initialPeriod = "AM",
-}: TimePickerProps) {
+export default function TimePicker({ visible, onClose, onConfirm, title = "Select Time", initialHours = 12, initialMinutes = 0, initialPeriod = "AM" }: TimePickerProps) {
   const theme = useAppTheme();
   const [showModal, setShowModal] = useState(visible);
 
-  const [hours, setHours] = useState(initialHours);
-  const [minutes, setMinutes] = useState(initialMinutes);
-  const [period, setPeriod] = useState<"AM" | "PM">(initialPeriod || "AM");
+  // NO REACT STATE: Using refs ensures zero lag and instant capture on confirm
+  const hoursRef = useRef(initialHours);
+  const minutesRef = useRef(initialMinutes);
+  const periodRef = useRef<"AM" | "PM">(initialPeriod || "AM");
 
   const translateY = useSharedValue(CONTENT_HEIGHT + 350);
   const backdropOpacity = useSharedValue(0);
@@ -200,31 +161,36 @@ export default function TimePicker({
   const minutesData = useMemo(() => Array.from({ length: 60 }, (_, i) => i), []);
   const periodData = useMemo(() => ["AM", "PM"], []);
 
+  const formatHours = useCallback((h: number) => h.toString(), []);
+  const formatMinutes = useCallback((m: number) => m.toString().padStart(2, "0"), []);
+  const formatPeriod = useCallback((p: string) => p, []);
+
+  // Sync callbacks
+  const handleHoursChange = useCallback((v: number) => { hoursRef.current = v; }, []);
+  const handleMinutesChange = useCallback((v: number) => { minutesRef.current = v; }, []);
+  const handlePeriodChange = useCallback((v: "AM" | "PM") => { periodRef.current = v; }, []);
+
   useEffect(() => {
     if (visible) {
       setShowModal(true);
-      
       let h = initialHours;
       if (h === 0) h = 12;
       if (h > 12) h -= 12;
-      setHours(h);
-      setMinutes(initialMinutes || 0);
-      setPeriod(initialPeriod || "AM");
+      hoursRef.current = h;
+      minutesRef.current = initialMinutes || 0;
+      periodRef.current = initialPeriod || "AM";
 
       backdropOpacity.value = withTiming(1, { duration: 250 });
-      translateY.value = withSpring(0, { damping: 20, stiffness: 150, mass: 0.8 });
+      translateY.value = withTiming(0, { duration: 350, easing: Easing.out(Easing.cubic) });
     } else {
       if (showModal) closeModal();
     }
   }, [visible, initialHours, initialMinutes, initialPeriod]);
 
   const closeModal = (callback?: () => void) => {
-    translateY.value = withTiming(CONTENT_HEIGHT + 350, { duration: 250 });
+    translateY.value = withTiming(CONTENT_HEIGHT + 350, { duration: 300, easing: Easing.in(Easing.cubic) });
     backdropOpacity.value = withTiming(0, { duration: 250 }, (finished) => {
-      if (finished) {
-        runOnJS(setShowModal)(false);
-        if (callback) runOnJS(callback)();
-      }
+      if (finished) { runOnJS(setShowModal)(false); if (callback) runOnJS(callback)(); }
     });
   };
 
@@ -233,7 +199,7 @@ export default function TimePicker({
   const handleConfirm = () => {
     closeModal(() => {
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      onConfirm(hours, minutes, period);
+      onConfirm(hoursRef.current, minutesRef.current, periodRef.current);
       onClose();
     });
   };
@@ -250,10 +216,7 @@ export default function TimePicker({
         <Pressable onPress={handleClose} style={StyleSheet.absoluteFill} />
 
         <Animated.View style={[styles.bottomSheet, { backgroundColor: theme.colors.card }, animatedSheetStyle]}>
-          <View style={styles.handleContainer}>
-             <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
-          </View>
-
+          <View style={styles.handleContainer}><View style={[styles.handle, { backgroundColor: theme.colors.border }]} /></View>
           <ModalHeader title={title} onClose={handleClose} position="bottom" />
 
           <View style={styles.headersRow}>
@@ -265,47 +228,20 @@ export default function TimePicker({
           </View>
 
           <View style={styles.pickersContainer}>
-            <View style={[styles.selectionBand, { backgroundColor: theme.colors.primary }]} pointerEvents="none" />
+            <View style={[styles.selectionBand, { backgroundColor: theme.colors.primary + '15' }]} pointerEvents="none" />
 
             <View style={styles.column}>
-              <WheelPicker
-                data={hoursData}
-                initialValue={hours}
-                onChange={setHours}
-                formatLabel={(h: number) => h.toString().padStart(2, "0")}
-                primaryColor={theme.colors.primary}
-                textSecondaryColor={theme.colors.textSecondary}
-                isInfinite={true}
-              />
+              <WheelPicker data={hoursData} initialValue={hoursRef.current} onChange={handleHoursChange} formatLabel={formatHours} activeColor={theme.colors.text} inactiveColor={theme.colors.textSecondary} isInfinite={true} />
             </View>
-            
-            <View style={styles.spacerCenter}>
-              <Text style={[styles.colon, { color: theme.colors.text }]}>:</Text>
-            </View>
+            <View style={styles.spacerCenter}><Text style={[styles.colon, { color: theme.colors.text }]}>:</Text></View>
             
             <View style={styles.column}>
-              <WheelPicker
-                data={minutesData}
-                initialValue={minutes}
-                onChange={setMinutes}
-                formatLabel={(m: number) => m.toString().padStart(2, "0")}
-                primaryColor={theme.colors.primary}
-                textSecondaryColor={theme.colors.textSecondary}
-                isInfinite={true}
-              />
+              <WheelPicker data={minutesData} initialValue={minutesRef.current} onChange={handleMinutesChange} formatLabel={formatMinutes} activeColor={theme.colors.text} inactiveColor={theme.colors.textSecondary} isInfinite={true} />
             </View>
-            
             <View style={styles.spacer} />
+            
             <View style={styles.column}>
-              <WheelPicker
-                data={periodData}
-                initialValue={period}
-                onChange={(p: "AM" | "PM") => setPeriod(p)}
-                formatLabel={(p: string) => p}
-                primaryColor={theme.colors.primary}
-                textSecondaryColor={theme.colors.textSecondary}
-                isInfinite={false} 
-              />
+              <WheelPicker data={periodData} initialValue={periodRef.current} onChange={handlePeriodChange} formatLabel={formatPeriod} activeColor={theme.colors.text} inactiveColor={theme.colors.textSecondary} isInfinite={false} />
             </View>
           </View>
 
@@ -323,47 +259,19 @@ export default function TimePicker({
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: "flex-end" },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)" },
-  bottomSheet: {
-    width: "100%", borderTopLeftRadius: 28, borderTopRightRadius: 28, overflow: "hidden",
-    shadowColor: "#000", shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.1, shadowRadius: 16, elevation: 20,
-  },
-  handleContainer: { width: '100%', alignItems: 'center', paddingTop: 12, paddingBottom: 4 },
-  handle: { width: 36, height: 4, borderRadius: 2, opacity: 0.4 },
-  
-  headersRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingTop: 16,
-    paddingBottom: 8,
-  },
-  headerLabel: {
-    width: COLUMN_WIDTH,
-    textAlign: 'center',
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-    opacity: 0.6,
-  },
+  bottomSheet: { width: "100%", borderTopLeftRadius: 32, borderTopRightRadius: 32, overflow: "hidden", shadowColor: "#000", shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 20 },
+  handleContainer: { width: '100%', alignItems: 'center', paddingTop: 14, paddingBottom: 4 },
+  handle: { width: 40, height: 5, borderRadius: 3, opacity: 0.3 },
+  headersRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingTop: 16, paddingBottom: 10 },
+  headerLabel: { width: COLUMN_WIDTH, textAlign: 'center', fontSize: 10, fontFamily: 'Nunito_700Bold', letterSpacing: 1.5, opacity: 0.5 },
   spacer: { width: 16 }, 
-  
-  pickersContainer: {
-    flexDirection: "row", alignItems: "center", justifyContent: "center",
-    height: CONTENT_HEIGHT, position: 'relative',
-  },
-  column: {
-    width: COLUMN_WIDTH,
-    alignItems: 'center',
-  },
-  spacerCenter: {
-    width: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  selectionBand: {
-    position: 'absolute', top: '50%', left: 24, right: 24, height: ITEM_HEIGHT,
-    marginTop: -ITEM_HEIGHT / 2, borderRadius: 12, opacity: 0.1,
-  },
-  colon: { fontSize: 28, fontWeight: "700", opacity: 0.3 },
+  pickersContainer: { flexDirection: "row", alignItems: "center", justifyContent: "center", height: CONTENT_HEIGHT, position: 'relative' },
+  column: { width: COLUMN_WIDTH, alignItems: 'center' },
+  spacerCenter: { width: 16, alignItems: 'center', justifyContent: 'center' },
+  selectionBand: { position: 'absolute', top: (CONTENT_HEIGHT - ITEM_HEIGHT) / 2, left: 24, right: 24, height: ITEM_HEIGHT, borderRadius: 18 },
+  colon: { fontSize: 24, fontFamily: "Nunito_700Bold", opacity: 0.4 },
   footer: { flexDirection: "row", padding: 24, paddingBottom: Platform.OS === 'ios' ? 40 : 24, borderTopWidth: 1 },
+  wheelContainer: { flex: 1, height: CONTENT_HEIGHT, overflow: "hidden", width: '100%' },
+  wheelItem: { height: ITEM_HEIGHT, width: '100%', justifyContent: "center", alignItems: "center" },
+  wheelText: { fontSize: 22, fontFamily: "Nunito_700Bold", textAlign: "center" }
 });

@@ -184,12 +184,13 @@ export const syncPull = async (userId: string) => {
     const { data: jobsData } = await supabase.from('job_positions').select('*').eq('user_id', userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`);
     if (jobsData && jobsData.length > 0) {
       for (const job of jobsData) {
+        // FIX: Included period_target in the query and value array below!
         await db.runAsync(
-          `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, payout_type, work_schedule, break_schedule, created_at, updated_at) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, payout_type, period_target, work_schedule, break_schedule, created_at, updated_at) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             job.id, job.user_id, job.title, job.company, job.department, job.employment_status, 
-            job.rate, job.rate_type, job.payout_type, 
+            job.rate, job.rate_type, job.payout_type, job.period_target, // Added period_target here
             typeof job.work_schedule === 'object' ? JSON.stringify(job.work_schedule) : job.work_schedule,
             typeof job.break_schedule === 'object' ? JSON.stringify(job.break_schedule) : job.break_schedule,
             job.created_at, job.updated_at

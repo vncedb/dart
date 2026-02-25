@@ -31,40 +31,22 @@ import { useAuth } from '../../context/AuthContext';
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 
-// --- Modern Settings Item ---
 const ModernSettingsItem = ({ icon, label, desc, onPress, rightElement, destructive, isLast, theme }: any) => {
     const scaleValue = useRef(new Animated.Value(1)).current;
 
-    const onPressIn = () => {
-        Animated.spring(scaleValue, { toValue: 0.97, useNativeDriver: true, speed: 20 }).start();
-    };
-
-    const onPressOut = () => {
-        Animated.spring(scaleValue, { toValue: 1, useNativeDriver: true, speed: 20 }).start();
-    };
+    const onPressIn = () => Animated.spring(scaleValue, { toValue: 0.97, useNativeDriver: true, speed: 20 }).start();
+    const onPressOut = () => Animated.spring(scaleValue, { toValue: 1, useNativeDriver: true, speed: 20 }).start();
 
     return (
         <View>
-            <Pressable 
-                onPress={onPress} 
-                onPressIn={onPress ? onPressIn : undefined} 
-                onPressOut={onPress ? onPressOut : undefined}
-                disabled={!onPress}
-            >
-                <Animated.View style={{ 
-                    flexDirection: 'row', alignItems: 'center', paddingVertical: 12,
-                    transform: [{ scale: scaleValue }]
-                }}>
-                    <View style={{ 
-                        width: 36, height: 36, borderRadius: 10, 
-                        backgroundColor: destructive ? '#fee2e2' : theme.colors.background, 
-                        alignItems: 'center', justifyContent: 'center', marginRight: 12 
-                    }}>
-                        <HugeiconsIcon icon={icon} size={18} color={destructive ? '#ef4444' : (onPress || rightElement ? theme.colors.primary : theme.colors.textSecondary)} />
+            <Pressable onPress={onPress} onPressIn={onPress ? onPressIn : undefined} onPressOut={onPress ? onPressOut : undefined} disabled={!onPress}>
+                <Animated.View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 12, transform: [{ scale: scaleValue }] }}>
+                    <View style={{ width: 38, height: 38, borderRadius: 12, backgroundColor: destructive ? theme.colors.danger + '15' : theme.colors.background, alignItems: 'center', justifyContent: 'center', marginRight: 14 }}>
+                        <HugeiconsIcon icon={icon} size={20} color={destructive ? theme.colors.danger : (onPress || rightElement ? theme.colors.primary : theme.colors.textSecondary)} />
                     </View>
                     <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 15, fontWeight: '600', color: destructive ? '#ef4444' : theme.colors.text }}>{label}</Text>
-                        {desc && <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginTop: 2 }}>{desc}</Text>}
+                        <Text style={{ fontSize: 16, fontFamily: 'Nunito_700Bold', color: destructive ? theme.colors.danger : theme.colors.text, letterSpacing: -0.2 }}>{label}</Text>
+                        {desc && <Text style={{ fontSize: 12, fontFamily: 'Nunito_600SemiBold', color: theme.colors.textSecondary, marginTop: 2 }}>{desc}</Text>}
                     </View>
                     {rightElement ? rightElement : (onPress && <HugeiconsIcon icon={ArrowRight01Icon} size={20} color={theme.colors.textSecondary} />)}
                 </Animated.View>
@@ -74,7 +56,6 @@ const ModernSettingsItem = ({ icon, label, desc, onPress, rightElement, destruct
     );
 };
 
-// --- DELETE CONFIRMATION MODAL ---
 const DeleteConfirmationModal = ({ visible, onClose, onConfirm }: any) => {
     const theme = useAppTheme();
     const [timer, setTimer] = useState(10);
@@ -99,20 +80,20 @@ const DeleteConfirmationModal = ({ visible, onClose, onConfirm }: any) => {
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
             <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
                 <View style={{ width: '100%', backgroundColor: theme.colors.card, borderRadius: 28, padding: 24, shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.25, shadowRadius: 20, elevation: 10 }}>
-                    <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: '#fee2e2', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 20 }}>
-                        <HugeiconsIcon icon={Alert02Icon} size={32} color="#ef4444" />
+                    <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: theme.colors.danger + '15', alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 20 }}>
+                        <HugeiconsIcon icon={Alert02Icon} size={32} color={theme.colors.danger} />
                     </View>
-                    <Text style={{ fontSize: 22, fontWeight: '800', textAlign: 'center', color: theme.colors.text, marginBottom: 12 }}>Delete Account?</Text>
-                    <Text style={{ fontSize: 15, textAlign: 'center', color: theme.colors.textSecondary, lineHeight: 22, marginBottom: 24 }}>
-                        You are about to permanently delete your account. This action <Text style={{ fontWeight: 'bold', color: '#ef4444' }}>cannot be undone</Text>. {"\n\n"}
+                    <Text style={{ fontSize: 22, fontFamily: 'Nunito_700Bold', textAlign: 'center', color: theme.colors.text, marginBottom: 12 }}>Delete Account?</Text>
+                    <Text style={{ fontSize: 15, fontFamily: 'Nunito_600SemiBold', textAlign: 'center', color: theme.colors.textSecondary, lineHeight: 22, marginBottom: 24 }}>
+                        You are about to permanently delete your account. This action <Text style={{ fontFamily: 'Nunito_700Bold', color: theme.colors.danger }}>cannot be undone</Text>. {"\n\n"}
                         All your data including attendance logs, reports, jobs, and settings will be wiped from this device and our servers immediately.
                     </Text>
                     <View style={{ gap: 12 }}>
-                        <TouchableOpacity onPress={onConfirm} disabled={timer > 0} style={{ backgroundColor: timer > 0 ? theme.colors.border : '#ef4444', paddingVertical: 16, borderRadius: 16, alignItems: 'center', opacity: timer > 0 ? 0.7 : 1 }}>
-                            <Text style={{ color: 'white', fontWeight: 'bold', fontSize: 16 }}>{timer > 0 ? `Wait ${timer}s` : 'Delete Account'}</Text>
+                        <TouchableOpacity onPress={onConfirm} disabled={timer > 0} style={{ backgroundColor: timer > 0 ? theme.colors.border : theme.colors.danger, paddingVertical: 16, borderRadius: 16, alignItems: 'center', opacity: timer > 0 ? 0.7 : 1 }}>
+                            <Text style={{ color: timer > 0 ? theme.colors.textSecondary : 'white', fontFamily: 'Nunito_700Bold', fontSize: 16 }}>{timer > 0 ? `Wait ${timer}s` : 'Delete Account'}</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={onClose} style={{ paddingVertical: 16, alignItems: 'center' }}>
-                            <Text style={{ color: theme.colors.textSecondary, fontWeight: '600' }}>Cancel</Text>
+                            <Text style={{ color: theme.colors.textSecondary, fontFamily: 'Nunito_700Bold' }}>Cancel</Text>
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -128,15 +109,11 @@ export default function AccountSecurityScreen() {
     
     const [biometricEnabled, setBiometricEnabled] = useState(false);
     const [biometricSupported, setBiometricSupported] = useState(false);
-    
     const [loading, setLoading] = useState(false);
     const [loadingMsg, setLoadingMsg] = useState('');
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
-    
     const [deleteModalVisible, setDeleteModalVisible] = useState(false);
     const [otpVisible, setOtpVisible] = useState(false);
-    
-    // [FIX] State to hold the locally generated code
     const [generatedCode, setGeneratedCode] = useState<string | null>(null);
 
     const isGoogleUser = user?.app_metadata?.provider === 'google' || user?.app_metadata?.providers?.includes('google');
@@ -177,15 +154,14 @@ export default function AccountSecurityScreen() {
             const settings = stored ? JSON.parse(stored) : {};
             settings.biometricEnabled = val;
             await AsyncStorage.setItem('appSettings', JSON.stringify(settings));
-        } catch (e) { console.error(e); }
+        } catch {
+            // Ignored unused error variable
+        }
     };
 
     const handleChangePassword = async () => {
         if (biometricEnabled && biometricSupported) {
-            const result = await LocalAuthentication.authenticateAsync({
-                promptMessage: 'Verify identity to change password',
-                fallbackLabel: 'Use Passcode'
-            });
+            const result = await LocalAuthentication.authenticateAsync({ promptMessage: 'Verify identity to change password', fallbackLabel: 'Use Passcode' });
             if (!result.success) return; 
         }
         router.push('/auth/update-password');
@@ -202,23 +178,11 @@ export default function AccountSecurityScreen() {
         setDeleteModalVisible(true);
     };
 
-    // [FIX] Helper to Send Custom OTP
     const sendDeleteOtp = async () => {
         if (!user?.email) throw new Error("No user email found.");
-        
-        // 1. Generate 6-digit code
         const code = Math.floor(100000 + Math.random() * 900000).toString();
         setGeneratedCode(code);
-
-        // 2. Call Edge Function with 'DELETE_ACCOUNT' type
-        const { error } = await supabase.functions.invoke('send-email', {
-            body: { 
-                type: 'DELETE_ACCOUNT', 
-                email: user.email, 
-                otp: code 
-            }
-        });
-
+        const { error } = await supabase.functions.invoke('send-email', { body: { type: 'DELETE_ACCOUNT', email: user.email, otp: code } });
         if (error) throw error;
     };
 
@@ -235,13 +199,7 @@ export default function AccountSecurityScreen() {
     };
 
     const handleVerifyOtp = async (inputCode: string) => {
-        // [FIX] Verify against local code instead of Supabase Auth
-        if (inputCode !== generatedCode) {
-            // Optional: You could allow a small mismatch or retry logic here, but strict is safer
-            // Returning false keeps the modal open and shows error
-            return false;
-        }
-
+        if (inputCode !== generatedCode) return false;
         setOtpVisible(false);
         setLoading(true);
         setLoadingMsg("Deleting Account...");
@@ -249,8 +207,6 @@ export default function AccountSecurityScreen() {
         try {
             const userId = user?.id;
             if (!userId) throw new Error("User ID missing.");
-
-            // 1. Wipe Local Data
             const db = await getDB();
             await db.runAsync('DELETE FROM attendance WHERE user_id = ?', [userId]);
             await db.runAsync('DELETE FROM accomplishments WHERE user_id = ?', [userId]);
@@ -258,42 +214,20 @@ export default function AccountSecurityScreen() {
             await db.runAsync('DELETE FROM job_positions WHERE user_id = ?', [userId]);
             await db.runAsync('DELETE FROM profiles WHERE id = ?', [userId]);
             await db.runAsync('DELETE FROM sync_queue', []);
-
-            // 2. Reset Onboarding
             await AsyncStorage.removeItem('isOnboarded');
-
-            // 3. Cloud Delete (Edge Function)
-            const { error: fnError } = await supabase.functions.invoke('delete-user');
-            if (fnError) console.error("Cloud delete warning:", fnError);
-
+            await supabase.functions.invoke('delete-user');
             setLoading(false);
-            
-            // 4. Success Alert & Sign Out
             setAlertConfig({
-                visible: true, 
-                type: 'success', 
-                title: 'Account Deleted', 
-                message: 'Your account has been permanently removed.', 
-                confirmText: 'Done',
-                onConfirm: async () => { 
-                    setAlertConfig((prev: any) => ({ ...prev, visible: false })); 
-                    await signOut(); 
-                    router.replace('/'); 
-                }
+                visible: true, type: 'success', title: 'Account Deleted', message: 'Your account has been permanently removed.', confirmText: 'Done',
+                onConfirm: async () => { setAlertConfig((prev: any) => ({ ...prev, visible: false })); await signOut(); router.replace('/'); }
             });
             return true;
-        } catch (_) {
+        } catch {
+            // Ignored unused error variable
             setLoading(false);
             setAlertConfig({ 
-                visible: true, 
-                type: 'error', 
-                title: 'Deletion Incomplete', 
-                message: 'Local data cleared, but server error occurred. You will be signed out.', 
-                onConfirm: async () => { 
-                    setAlertConfig((p:any) => ({...p, visible: false})); 
-                    await signOut(); 
-                    router.replace('/'); 
-                } 
+                visible: true, type: 'error', title: 'Deletion Incomplete', message: 'Local data cleared, but server error occurred. You will be signed out.', 
+                onConfirm: async () => { setAlertConfig((p:any) => ({...p, visible: false})); await signOut(); router.replace('/'); } 
             });
             return true;
         }
@@ -301,65 +235,29 @@ export default function AccountSecurityScreen() {
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
-            <Header title="Account & Security" showBack={true} />
+            <Header title="Account & Security" />
             <LoadingOverlay visible={loading} message={loadingMsg} />
             <ModernAlert {...alertConfig} />
-            
             <DeleteConfirmationModal visible={deleteModalVisible} onClose={() => setDeleteModalVisible(false)} onConfirm={handleConfirmDelete} />
-            
-            <OtpVerificationModal 
-                visible={otpVisible} 
-                email={user?.email || ''} 
-                onClose={() => setOtpVisible(false)} 
-                onVerify={handleVerifyOtp} 
-                // [FIX] Resend calls our custom sender
-                onResend={sendDeleteOtp} 
-                title="Verify Deletion" 
-                message="Enter code to confirm permanent deletion" 
-            />
+            <OtpVerificationModal visible={otpVisible} email={user?.email || ''} onClose={() => setOtpVisible(false)} onVerify={handleVerifyOtp} onResend={sendDeleteOtp} title="Verify Deletion" message="Enter code to confirm permanent deletion" />
 
             <ScrollView contentContainerStyle={{ padding: 24 }}>
                 <View style={{ marginBottom: 24 }}>
                     <Text style={styles.sectionTitle}>LOGIN SECURITY</Text>
-                    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
+                    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                         {biometricSupported && (
-                            <ModernSettingsItem 
-                                icon={BiometricAccessIcon} 
-                                label="Biometric Unlock" 
-                                desc="Use FaceID/TouchID to open app" 
-                                theme={theme}
-                                isLast={isGoogleUser} 
-                                rightElement={
-                                    <Switch value={biometricEnabled} onValueChange={toggleBiometric} trackColor={{ false: theme.colors.border, true: theme.colors.success }} thumbColor={'#fff'} style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }} />
-                                } 
-                            />
+                            <ModernSettingsItem icon={BiometricAccessIcon} label="Biometric Unlock" desc="Use FaceID/TouchID to open app" theme={theme} isLast={isGoogleUser} rightElement={<Switch value={biometricEnabled} onValueChange={toggleBiometric} trackColor={{ false: theme.colors.border, true: theme.colors.success }} thumbColor={'#fff'} style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }} />} />
                         )}
-                        
                         {!isGoogleUser && (
-                            <ModernSettingsItem 
-                                icon={LockKeyIcon} 
-                                label="Change Password" 
-                                desc="Update your login credentials" 
-                                onPress={handleChangePassword} 
-                                isLast 
-                                theme={theme} 
-                            />
+                            <ModernSettingsItem icon={LockKeyIcon} label="Change Password" desc="Update your login credentials" onPress={handleChangePassword} isLast theme={theme} />
                         )}
                     </View>
                 </View>
 
                 <View style={{ marginBottom: 24 }}>
                     <Text style={styles.sectionTitle}>DANGER ZONE</Text>
-                    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
-                         <ModernSettingsItem 
-                            icon={Alert02Icon} 
-                            label="Delete Account" 
-                            desc="Permanently remove all data" 
-                            onPress={handleDeleteRequest} 
-                            destructive 
-                            isLast 
-                            theme={theme} 
-                        />
+                    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                         <ModernSettingsItem icon={Alert02Icon} label="Delete Account" desc="Permanently remove all data" onPress={handleDeleteRequest} destructive isLast theme={theme} />
                     </View>
                 </View>
             </ScrollView>
@@ -368,6 +266,6 @@ export default function AccountSecurityScreen() {
 }
 
 const styles = StyleSheet.create({
-    sectionTitle: { fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase', opacity: 0.7, color: '#64748b' },
-    card: { borderRadius: 24, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+    sectionTitle: { fontSize: 11, fontFamily: 'Nunito_700Bold', letterSpacing: 1, marginBottom: 12, marginLeft: 8, textTransform: 'uppercase', opacity: 0.6 },
+    card: { borderRadius: 24, borderWidth: 1, padding: 16, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 12, elevation: 2 },
 });

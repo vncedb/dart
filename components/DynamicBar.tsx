@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
     iconWrapper: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
     textWrapper: { flex: 1, justifyContent: 'center' },
     textContainer: { justifyContent: 'center', width: '100%' },
-    label: { fontSize: 10, fontFamily: 'Nunito_800ExtraBold', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
-    mainText: { fontSize: 16, fontFamily: 'Nunito_800ExtraBold', letterSpacing: -0.2 },
+    label: { fontSize: 10, fontFamily: 'Nunito_700Bold', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 2 },
+    mainText: { fontSize: 16, fontFamily: 'Nunito_700Bold', letterSpacing: -0.2 },
     quoteText: { fontSize: 13, fontFamily: 'Nunito_600SemiBold', lineHeight: 18, fontStyle: 'italic', textAlign: 'left', paddingRight: 6 }
 });

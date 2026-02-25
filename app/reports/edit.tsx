@@ -325,18 +325,18 @@ export default function EditReportScreen() {
 const styles = StyleSheet.create({
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     scrollContent: { padding: 24, paddingBottom: 100 },
-    sectionTitle: { fontSize: 12, fontFamily: 'Nunito_800ExtraBold', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, marginLeft: 4 },
+    sectionTitle: { fontSize: 12, fontFamily: 'Nunito_700Bold', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, marginLeft: 4 },
     
     timeGrid: { flexDirection: "row", gap: 12, marginBottom: 36 },
     timeCard: { flex: 1, padding: 20, borderRadius: 24, borderWidth: 1 },
     timeCardHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 },
-    timeCardLabel: { fontSize: 11, fontFamily: 'Nunito_800ExtraBold', textTransform: "uppercase", letterSpacing: 0.5 },
+    timeCardLabel: { fontSize: 11, fontFamily: 'Nunito_700Bold', textTransform: "uppercase", letterSpacing: 0.5 },
     timeCardBody: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    timeCardValue: { fontSize: 20, fontFamily: 'Nunito_800ExtraBold' },
+    timeCardValue: { fontSize: 20, fontFamily: 'Nunito_700Bold' },
 
     taskHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, paddingHorizontal: 4 },
     taskCountBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
-    taskCountText: { fontSize: 12, fontFamily: 'Nunito_800ExtraBold' },
+    taskCountText: { fontSize: 12, fontFamily: 'Nunito_700Bold' },
     emptyState: { alignItems: 'center', padding: 30, borderRadius: 20, borderWidth: 1, borderStyle: 'dashed' },
     
     taskItem: { 

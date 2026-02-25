@@ -1,27 +1,16 @@
 import {
     Briefcase01Icon,
-    Briefcase02Icon,
-    Calendar03Icon,
     Camera01Icon,
-    Clock01Icon,
-    DollarCircleIcon,
     Layers01Icon,
     Mail01Icon,
     PencilEdit02Icon,
     Settings02Icon,
-    UserCircleIcon,
-    UserGroupIcon
+    UserCircleIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage'; // <-- Added AsyncStorage
 import NetInfo from '@react-native-community/netinfo';
-// Explicitly imported file system functions to fix TS/ESLint errors
-import {
-    cacheDirectory,
-    documentDirectory,
-    downloadAsync,
-    getInfoAsync,
-    makeDirectoryAsync
-} from 'expo-file-system';
+import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -39,7 +28,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import EditAvatarModal from '../../components/EditAvatarModal';
-import EditDisplayModal, { AVAILABLE_JOB_FIELDS } from '../../components/EditDisplayModal';
+import EditDisplayModal from '../../components/EditDisplayModal';
+import JobCard from '../../components/JobCard';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import LoadingScreen from '../../components/LoadingScreen';
 import ModernAlert from '../../components/ModernAlert';
@@ -50,105 +40,31 @@ import { queueSyncItem, saveJobLocal, saveProfileLocal } from '../../lib/databas
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 
-// --- Shared Shadow Style ---
 const shadowStyle = Platform.select({
-    ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 4 },
-    android: { elevation: 2 }
+    ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12 },
+    android: { elevation: 4 }
 });
 
-const DetailRow = ({ label, value, icon, theme }: any) => (
-    <View style={styles.detailRow}>
-        <View style={styles.detailIconContainer}><HugeiconsIcon icon={icon} size={18} color={theme.colors.textSecondary} /></View>
-        <View style={{ flex: 1 }}>
-            <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>{label}</Text>
-            <Text style={[styles.detailValue, { color: theme.colors.text }]}>{value}</Text>
-        </View>
-    </View>
-);
-
-const JobCard = ({ currentJob, visibleKeys, theme, onEdit }: any) => {
-    if (!currentJob) return null;
-    const formatPay = (val: number | string) => { const num = Number(val); return isNaN(num) ? val : `₱${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; };
-    
-    const getCutoffLabel = (val: string) => { 
-        if (!val) return 'Not Set'; 
-        switch(val) { 
-            case 'Semi-Monthly': return '15th / 30th'; 
-            case 'Weekly': return 'Every Friday'; 
-            case 'Monthly': return 'End of Month'; 
-            case 'Bi-Weekly': return 'Every 2 Weeks';
-            default: return val; 
-        } 
-    };
-    
-    const getDetailValue = (key: string) => { 
-        switch(key) { 
-            case 'employment_status': return currentJob.employment_status || 'Regular'; 
-            case 'rate': return formatPay(currentJob.rate || currentJob.salary); 
-            case 'rate_type': return currentJob.rate_type ? currentJob.rate_type.charAt(0).toUpperCase() + currentJob.rate_type.slice(1) : 'Hourly'; 
-            case 'shift': return currentJob.work_schedule ? `${currentJob.work_schedule.start} - ${currentJob.work_schedule.end}` : 'N/A'; 
-            case 'payroll': return getCutoffLabel(currentJob.payout_type || currentJob.cutoff_config?.type); 
-            case 'breaks': return currentJob.break_schedule ? `${currentJob.break_schedule.length} Break(s)` : '0'; 
-            default: return 'N/A'; 
-        } 
-    };
-
-    const getIcon = (key: string) => { 
-        switch(key) { 
-            case 'rate': return DollarCircleIcon; 
-            case 'shift': return Clock01Icon; 
-            case 'payroll': return Calendar03Icon; 
-            case 'employment_status': return Briefcase02Icon; 
-            default: return UserGroupIcon; 
-        } 
-    };
-    const getDetailLabel = (key: string) => AVAILABLE_JOB_FIELDS.find(f => f.key === key)?.label || key;
-
-    return (
-        <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-            <View style={[styles.cardHeader, { borderBottomColor: theme.colors.border }]}>
-                <View style={{ flex: 1 }}>
-                    <Text style={[styles.jobTitle, { color: theme.colors.text }]} numberOfLines={1}>{currentJob.title}</Text>
-                    <Text style={[styles.companyName, { color: theme.colors.textSecondary }]} numberOfLines={1}>{currentJob.company || currentJob.company_name || 'No Company'}</Text>
-                </View>
-                <TouchableOpacity onPress={onEdit} style={[styles.iconButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
-                    <HugeiconsIcon icon={PencilEdit02Icon} size={18} color={theme.colors.text} />
-                </TouchableOpacity>
-            </View>
-            <View style={styles.cardContent}>
-                {visibleKeys.length === 0 ? (
-                    <Text style={{ textAlign: 'center', color: theme.colors.textSecondary, fontStyle: 'italic', padding: 12 }}>No details visible. Tap edit to customize.</Text>
-                ) : (
-                    <View style={styles.gridContainer}>
-                        {visibleKeys.map((key: string) => (
-                            <View key={key} style={styles.gridItem}>
-                                <DetailRow label={getDetailLabel(key)} value={getDetailValue(key)} icon={getIcon(key)} theme={theme} />
-                            </View>
-                        ))}
-                    </View>
-                )}
-            </View>
-        </View>
-    );
-};
-
-const EmptyJobCard = ({ theme, hasJobs }: any) => (
+const EmptyJobCard = ({ theme, hasJobs, router }: any) => (
     <View style={[styles.emptyCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-        <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
+        <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.primary + '10' }]}>
             <HugeiconsIcon icon={Briefcase01Icon} size={32} color={theme.colors.primary} />
         </View>
-        
         <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>
             {hasJobs ? "No Active Job" : "No Jobs Added"}
         </Text>
-        
         <Text style={[styles.emptyDesc, { color: theme.colors.textSecondary }]}>
             {hasJobs 
-                ? "You have saved jobs but none are set as active. Use 'Manage Jobs' above to select one." 
+                ? "You have saved jobs but none are set as active." 
                 : "Set up your job profile to start tracking your attendance."}
         </Text>
+        <TouchableOpacity onPress={() => router.push('/job/job')} style={[styles.emptyButton, { backgroundColor: theme.colors.primary }]}>
+            <Text style={styles.emptyButtonText}>{hasJobs ? 'Select Job' : 'Create Job'}</Text>
+        </TouchableOpacity>
     </View>
 );
+
+const DEFAULT_VISIBLE_KEYS = ['employment_status', 'shift', 'rate', 'period_target'];
 
 export default function ProfileScreen() {
     const router = useRouter();
@@ -167,9 +83,36 @@ export default function ProfileScreen() {
     const [loadingMessage, setLoadingMessage] = useState('Updating...');
     const [modalVisible, setModalVisible] = useState(false);
     const [avatarModalVisible, setAvatarModalVisible] = useState(false);
-    const [visibleDetailKeys, setVisibleDetailKeys] = useState<string[]>(['employment_status', 'shift', 'rate', 'rate_type', 'payroll', 'breaks']);
+    
+    // FIX: Integrated state with AsyncStorage
+    const [visibleDetailKeys, setVisibleDetailKeys] = useState<string[]>(DEFAULT_VISIBLE_KEYS);
     
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+
+    // Load saved Job Card configuration on mount
+    useEffect(() => {
+        const loadDisplayConfig = async () => {
+            try {
+                const savedConfig = await AsyncStorage.getItem('jobCardVisibleKeys');
+                if (savedConfig) {
+                    setVisibleDetailKeys(JSON.parse(savedConfig));
+                }
+            } catch (e) {
+                console.log("Failed to load display config", e);
+            }
+        };
+        loadDisplayConfig();
+    }, []);
+
+    // Save modified Job Card configuration
+    const handleSaveDisplayConfig = async (newKeys: string[]) => {
+        setVisibleDetailKeys(newKeys);
+        try {
+            await AsyncStorage.setItem('jobCardVisibleKeys', JSON.stringify(newKeys));
+        } catch (e) {
+            console.log("Failed to save display config", e);
+        }
+    };
 
     useEffect(() => {
         if (viewData.profile?.avatar_url || viewData.profile?.local_avatar_path) {
@@ -184,7 +127,6 @@ export default function ProfileScreen() {
             setEmail(user.email || '');
 
             const db = await getDB();
-
             const jobsData = await db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ?', [userId]);
             setHasJobs(jobsData && (jobsData as any[]).length > 0);
 
@@ -208,11 +150,8 @@ export default function ProfileScreen() {
                 }
             }
 
-            if (tempProfile) {
-                setViewData({ profile: tempProfile, job: tempJob });
-            } else {
-                setIsLoading(true);
-            }
+            if (tempProfile) setViewData({ profile: tempProfile, job: tempJob });
+            else setIsLoading(true);
 
             const state = await NetInfo.fetch();
             if (state.isConnected) {
@@ -224,17 +163,16 @@ export default function ProfileScreen() {
                             const cleanFileName = rawFileName ? rawFileName.split('?')[0].replace(/[^a-zA-Z0-9._-]/g, '_') : 'avatar.jpg';
                             const fileName = `${userId}_${cleanFileName}`;
                             
-                            const rootDir = documentDirectory || cacheDirectory;
-                            
+                            const rootDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
                             if (rootDir) {
                                 const avatarDir = `${rootDir}avatars/`;
-                                const dirInfo = await getInfoAsync(avatarDir);
-                                if (!dirInfo.exists) await makeDirectoryAsync(avatarDir, { intermediates: true });
+                                const dirInfo = await FileSystem.getInfoAsync(avatarDir);
+                                if (!dirInfo.exists) await FileSystem.makeDirectoryAsync(avatarDir, { intermediates: true });
 
                                 const localUri = `${avatarDir}${fileName}`;
-                                const fileInfo = await getInfoAsync(localUri);
+                                const fileInfo = await FileSystem.getInfoAsync(localUri);
                                 
-                                if (!fileInfo.exists) await downloadAsync(remoteProfile.avatar_url, localUri);
+                                if (!fileInfo.exists) await FileSystem.downloadAsync(remoteProfile.avatar_url, localUri);
                                 remoteProfile.local_avatar_path = localUri;
                             }
                         } catch {
@@ -272,17 +210,13 @@ export default function ProfileScreen() {
 
     const handleUpdateProfile = async (updates: any) => {
         if (!viewData.profile || !user) return;
-        
         setIsUpdating(true);
         setLoadingMessage('Saving Data...');
-
         try {
             const updatedProfile = { ...viewData.profile, ...updates };
             setViewData(prev => ({ ...prev, profile: updatedProfile }));
-            
             await saveProfileLocal(updatedProfile);
             await queueSyncItem('profiles', user.id, 'UPDATE', updates);
-            
             triggerSync();
         } catch (e) { 
             console.log("Update Error:", e);
@@ -295,9 +229,7 @@ export default function ProfileScreen() {
 
     const pickAvatar = async () => {
         const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.5 });
-        if (!result.canceled) { 
-            handleUpdateProfile({ local_avatar_path: result.assets[0].uri }); 
-        }
+        if (!result.canceled) handleUpdateProfile({ local_avatar_path: result.assets[0].uri });
     };
 
     const removeAvatar = () => { handleUpdateProfile({ avatar_url: null, local_avatar_path: null }); };
@@ -307,7 +239,6 @@ export default function ProfileScreen() {
     const getAvatarSource = () => {
         if (userProfile?.local_avatar_path) return { uri: userProfile.local_avatar_path };
         if (userProfile?.avatar_url) return { uri: userProfile.avatar_url };
-        
         if (user?.user_metadata) {
             const meta = user.user_metadata;
             const metaAvatar = meta.avatar_url || meta.picture || meta.avatar;
@@ -323,21 +254,14 @@ export default function ProfileScreen() {
             const titlePart = userProfile.title ? `${userProfile.title.trim()} ` : '';
             const middleInitial = userProfile.middle_name && userProfile.middle_name.trim().length > 0 ? ` ${userProfile.middle_name.trim().charAt(0).toUpperCase()}.` : '';
             const namePart = `${userProfile.first_name || ''}${middleInitial} ${userProfile.last_name || ''}`.trim() || userProfile.full_name;
-            
-            if (namePart) {
-                return `${titlePart}${namePart}${userProfile.professional_suffix ? `, ${userProfile.professional_suffix.trim()}` : ''}`;
-            }
+            if (namePart) return `${titlePart}${namePart}${userProfile.professional_suffix ? `, ${userProfile.professional_suffix.trim()}` : ''}`;
         }
-
         const meta = user?.user_metadata;
         if (meta) {
             if (meta.full_name) return meta.full_name;
             if (meta.name) return meta.name;
-            if (meta.given_name) {
-                return `${meta.given_name} ${meta.family_name || ''}`.trim();
-            }
+            if (meta.given_name) return `${meta.given_name} ${meta.family_name || ''}`.trim();
         }
-
         return 'User';
     })();
 
@@ -346,11 +270,16 @@ export default function ProfileScreen() {
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
             <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} translucent backgroundColor="transparent" />
-            
             <ModernAlert {...alertConfig} />
             <LoadingOverlay visible={isUpdating} message={loadingMessage} />
             
-            <EditDisplayModal visible={modalVisible} onClose={() => setModalVisible(false)} selectedKeys={visibleDetailKeys} onSave={(newKeys) => setVisibleDetailKeys(newKeys)} />
+            <EditDisplayModal 
+                visible={modalVisible} 
+                onClose={() => setModalVisible(false)} 
+                selectedKeys={visibleDetailKeys} 
+                onSave={handleSaveDisplayConfig} // Passed the new async save function
+            />
+            
             <EditAvatarModal visible={avatarModalVisible} onClose={() => setAvatarModalVisible(false)} onPickImage={pickAvatar} onRemoveImage={removeAvatar} />
             
             <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
@@ -385,7 +314,7 @@ export default function ProfileScreen() {
 
                         <View style={{ alignItems: 'center', marginTop: 16 }}>
                             <Text style={[styles.nameText, { color: theme.colors.text }]}>{displayName}</Text>
-                            <View style={[styles.badgeContainer, { backgroundColor: theme.colors.primary + '15' }]}>
+                            <View style={[styles.badgeContainer, { backgroundColor: theme.colors.primary + '10' }]}>
                                 <Text style={[styles.badgeText, { color: theme.colors.primary }]}>{displayJobTitle}</Text>
                             </View>
                             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, opacity: 0.6 }}>
@@ -431,7 +360,7 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
     header: { paddingHorizontal: 24, paddingVertical: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1 },
-    headerTitle: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5 },
+    headerTitle: { fontSize: 28, fontFamily: 'Nunito_500Medium', letterSpacing: -0.5 },
     settingsButton: { padding: 10, borderRadius: 99, borderWidth: 1 },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     scrollContent: { paddingBottom: 120 },
@@ -447,32 +376,22 @@ const styles = StyleSheet.create({
         ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 3 }, android: { elevation: 4 } })
     },
     
-    nameText: { fontSize: 24, fontWeight: '800', textAlign: 'center', letterSpacing: -0.5 },
-    badgeContainer: { marginTop: 6, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 100 },
-    badgeText: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+    nameText: { fontSize: 24, fontFamily: 'Nunito_500Medium', textAlign: 'center', letterSpacing: -0.5 },
+    badgeContainer: { marginTop: 8, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 100 },
+    badgeText: { fontSize: 12, fontFamily: 'Nunito_500Medium', textTransform: 'uppercase', letterSpacing: 0.5 },
     
     actionButtonsRow: { flexDirection: 'row', gap: 12, marginTop: 24, width: '100%' },
     actionButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderRadius: 16, borderWidth: 1, flex: 1, justifyContent: 'center', ...shadowStyle },
-    actionButtonText: { marginLeft: 8, fontWeight: '700', fontSize: 14 },
+    actionButtonText: { marginLeft: 8, fontFamily: 'Nunito_500Medium', fontSize: 14 },
     
     sectionContainer: { paddingHorizontal: 24, marginBottom: 20 },
-    sectionTitle: { fontSize: 11, fontWeight: '700', letterSpacing: 1, marginBottom: 12, opacity: 0.7 },
+    sectionTitle: { fontSize: 11, fontFamily: 'Nunito_500Medium', letterSpacing: 1, marginBottom: 12, opacity: 0.7 },
     
-    card: { borderRadius: 16, borderWidth: 1, overflow: 'hidden', ...shadowStyle },
-    cardHeader: { padding: 20, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1 },
-    jobTitle: { fontSize: 18, fontWeight: '800', marginBottom: 4 },
-    companyName: { fontSize: 14, fontWeight: '500' },
-    iconButton: { padding: 8, borderRadius: 12, borderWidth: 1, flexDirection: 'row', alignItems: 'center' },
-    cardContent: { padding: 20 },
-    gridContainer: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -8 },
-    gridItem: { width: '50%', paddingHorizontal: 8, marginBottom: 16 },
-    detailRow: { flexDirection: 'row', alignItems: 'flex-start' },
-    detailIconContainer: { marginTop: 2, marginRight: 10 },
-    detailLabel: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', marginBottom: 2, opacity: 0.7 },
-    detailValue: { fontSize: 14, fontWeight: '700' },
-    
-    emptyCard: { padding: 32, alignItems: 'center', borderRadius: 16, borderWidth: 1, borderStyle: 'dashed', ...shadowStyle },
+    // Empty Card Styles
+    emptyCard: { padding: 32, alignItems: 'center', borderRadius: 24, borderWidth: 1, borderStyle: 'dashed' },
     emptyIconContainer: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
-    emptyTitle: { fontSize: 18, fontWeight: '800', marginBottom: 8 },
-    emptyDesc: { textAlign: 'center', fontSize: 14, marginBottom: 24, opacity: 0.7 },
+    emptyTitle: { fontSize: 18, fontFamily: 'Nunito_500Medium', marginBottom: 8 },
+    emptyDesc: { textAlign: 'center', fontSize: 14, marginBottom: 24, opacity: 0.7, fontFamily: 'Nunito_400Regular' },
+    emptyButton: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
+    emptyButtonText: { color: '#fff', fontFamily: 'Nunito_500Medium', fontSize: 14 },
 });

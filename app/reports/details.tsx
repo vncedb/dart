@@ -332,19 +332,19 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   heroSection: { flexDirection: "row", alignItems: "center", marginBottom: 32, gap: 16 },
   heroIconBox: { width: 56, height: 56, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  heroDate: { fontSize: 22, fontFamily: 'Nunito_800ExtraBold', letterSpacing: -0.5, marginBottom: 2 },
+  heroDate: { fontSize: 22, fontFamily: 'Nunito_700Bold', letterSpacing: -0.5, marginBottom: 2 },
   heroDay: { fontSize: 14, fontFamily: 'Nunito_600SemiBold', textTransform: 'uppercase', letterSpacing: 1 },
   
   timeGrid: { flexDirection: "row", gap: 12, marginBottom: 36 },
   timeCard: { flex: 1, padding: 20, borderRadius: 24, borderWidth: 1 },
   timeCardHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 },
-  timeCardLabel: { fontSize: 11, fontFamily: 'Nunito_800ExtraBold', textTransform: "uppercase", letterSpacing: 0.5 },
-  timeCardValue: { fontSize: 20, fontFamily: 'Nunito_800ExtraBold' },
+  timeCardLabel: { fontSize: 11, fontFamily: 'Nunito_700Bold', textTransform: "uppercase", letterSpacing: 0.5 },
+  timeCardValue: { fontSize: 20, fontFamily: 'Nunito_700Bold' },
 
   sectionHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 20 },
-  sectionTitle: { fontSize: 18, fontFamily: 'Nunito_800ExtraBold', flex: 1 },
+  sectionTitle: { fontSize: 18, fontFamily: 'Nunito_700Bold', flex: 1 },
   badge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
-  badgeText: { fontSize: 13, fontFamily: 'Nunito_800ExtraBold' },
+  badgeText: { fontSize: 13, fontFamily: 'Nunito_700Bold' },
   
   emptyState: { alignItems: "center", padding: 40, borderRadius: 24, borderWidth: 1, borderStyle: 'dashed' },
   
@@ -360,7 +360,7 @@ const styles = StyleSheet.create({
     marginBottom: 16 // Explicitly added gap directly to the card
   },
   taskHeader: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
-  taskTime: { fontSize: 12, fontFamily: 'Nunito_800ExtraBold' },
+  taskTime: { fontSize: 12, fontFamily: 'Nunito_700Bold' },
   taskContent: { paddingRight: 8 },
   taskTitle: { fontSize: 16, fontFamily: 'Nunito_700Bold', lineHeight: 22, marginBottom: 4 },
   taskRemarks: { fontSize: 14, fontFamily: 'Nunito_400Regular', lineHeight: 20, opacity: 0.8 },

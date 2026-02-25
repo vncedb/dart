@@ -1,25 +1,25 @@
 import {
-    Briefcase01Icon,
-    Clock01Icon,
-    HourglassIcon,
+  ArrowRight01Icon,
+  Briefcase01Icon,
+  Clock01Icon,
+  HourglassIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import React, { useEffect, useState } from "react";
 import {
-    Modal,
-    Pressable,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View
 } from "react-native";
 import Animated, {
-    Easing,
-    interpolate,
-    runOnJS,
-    useAnimatedStyle,
-    useSharedValue,
-    withTiming,
+  Easing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
 } from "react-native-reanimated";
 import Button from "./Button";
 import DurationPicker from "./DurationPicker";
@@ -32,7 +32,7 @@ interface OvertimeModalProps {
   theme: any;
 }
 
-const ANIMATION_EASING = Easing.out(Easing.quad);
+const MODAL_OFFSET = 500;
 
 export default function OvertimeModal({
   visible,
@@ -44,28 +44,25 @@ export default function OvertimeModal({
   const [showDurationPicker, setShowDurationPicker] = useState(false);
   const [showModal, setShowModal] = useState(visible);
 
-  const openAnim = useSharedValue(0);
+  const opacity = useSharedValue(0);
+  const translateY = useSharedValue(MODAL_OFFSET);
 
   useEffect(() => {
     if (visible) {
       setShowModal(true);
-      openAnim.value = 0;
-      openAnim.value = withTiming(1, {
-        duration: 300,
-        easing: ANIMATION_EASING,
-      });
+      opacity.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.ease) });
+      translateY.value = withTiming(0, { duration: 250, easing: Easing.out(Easing.cubic) });
     }
   }, [visible]);
 
   const handleClose = () => {
-    openAnim.value = withTiming(
-      0,
-      { duration: 250, easing: ANIMATION_EASING },
-      (finished) => {
-        if (finished) runOnJS(onClose)();
-        if (finished) runOnJS(setShowModal)(false);
-      },
-    );
+    opacity.value = withTiming(0, { duration: 200 });
+    translateY.value = withTiming(MODAL_OFFSET, { duration: 250, easing: Easing.in(Easing.cubic) }, (finished) => {
+        if (finished) {
+            runOnJS(onClose)();
+            runOnJS(setShowModal)(false);
+        }
+    });
   };
 
   const handleDurationConfirm = (h: number, m: number) => {
@@ -87,7 +84,6 @@ export default function OvertimeModal({
     targetDate.setHours(hour);
     targetDate.setMinutes(m);
 
-    // Calculate difference
     const diff = (targetDate.getTime() - now.getTime()) / 3600000;
     const finalHours = Math.max(0, diff);
 
@@ -97,10 +93,13 @@ export default function OvertimeModal({
     }
   };
 
-  const backdropStyle = useAnimatedStyle(() => ({ opacity: openAnim.value }));
+  const backdropStyle = useAnimatedStyle(() => ({ 
+      opacity: opacity.value,
+      backgroundColor: 'rgba(0,0,0,0.5)'
+  }));
+  
   const containerStyle = useAnimatedStyle(() => ({
-    opacity: openAnim.value,
-    transform: [{ scale: interpolate(openAnim.value, [0, 1], [0.95, 1]) }],
+      transform: [{ translateY: translateY.value }]
   }));
 
   if (!showModal) return null;
@@ -114,16 +113,15 @@ export default function OvertimeModal({
       statusBarTranslucent
     >
       <View style={styles.overlay}>
-        <Animated.View style={[styles.backdrop, backdropStyle]} />
-        <Pressable onPress={handleClose} style={StyleSheet.absoluteFill}>
-          <View style={styles.overlay} />
-        </Pressable>
+        <Animated.View style={[StyleSheet.absoluteFill, backdropStyle]}>
+            <Pressable onPress={handleClose} style={StyleSheet.absoluteFill} />
+        </Animated.View>
 
-        <Pressable onPress={(e) => e.stopPropagation()}>
+        <Pressable onPress={(e) => e.stopPropagation()} style={{ width: '100%', alignItems: 'center' }}>
           <Animated.View
             style={[
               styles.container,
-              { backgroundColor: theme.colors.card },
+              { backgroundColor: theme.colors.card, borderColor: theme.colors.border },
               containerStyle,
             ]}
           >
@@ -141,87 +139,48 @@ export default function OvertimeModal({
                 />
               </View>
               <Text style={[styles.title, { color: theme.colors.text }]}>
-                Overtime Detected
+                Overtime Log
               </Text>
               <Text
                 style={[styles.subtitle, { color: theme.colors.textSecondary }]}
               >
-                You are checking out late. How would you like to record this
-                overtime?
+                Your session has exceeded your scheduled shift. Please log the excess time appropriately.
               </Text>
             </View>
 
-            <View style={styles.selectionGrid}>
+            <View style={styles.actionList}>
               <TouchableOpacity
                 onPress={() => setShowDurationPicker(true)}
-                activeOpacity={0.8}
-                style={[
-                  styles.selectionBtn,
-                  {
-                    backgroundColor: theme.colors.background,
-                    borderColor: theme.colors.border,
-                  },
-                ]}
+                activeOpacity={0.7}
+                style={[styles.actionCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
               >
-                <View
-                  style={[
-                    styles.btnIcon,
-                    { backgroundColor: theme.colors.primary + "15" },
-                  ]}
-                >
-                  <HugeiconsIcon
-                    icon={HourglassIcon}
-                    size={24}
-                    color={theme.colors.primary}
-                  />
+                <View style={[styles.actionIconBox, { backgroundColor: theme.colors.primary + "10" }]}>
+                  <HugeiconsIcon icon={HourglassIcon} size={20} color={theme.colors.primary} />
                 </View>
-                <Text style={[styles.btnTitle, { color: theme.colors.text }]}>
-                  Set Duration
-                </Text>
-                <Text
-                  style={[styles.btnSub, { color: theme.colors.textSecondary }]}
-                >
-                  Add total hours
-                </Text>
+                <View style={styles.actionTextContent}>
+                  <Text style={[styles.actionTitle, { color: theme.colors.text }]}>Set Duration</Text>
+                  <Text style={[styles.actionSub, { color: theme.colors.textSecondary }]}>Add the exact total of hours</Text>
+                </View>
+                <HugeiconsIcon icon={ArrowRight01Icon} size={18} color={theme.colors.icon} />
               </TouchableOpacity>
 
               <TouchableOpacity
                 onPress={() => setShowTimePicker(true)}
-                activeOpacity={0.8}
-                style={[
-                  styles.selectionBtn,
-                  {
-                    backgroundColor: theme.colors.background,
-                    borderColor: theme.colors.border,
-                  },
-                ]}
+                activeOpacity={0.7}
+                style={[styles.actionCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
               >
-                <View
-                  style={[
-                    styles.btnIcon,
-                    { backgroundColor: theme.colors.primary + "15" },
-                  ]}
-                >
-                  <HugeiconsIcon
-                    icon={Clock01Icon}
-                    size={24}
-                    color={theme.colors.primary}
-                  />
+                <View style={[styles.actionIconBox, { backgroundColor: theme.colors.primary + "10" }]}>
+                  <HugeiconsIcon icon={Clock01Icon} size={20} color={theme.colors.primary} />
                 </View>
-                <Text style={[styles.btnTitle, { color: theme.colors.text }]}>
-                  Set End Time
-                </Text>
-                <Text
-                  style={[styles.btnSub, { color: theme.colors.textSecondary }]}
-                >
-                  Pick checkout time
-                </Text>
+                <View style={styles.actionTextContent}>
+                  <Text style={[styles.actionTitle, { color: theme.colors.text }]}>Set End Time</Text>
+                  <Text style={[styles.actionSub, { color: theme.colors.textSecondary }]}>Pick your actual checkout time</Text>
+                </View>
+                <HugeiconsIcon icon={ArrowRight01Icon} size={18} color={theme.colors.icon} />
               </TouchableOpacity>
             </View>
 
-            <View
-              style={[styles.footer, { borderTopColor: theme.colors.border }]}
-            >
+            <View style={[styles.footer, { borderTopColor: theme.colors.border, backgroundColor: theme.colors.card }]}>
               <Button
                 title="Cancel"
                 variant="neutral"
@@ -240,9 +199,7 @@ export default function OvertimeModal({
           initialHours={
             new Date().getHours() > 12
               ? new Date().getHours() - 12
-              : new Date().getHours() === 0
-                ? 12
-                : new Date().getHours()
+              : new Date().getHours() === 0 ? 12 : new Date().getHours()
           }
           initialMinutes={new Date().getMinutes()}
           initialPeriod={new Date().getHours() >= 12 ? "PM" : "AM"}
@@ -266,84 +223,85 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.6)",
+    paddingHorizontal: 24, // Matches standard Selection Modal padding
+    zIndex: 999,
   },
   container: {
-    width: 340,
+    width: '100%', // Removes max-width constraint to match selection modal
     borderRadius: 28,
-    overflow: "hidden", // Changed back to hidden so padding applies correctly inside
-    elevation: 20,
+    borderWidth: 1,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 15,
   },
   headerContent: {
     alignItems: "center",
-    paddingTop: 24, // Moved padding here to match standard modal look
-    marginBottom: 24,
+    paddingTop: 32,
     paddingHorizontal: 24,
+    marginBottom: 24,
   },
   iconWrapper: {
     width: 64,
     height: 64,
-    borderRadius: 32,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
+    marginBottom: 20,
   },
   title: {
     fontSize: 20,
-    fontWeight: "800",
+    fontFamily: "Nunito_700Bold",
     marginBottom: 8,
     textAlign: "center",
+    letterSpacing: -0.3,
   },
   subtitle: {
     fontSize: 14,
+    fontFamily: "Nunito_500Medium",
     textAlign: "center",
-    lineHeight: 20,
-    paddingHorizontal: 10,
+    lineHeight: 22,
+    opacity: 0.7,
   },
-
-  selectionGrid: {
-    flexDirection: "row",
+  actionList: {
     gap: 12,
+    paddingHorizontal: 20,
     marginBottom: 24,
-    paddingHorizontal: 24,
   },
-  selectionBtn: {
-    flex: 1,
-    paddingVertical: 20,
-    paddingHorizontal: 12,
-    borderRadius: 16,
+  actionCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 20,
     borderWidth: 1,
+  },
+  actionIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
+    marginRight: 14,
   },
-  btnIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4,
+  actionTextContent: {
+    flex: 1,
   },
-  btnTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    textAlign: "center",
+  actionTitle: {
+    fontSize: 15,
+    fontFamily: "Nunito_700Bold",
+    marginBottom: 2,
+    letterSpacing: -0.2,
   },
-  btnSub: {
-    fontSize: 11,
-    fontWeight: "500",
-    textAlign: "center",
-    opacity: 0.8,
+  actionSub: {
+    fontSize: 12,
+    fontFamily: "Nunito_600SemiBold",
+    opacity: 0.6,
   },
-
   footer: {
-    flexDirection: "row", // Matches TimePicker layout
-    padding: 20, // Matches TimePicker padding
+    padding: 20,
     borderTopWidth: 1,
+    flexDirection: 'row',
   },
 });
