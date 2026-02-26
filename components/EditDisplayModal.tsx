@@ -4,7 +4,7 @@ import {
     DragDropVerticalIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
     Dimensions,
     Modal,
@@ -51,17 +51,20 @@ interface EditDisplayModalProps {
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-const HEADER_HEIGHT = 80; 
-const ITEM_HEIGHT = 70;
-const SECTION_HEADER_HEIGHT = 50; 
-const FOOTER_HEIGHT = Platform.OS === 'ios' ? 100 : 90; 
-const HANDLE_HEIGHT = 30;
-const LIST_PADDING = 24;
+// UPDATED DIMENSIONS
+const HEADER_HEIGHT = 70; 
+const ITEM_HEIGHT = 60;
+const SECTION_HEADER_HEIGHT = 40; 
+const FOOTER_HEIGHT = Platform.OS === 'ios' ? 90 : 80; 
+const HANDLE_HEIGHT = 20;
+const LIST_PADDING = 12;
 
+// Calculate total space needed for 7 items + UI elements + Generous Buffer
 const TOTAL_ITEMS = AVAILABLE_JOB_FIELDS.length;
-const TOTAL_CONTENT_HEIGHT = HEADER_HEIGHT + (TOTAL_ITEMS * ITEM_HEIGHT) + SECTION_HEADER_HEIGHT + FOOTER_HEIGHT + HANDLE_HEIGHT + LIST_PADDING;
+const TOTAL_CONTENT_HEIGHT = HEADER_HEIGHT + (TOTAL_ITEMS * ITEM_HEIGHT) + SECTION_HEADER_HEIGHT + FOOTER_HEIGHT + HANDLE_HEIGHT + LIST_PADDING + 80; 
 
-const SHEET_HEIGHT = Math.min(TOTAL_CONTENT_HEIGHT, SCREEN_HEIGHT * 0.92);
+// Increased to 0.96 to be near the top of screen
+const SHEET_HEIGHT = Math.min(TOTAL_CONTENT_HEIGHT, SCREEN_HEIGHT * 0.96);
 const SNAP_OPEN = 0; 
 const SNAP_CLOSE = SHEET_HEIGHT; 
 
@@ -87,16 +90,16 @@ export default function EditDisplayModal({
         }
     }, [visible, selectedKeys]);
 
-    const close = () => {
+    const close = useCallback(() => {
         translateY.value = withTiming(SNAP_CLOSE, { duration: 250 }, () => {
             runOnJS(onClose)();
         });
-    };
+    }, [onClose]);
 
-    const handleSave = () => {
+    const handleSave = useCallback(() => {
         onSave(activeKeys);
         close();
-    };
+    }, [activeKeys, onSave, close]);
 
     const activeItems = useMemo(() => 
         activeKeys.map(key => AVAILABLE_JOB_FIELDS.find(f => f.key === key)).filter(Boolean) as typeof AVAILABLE_JOB_FIELDS,
@@ -106,21 +109,20 @@ export default function EditDisplayModal({
         AVAILABLE_JOB_FIELDS.filter(f => !activeKeys.includes(f.key)),
     [activeKeys]);
 
-    const toggleItem = (key: string, isActive: boolean) => {
+    const toggleItem = useCallback((key: string, isActive: boolean) => {
         if (isActive) setActiveKeys(prev => prev.filter(k => k !== key));
         else setActiveKeys(prev => [...prev, key]);
-    };
+    }, []);
 
     const animatedStyle = useAnimatedStyle(() => ({
         transform: [{ translateY: translateY.value }]
     }));
 
-    const renderActiveItem = ({ item, drag, isActive }: RenderItemParams<typeof AVAILABLE_JOB_FIELDS[0]>) => {
+    const renderActiveItem = useCallback(({ item, drag, isActive }: RenderItemParams<typeof AVAILABLE_JOB_FIELDS[0]>) => {
         return (
-            <View style={[{ paddingVertical: 5 }, isActive && { zIndex: 999 }]}>
+            <View style={{ marginBottom: 6 }}> 
                 <TouchableOpacity
                     activeOpacity={1}
-                    onLongPress={drag}
                     disabled={isActive}
                     style={[
                         styles.item,
@@ -128,6 +130,7 @@ export default function EditDisplayModal({
                             backgroundColor: isActive ? theme.colors.primary + '10' : theme.colors.card,
                             borderColor: theme.colors.border,
                             borderWidth: 1,
+                            height: ITEM_HEIGHT, // Fixed height 54
                         }
                     ]}
                 >
@@ -135,25 +138,25 @@ export default function EditDisplayModal({
                         <TouchableOpacity 
                             onPressIn={drag} 
                             style={[styles.iconBox, { backgroundColor: isActive ? theme.colors.primary + '20' : theme.colors.background }]}
-                            hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                         >
-                            <HugeiconsIcon icon={DragDropVerticalIcon} size={20} color={isActive ? theme.colors.primary : theme.colors.textSecondary} />
+                            <HugeiconsIcon icon={DragDropVerticalIcon} size={18} color={isActive ? theme.colors.primary : theme.colors.textSecondary} />
                         </TouchableOpacity>
                         
-                        <View style={{ flex: 1, paddingRight: 10 }}>
+                        <View style={{ flex: 1, paddingRight: 10, justifyContent: 'center' }}>
                             <Text style={[styles.itemLabel, { color: theme.colors.text }]} numberOfLines={1}>
                                 {item.label}
                             </Text>
                         </View>
                     </View>
 
-                    <TouchableOpacity onPress={() => toggleItem(item.key, true)} hitSlop={12} style={[styles.removeBtn, { backgroundColor: theme.colors.danger + '10' }]}>
-                        <HugeiconsIcon icon={Delete02Icon} size={18} color={theme.colors.danger} />
+                    <TouchableOpacity onPress={() => toggleItem(item.key, true)} hitSlop={12} style={[styles.actionBtn, { backgroundColor: theme.colors.danger + '10' }]}>
+                        <HugeiconsIcon icon={Delete02Icon} size={16} color={theme.colors.danger} />
                     </TouchableOpacity>
                 </TouchableOpacity>
             </View>
         );
-    };
+    }, [theme, toggleItem]);
 
     if (!visible) return null;
 
@@ -179,7 +182,7 @@ export default function EditDisplayModal({
 
                     <ModalHeader 
                         title="Customize Job Card" 
-                        subtitle="Hold and drag to arrange items" 
+                        subtitle="Drag handle to reorder" 
                         onClose={close} 
                         position="bottom"
                     />
@@ -193,10 +196,10 @@ export default function EditDisplayModal({
                             showsVerticalScrollIndicator={false}
                             contentContainerStyle={styles.listContent}
                             activationDistance={10}
-                            scrollEnabled={true} 
+                            scrollEnabled={false} // DISABLED SCROLLING
                             ListFooterComponent={
                                 inactiveItems.length > 0 ? (
-                                    <View style={{ marginTop: 24 }}>
+                                    <View style={{ marginTop: 12 }}>
                                         <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>
                                             AVAILABLE DETAILS
                                         </Text>
@@ -215,7 +218,7 @@ export default function EditDisplayModal({
                                             >
                                                 <View style={styles.itemLeft}>
                                                     <View style={[styles.iconBox, { backgroundColor: theme.colors.card }]}>
-                                                        <HugeiconsIcon icon={Add01Icon} size={20} color={theme.colors.primary} />
+                                                        <HugeiconsIcon icon={Add01Icon} size={18} color={theme.colors.primary} />
                                                     </View>
                                                     <Text style={[styles.inactiveItemLabel, { color: theme.colors.textSecondary }]}>
                                                         {item.label}
@@ -258,14 +261,14 @@ const styles = StyleSheet.create({
     handle: { width: 36, height: 4, borderRadius: 2, opacity: 0.4 },
     listContent: {
         paddingHorizontal: 24,
-        paddingBottom: 130, 
-        paddingTop: 8,
+        paddingBottom: FOOTER_HEIGHT + 60, // Significantly increased padding
+        paddingTop: 14,
     },
     sectionTitle: { 
-        fontSize: 11, 
+        fontSize: 10, 
         fontFamily: 'Nunito_700Bold', 
         opacity: 0.6, 
-        marginBottom: 12, 
+        marginBottom: 8, 
         letterSpacing: 1, 
         textTransform: 'uppercase' 
     },
@@ -273,17 +276,17 @@ const styles = StyleSheet.create({
         flexDirection: 'row', 
         alignItems: 'center', 
         justifyContent: 'space-between', 
-        padding: 14, 
-        paddingRight: 16,
-        borderRadius: 18,
+        paddingHorizontal: 12,
+        borderRadius: 14,
+        height: ITEM_HEIGHT,
     },
     inactiveItem: {
         flexDirection: 'row', 
         alignItems: 'center', 
-        padding: 14, 
-        paddingRight: 16,
-        borderRadius: 18,
-        marginBottom: 8,
+        paddingHorizontal: 12,
+        height: ITEM_HEIGHT, // Matches active item height
+        borderRadius: 14,
+        marginBottom: 6,
         borderWidth: 1,
         borderStyle: 'dashed'
     },
@@ -291,29 +294,29 @@ const styles = StyleSheet.create({
         flex: 1,
         flexDirection: 'row', 
         alignItems: 'center', 
-        gap: 14 
+        gap: 12 
     },
     iconBox: { 
-        width: 38, 
-        height: 38, 
-        borderRadius: 12, 
+        width: 32, 
+        height: 32, 
+        borderRadius: 10, 
         alignItems: 'center', 
         justifyContent: 'center' 
     },
     itemLabel: { 
-        fontSize: 15, 
-        letterSpacing: -0.2,
-        fontFamily: 'Nunito_700Bold'
-    },
-    inactiveItemLabel: {
-        fontSize: 15, 
+        fontSize: 14, 
         letterSpacing: -0.2,
         fontFamily: 'Nunito_600SemiBold'
     },
-    removeBtn: {
-        width: 34,
-        height: 34,
-        borderRadius: 17,
+    inactiveItemLabel: {
+        fontSize: 14, 
+        letterSpacing: -0.2,
+        fontFamily: 'Nunito_600SemiBold'
+    },
+    actionBtn: {
+        width: 32,
+        height: 32,
+        borderRadius: 16,
         alignItems: 'center',
         justifyContent: 'center'
     },

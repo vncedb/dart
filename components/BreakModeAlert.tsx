@@ -1,6 +1,6 @@
 import { PauseCircleIcon, PlayCircleIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 import { useAppTheme } from '../constants/theme';
@@ -12,6 +12,26 @@ interface BreakModeAlertProps {
 
 const BreakModeAlert = ({ visible, onResume }: BreakModeAlertProps) => {
     const theme = useAppTheme();
+    const [duration, setDuration] = useState(0);
+
+    // Timer Logic
+    useEffect(() => {
+        let interval: NodeJS.Timeout;
+        if (visible) {
+            interval = setInterval(() => {
+                setDuration(prev => prev + 1);
+            }, 1000);
+        } else {
+            setDuration(0);
+        }
+        return () => clearInterval(interval);
+    }, [visible]);
+
+    const formatTime = (secs: number) => {
+        const minutes = Math.floor(secs / 60);
+        const seconds = secs % 60;
+        return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    };
 
     if (!visible) return null;
 
@@ -27,7 +47,9 @@ const BreakModeAlert = ({ visible, onResume }: BreakModeAlertProps) => {
                 </View>
                 <View>
                     <Text style={[styles.title, { color: theme.colors.text }]}>Break Mode Active</Text>
-                    <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Timer is paused.</Text>
+                    <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
+                        Paused for {formatTime(duration)}
+                    </Text>
                 </View>
             </View>
 
@@ -45,7 +67,7 @@ const BreakModeAlert = ({ visible, onResume }: BreakModeAlertProps) => {
 const styles = StyleSheet.create({
     container: {
         position: 'absolute',
-        bottom: 100, // Above tab bar
+        bottom: 135, // Increased spacing from 100 to 135
         left: 20,
         right: 20,
         borderRadius: 16,

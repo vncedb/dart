@@ -38,7 +38,6 @@ const AnimatedView = Animated.createAnimatedComponent(View);
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const MENU_WIDTH = 190;
 
 export default function ActionMenu({
   visible,
@@ -87,7 +86,15 @@ export default function ActionMenu({
         <AnimatedView
           style={[
             styles.menuContainer,
-            { backgroundColor: theme.colors.card, borderColor: theme.colors.border, width: MENU_WIDTH, top: topPosition, right: rightPosition },
+            { 
+                backgroundColor: theme.colors.card, 
+                borderColor: theme.colors.border, 
+                // Dynamically hug content width, limit max to prevent off-screen overflow
+                minWidth: 190,
+                maxWidth: SCREEN_WIDTH - 32, 
+                top: topPosition, 
+                right: rightPosition 
+            },
             animatedStyle,
           ]}
         >
@@ -115,7 +122,8 @@ export default function ActionMenu({
                 <View style={[styles.iconBox, { backgroundColor: bgColor }]}>
                   <HugeiconsIcon icon={action.icon} size={18} color={iconColor} />
                 </View>
-                <Text numberOfLines={1} style={[styles.menuText, { color: textColor }]}>
+                {/* FIX: Removed flex: 1 and numberOfLines={1} to allow text to dictate natural container width */}
+                <Text style={[styles.menuText, { color: textColor }]}>
                   {action.label}
                 </Text>
               </TouchableOpacity>
@@ -141,7 +149,24 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     paddingVertical: 6,
   },
-  menuItem: { flexDirection: "row", alignItems: "center", paddingVertical: 12, paddingHorizontal: 16 },
-  iconBox: { width: 30, height: 30, borderRadius: 10, alignItems: "center", justifyContent: "center", marginRight: 12 },
-  menuText: { fontSize: 15, fontFamily: "Nunito_700Bold", letterSpacing: -0.2, flex: 1 },
+  menuItem: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    paddingVertical: 12, 
+    paddingHorizontal: 16 
+  },
+  iconBox: { 
+    width: 30, 
+    height: 30, 
+    borderRadius: 10, 
+    alignItems: "center", 
+    justifyContent: "center", 
+    marginRight: 12 
+  },
+  menuText: { 
+    fontSize: 15, 
+    fontFamily: "Nunito_700Bold", 
+    letterSpacing: -0.2,
+    flexShrink: 1 
+  },
 });

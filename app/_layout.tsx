@@ -26,9 +26,9 @@ import "../global.css";
 import { initDatabase } from "../lib/database";
 import { initNotificationSystem } from "../utils/NotificationService";
 
+// FIX: Removed suppression for 'shouldShowAlert' as it is now fixed
 LogBox.ignoreLogs([
   "SafeAreaView has been deprecated",
-  "shouldShowAlert is deprecated",
 ]);
 
 SplashScreen.preventAutoHideAsync();

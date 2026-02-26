@@ -61,11 +61,10 @@ import {
 // PREVENT NOTIFICATION ACTION FROM FORCING APP TO FOREGROUND TAB
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
     shouldPlaySound: false,
     shouldSetBadge: false,
-    shouldShowBanner: true, // Fixed: Added required property
-    shouldShowList: true,   // Fixed: Added required property
+    shouldShowBanner: true, 
+    shouldShowList: true,   
   }),
 });
 
@@ -147,35 +146,46 @@ const HomeContentSkeleton = () => {
 
     return (
         <View style={styles.skeletonContainer}>
-            <View style={{ alignItems: 'center', marginBottom: 40, marginTop: 20 }}>
+            {/* 1. Dynamic Bar & Biometric Section */}
+            <View style={{ alignItems: 'center', marginBottom: 40 }}>
+                {/* DynamicBar Replica: height 64, radius 24 */}
                 <View style={[styles.skeletonDynamicBar, { borderColor, backgroundColor: cardBg }]}>
-                     <SkeletonItem style={{ width: 40, height: 40, borderRadius: 20, marginRight: 14 }} />
-                     <View>
-                         <SkeletonItem style={{ width: 60, height: 8, marginBottom: 6 }} />
-                         <SkeletonItem style={{ width: 100, height: 12 }} />
+                     <SkeletonItem style={{ width: 48, height: 48, borderRadius: 24, marginRight: 14 }} />
+                     <View style={{ gap: 6 }}>
+                         <SkeletonItem style={{ width: 80, height: 10, borderRadius: 4 }} />
+                         <SkeletonItem style={{ width: 120, height: 14, borderRadius: 4 }} />
                      </View>
                 </View>
-                <View style={{ alignItems: 'center', marginTop: 24 }}>
-                     <View style={{ width: 120, height: 120, borderRadius: 60, borderWidth: 1, borderColor, alignItems: 'center', justifyContent: 'center' }}>
-                         <SkeletonItem style={{ width: 100, height: 100, borderRadius: 50 }} color={theme.dark ? undefined : '#F3F4F6'} />
+
+                {/* BiometricButton Replica: 120x120 circle */}
+                <View style={{ alignItems: 'center', marginTop: 32 }}>
+                     <View style={{ width: 120, height: 120, borderRadius: 60, borderWidth: 6, borderColor: borderColor + '40', alignItems: 'center', justifyContent: 'center', backgroundColor: cardBg }}>
+                         <SkeletonItem style={{ width: 52, height: 52, borderRadius: 26 }} color={theme.dark ? undefined : '#F3F4F6'} />
                      </View>
-                     <SkeletonItem style={{ width: 120, height: 10, marginTop: 20 }} />
+                     <SkeletonItem style={{ width: 140, height: 12, marginTop: 24, borderRadius: 6 }} />
                 </View>
             </View>
 
+            {/* 2. Daily Summary Card Replica */}
             <View style={[styles.skeletonCard, { backgroundColor: cardBg, borderColor, marginBottom: 24 }]}>
+                {/* Top Section */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 20, paddingBottom: 16 }}>
                     <View>
-                        <SkeletonItem style={{ width: 70, height: 20, marginBottom: 12, borderRadius: 6 }} />
-                        <SkeletonItem style={{ width: 130, height: 32, marginBottom: 4 }} />
-                        <SkeletonItem style={{ width: 80, height: 10 }} />
+                        <SkeletonItem style={{ width: 80, height: 20, marginBottom: 12, borderRadius: 6 }} />
+                        <SkeletonItem style={{ width: 150, height: 38, marginBottom: 4, borderRadius: 6 }} />
                     </View>
-                    <SkeletonItem style={{ width: 90, height: 90, borderRadius: 45 }} color={theme.dark ? undefined : '#F3F4F6'} />
+                    {/* Ring Replica */}
+                    <View style={{ width: 100, height: 100, borderRadius: 50, borderWidth: 8, borderColor: borderColor + '30', alignItems: 'center', justifyContent: 'center' }}>
+                         <SkeletonItem style={{ width: 40, height: 14 }} />
+                    </View>
                 </View>
-                <View style={{ height: 1, backgroundColor: borderColor, opacity: 0.5, marginHorizontal: 20 }} />
-                <View style={{ flexDirection: 'row', paddingVertical: 16, paddingHorizontal: 8 }}>
+                
+                <View style={{ height: 1, backgroundColor: borderColor, opacity: 0.5 }} />
+                
+                {/* Grid Section */}
+                <View style={{ flexDirection: 'row', paddingVertical: 14, paddingHorizontal: 8 }}>
                     {[1, 2, 3].map((i) => (
-                        <View key={i} style={{ flex: 1, alignItems: 'center', gap: 6, borderRightWidth: i < 3 ? 1 : 0, borderColor }}>
+                        <View key={i} style={{ flex: 1, alignItems: 'center', gap: 6, borderRightWidth: i < 3 ? 1 : 0, borderColor: borderColor + '40' }}>
                             <SkeletonItem style={{ width: 30, height: 8 }} />
                             <SkeletonItem style={{ width: 50, height: 12 }} />
                         </View>
@@ -183,24 +193,29 @@ const HomeContentSkeleton = () => {
                 </View>
             </View>
 
+            {/* 3. Section Header Replica */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16, paddingHorizontal: 4, alignItems: 'center' }}>
-                <SkeletonItem style={{ width: 120, height: 18 }} />
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                    <SkeletonItem style={{ width: 32, height: 32, borderRadius: 16 }} />
-                    <SkeletonItem style={{ width: 32, height: 32, borderRadius: 16 }} />
+                <SkeletonItem style={{ width: 140, height: 20, borderRadius: 6 }} />
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                    <SkeletonItem style={{ width: 36, height: 36, borderRadius: 18 }} />
+                    <SkeletonItem style={{ width: 36, height: 36, borderRadius: 18 }} />
                 </View>
             </View>
 
-            <View style={{ borderLeftWidth: 2, borderLeftColor: borderColor, marginLeft: 8, paddingLeft: 24, paddingBottom: 20 }}>
+            {/* 4. Timeline Replica */}
+            <View style={{ borderLeftWidth: 2, borderLeftColor: borderColor, marginLeft: 8, paddingLeft: 16 }}>
                 {[1, 2].map((i) => (
-                    <View key={i} style={{ marginBottom: 32 }}>
-                        <View style={{ position: 'absolute', left: -31, top: 0, width: 12, height: 12, borderRadius: 6, backgroundColor: borderColor }} />
-                        <View style={{ backgroundColor: cardBg, borderRadius: 12, padding: 16, borderWidth: 1, borderColor }}>
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 }}>
-                                <SkeletonItem style={{ width: '60%', height: 14 }} />
-                                <SkeletonItem style={{ width: 24, height: 24, borderRadius: 12 }} />
-                            </View>
-                            <SkeletonItem style={{ width: '40%', height: 10 }} />
+                    <View key={i} style={{ marginBottom: 24 }}>
+                        {/* Dot */}
+                        <View style={{ position: 'absolute', left: -25, top: 16, width: 16, height: 16, borderRadius: 8, backgroundColor: cardBg, borderWidth: 2, borderColor }} />
+                        
+                        {/* Card */}
+                        <View style={{ backgroundColor: theme.colors.background, borderRadius: 16, borderWidth: 1, borderColor, padding: 16 }}>
+                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                                <SkeletonItem style={{ width: '60%', height: 16, borderRadius: 4 }} />
+                                <SkeletonItem style={{ width: 40, height: 16, borderRadius: 4 }} />
+                             </View>
+                             <SkeletonItem style={{ width: '40%', height: 12, borderRadius: 4, marginTop: 4 }} />
                         </View>
                     </View>
                 ))}
@@ -887,8 +902,8 @@ export default function Home() {
 
 const styles = StyleSheet.create({
     skeletonContainer: { flex: 1, paddingHorizontal: 0 },
-    skeletonDynamicBar: { flexDirection: 'row', alignItems: 'center', padding: 6, borderRadius: 24, borderWidth: 1, width: '100%', maxWidth: 380, height: 60 },
-    skeletonCard: { borderRadius: 24, borderWidth: 1, justifyContent: 'space-between' },
+    skeletonDynamicBar: { flexDirection: 'row', alignItems: 'center', padding: 6, borderRadius: 24, borderWidth: 1, width: '100%', maxWidth: 380, height: 64 },
+    skeletonCard: { borderRadius: 24, borderWidth: 1.5, justifyContent: 'space-between', overflow: 'hidden' },
     rowBetween: { flexDirection: 'row', justifyContent: 'space-between' },
     jobCard: { borderWidth: 1, padding: 24, borderRadius: 24, flexDirection: 'row', alignItems: 'center' },
     jobIconBox: { width: 56, height: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 16 },

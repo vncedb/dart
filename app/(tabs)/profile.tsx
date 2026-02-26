@@ -8,9 +8,16 @@ import {
     UserCircleIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage'; // <-- Added AsyncStorage
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-import * as FileSystem from 'expo-file-system';
+// FIX: Changed to named imports to resolve "Property does not exist" errors
+import {
+    cacheDirectory,
+    documentDirectory,
+    downloadAsync,
+    getInfoAsync,
+    makeDirectoryAsync
+} from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -33,6 +40,7 @@ import JobCard from '../../components/JobCard';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import LoadingScreen from '../../components/LoadingScreen';
 import ModernAlert from '../../components/ModernAlert';
+import TabHeader from '../../components/TabHeader'; // FIX: Imported TabHeader
 import { useAppTheme } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { useSync } from '../../context/SyncContext';
@@ -84,7 +92,6 @@ export default function ProfileScreen() {
     const [modalVisible, setModalVisible] = useState(false);
     const [avatarModalVisible, setAvatarModalVisible] = useState(false);
     
-    // FIX: Integrated state with AsyncStorage
     const [visibleDetailKeys, setVisibleDetailKeys] = useState<string[]>(DEFAULT_VISIBLE_KEYS);
     
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
@@ -163,16 +170,18 @@ export default function ProfileScreen() {
                             const cleanFileName = rawFileName ? rawFileName.split('?')[0].replace(/[^a-zA-Z0-9._-]/g, '_') : 'avatar.jpg';
                             const fileName = `${userId}_${cleanFileName}`;
                             
-                            const rootDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
+                            // FIX: Use named export
+                            const rootDir = documentDirectory || cacheDirectory;
                             if (rootDir) {
                                 const avatarDir = `${rootDir}avatars/`;
-                                const dirInfo = await FileSystem.getInfoAsync(avatarDir);
-                                if (!dirInfo.exists) await FileSystem.makeDirectoryAsync(avatarDir, { intermediates: true });
+                                // FIX: Use named export
+                                const dirInfo = await getInfoAsync(avatarDir);
+                                if (!dirInfo.exists) await makeDirectoryAsync(avatarDir, { intermediates: true });
 
                                 const localUri = `${avatarDir}${fileName}`;
-                                const fileInfo = await FileSystem.getInfoAsync(localUri);
+                                const fileInfo = await getInfoAsync(localUri);
                                 
-                                if (!fileInfo.exists) await FileSystem.downloadAsync(remoteProfile.avatar_url, localUri);
+                                if (!fileInfo.exists) await downloadAsync(remoteProfile.avatar_url, localUri);
                                 remoteProfile.local_avatar_path = localUri;
                             }
                         } catch {
@@ -277,17 +286,20 @@ export default function ProfileScreen() {
                 visible={modalVisible} 
                 onClose={() => setModalVisible(false)} 
                 selectedKeys={visibleDetailKeys} 
-                onSave={handleSaveDisplayConfig} // Passed the new async save function
+                onSave={handleSaveDisplayConfig} 
             />
             
             <EditAvatarModal visible={avatarModalVisible} onClose={() => setAvatarModalVisible(false)} onPickImage={pickAvatar} onRemoveImage={removeAvatar} />
             
-            <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-                <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Profile</Text>
-                <TouchableOpacity onPress={() => router.push('/settings')} style={[styles.settingsButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                    <HugeiconsIcon icon={Settings02Icon} size={22} color={theme.colors.text} />
-                </TouchableOpacity>
-            </View>
+            {/* FIX: Replaced custom header with TabHeader */}
+            <TabHeader 
+                title="Profile"
+                rightElement={
+                    <TouchableOpacity onPress={() => router.push('/settings')} style={[styles.settingsButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                        <HugeiconsIcon icon={Settings02Icon} size={22} color={theme.colors.text} />
+                    </TouchableOpacity>
+                }
+            />
 
             {isLoading ? (
                 <LoadingScreen message="Loading Profile..." />
@@ -359,8 +371,7 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-    header: { paddingHorizontal: 24, paddingVertical: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1 },
-    headerTitle: { fontSize: 28, fontFamily: 'Nunito_500Medium', letterSpacing: -0.5 },
+    // FIX: Removed 'header' and 'headerTitle' styles as they are no longer used
     settingsButton: { padding: 10, borderRadius: 99, borderWidth: 1 },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     scrollContent: { paddingBottom: 120 },
