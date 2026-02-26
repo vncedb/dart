@@ -172,14 +172,16 @@ function RootLayoutNav() {
           <Stack.Screen name="settings/feedback" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/about" options={{ animation: "slide_from_right" }} />
           
-          <Stack.Screen name="edit-profile" options={{ animation: "slide_from_bottom", presentation: "modal" }} />
+          <Stack.Screen name="edit-profile" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="notifications" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="job/job" options={{ animation: "slide_from_right" }} />
-          <Stack.Screen name="job/form" options={{ animation: "slide_from_bottom", presentation: "modal" }} />
+          <Stack.Screen name="job/form" options={{ animation: "slide_from_right" }} />
           
           <Stack.Screen name="reports/saved-reports" options={{ animation: "slide_from_right" }} />
-          <Stack.Screen name="reports/generate" options={{ animation: "slide_from_bottom", presentation: "modal" }} />
+          <Stack.Screen name="reports/add-entry" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="reports/generate" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="reports/preview" options={{ animation: "slide_from_right" }} />
-          <Stack.Screen name="reports/details" options={{ animation: "slide_from_bottom", presentation: "modal" }} />
+          <Stack.Screen name="reports/details" options={{ animation: "slide_from_right" }} />
         </Stack>
 
         {isBiometricLocked && user && (

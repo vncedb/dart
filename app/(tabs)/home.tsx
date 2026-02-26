@@ -8,7 +8,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNetInfo } from '@react-native-community/netinfo';
-import { addDays, addHours, differenceInSeconds, format, isToday, set, startOfMonth, startOfWeek } from 'date-fns';
+import { addDays, addHours, differenceInDays, differenceInSeconds, format, isToday, set, startOfMonth, startOfWeek } from 'date-fns';
 import { useAudioPlayer } from 'expo-audio';
 import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
@@ -43,13 +43,12 @@ import DatePicker from '../../components/DatePicker';
 import DynamicBar from '../../components/DynamicBar';
 import DynamicHeader from '../../components/DynamicHeader';
 import ModernAlert from '../../components/ModernAlert';
-import NotificationModal from '../../components/NotificationModal';
 import OvertimeModal from '../../components/OvertimeModal';
 import ScaleButton from '../../components/ScaleButton';
 
 import { useAppTheme } from '../../constants/theme';
 import { useSync } from '../../context/SyncContext';
-import { generateUUID, getNotificationsLocal, markAllNotificationsReadLocal, saveNotificationLocal } from '../../lib/database';
+import { generateUUID, getNotificationsLocal, saveNotificationLocal } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
 import {
@@ -146,9 +145,7 @@ const HomeContentSkeleton = () => {
 
     return (
         <View style={styles.skeletonContainer}>
-            {/* 1. Dynamic Bar & Biometric Section */}
             <View style={{ alignItems: 'center', marginBottom: 40 }}>
-                {/* DynamicBar Replica: height 64, radius 24 */}
                 <View style={[styles.skeletonDynamicBar, { borderColor, backgroundColor: cardBg }]}>
                      <SkeletonItem style={{ width: 48, height: 48, borderRadius: 24, marginRight: 14 }} />
                      <View style={{ gap: 6 }}>
@@ -157,7 +154,6 @@ const HomeContentSkeleton = () => {
                      </View>
                 </View>
 
-                {/* BiometricButton Replica: 120x120 circle */}
                 <View style={{ alignItems: 'center', marginTop: 32 }}>
                      <View style={{ width: 120, height: 120, borderRadius: 60, borderWidth: 6, borderColor: borderColor + '40', alignItems: 'center', justifyContent: 'center', backgroundColor: cardBg }}>
                          <SkeletonItem style={{ width: 52, height: 52, borderRadius: 26 }} color={theme.dark ? undefined : '#F3F4F6'} />
@@ -166,15 +162,12 @@ const HomeContentSkeleton = () => {
                 </View>
             </View>
 
-            {/* 2. Daily Summary Card Replica */}
             <View style={[styles.skeletonCard, { backgroundColor: cardBg, borderColor, marginBottom: 24 }]}>
-                {/* Top Section */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 20, paddingBottom: 16 }}>
                     <View>
                         <SkeletonItem style={{ width: 80, height: 20, marginBottom: 12, borderRadius: 6 }} />
                         <SkeletonItem style={{ width: 150, height: 38, marginBottom: 4, borderRadius: 6 }} />
                     </View>
-                    {/* Ring Replica */}
                     <View style={{ width: 100, height: 100, borderRadius: 50, borderWidth: 8, borderColor: borderColor + '30', alignItems: 'center', justifyContent: 'center' }}>
                          <SkeletonItem style={{ width: 40, height: 14 }} />
                     </View>
@@ -182,7 +175,6 @@ const HomeContentSkeleton = () => {
                 
                 <View style={{ height: 1, backgroundColor: borderColor, opacity: 0.5 }} />
                 
-                {/* Grid Section */}
                 <View style={{ flexDirection: 'row', paddingVertical: 14, paddingHorizontal: 8 }}>
                     {[1, 2, 3].map((i) => (
                         <View key={i} style={{ flex: 1, alignItems: 'center', gap: 6, borderRightWidth: i < 3 ? 1 : 0, borderColor: borderColor + '40' }}>
@@ -193,7 +185,6 @@ const HomeContentSkeleton = () => {
                 </View>
             </View>
 
-            {/* 3. Section Header Replica */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16, paddingHorizontal: 4, alignItems: 'center' }}>
                 <SkeletonItem style={{ width: 140, height: 20, borderRadius: 6 }} />
                 <View style={{ flexDirection: 'row', gap: 12 }}>
@@ -202,14 +193,11 @@ const HomeContentSkeleton = () => {
                 </View>
             </View>
 
-            {/* 4. Timeline Replica */}
             <View style={{ borderLeftWidth: 2, borderLeftColor: borderColor, marginLeft: 8, paddingLeft: 16 }}>
                 {[1, 2].map((i) => (
                     <View key={i} style={{ marginBottom: 24 }}>
-                        {/* Dot */}
                         <View style={{ position: 'absolute', left: -25, top: 16, width: 16, height: 16, borderRadius: 8, backgroundColor: cardBg, borderWidth: 2, borderColor }} />
                         
-                        {/* Card */}
                         <View style={{ backgroundColor: theme.colors.background, borderRadius: 16, borderWidth: 1, borderColor, padding: 16 }}>
                              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
                                 <SkeletonItem style={{ width: '60%', height: 16, borderRadius: 4 }} />
@@ -289,13 +277,15 @@ export default function Home() {
     const [isBreakMode, setIsBreakMode] = useState(false); 
     const [isBreak, setIsBreak] = useState(false);
     
+    const [accumulatedBreakMs, setAccumulatedBreakMs] = useState(0);
+    const [breakStartTimestamp, setBreakStartTimestamp] = useState<number | null>(null);
+
     const [otExpiry, setOtExpiry] = useState<string | null>(null);
 
     const [hasShownInitialNotif, setHasShownInitialNotif] = useState(false);
     const hasWarnedTimeout = useRef(false);
 
     const [notifications, setNotifications] = useState<any[]>([]);
-    const [notifModalVisible, setNotifModalVisible] = useState(false);
     const notificationListener = useRef<any>(null);
     const lastUpdateMinute = useRef<number | null>(null);
 
@@ -436,13 +426,66 @@ export default function Home() {
                     db.getAllAsync('SELECT * FROM attendance WHERE user_id = ? AND job_id = ? AND date = ? ORDER BY clock_in DESC', [user.id, currentJobId, dateStr]),
                     db.getAllAsync('SELECT * FROM accomplishments WHERE user_id = ? AND job_id = ? AND date = ?', [user.id, currentJobId, dateStr]),
                 ]);
+                
                 setTodaysRecords(attendance as any[]);
                 setTasks(dailyTasks as any[]);
+
+                if ((attendance as any[]).length > 0) {
+                    const currentRecordId = (attendance as any[])[0].id;
+                    const bTotal = await AsyncStorage.getItem(`break_total_${currentRecordId}`);
+                    const bStart = await AsyncStorage.getItem(`break_start_${currentRecordId}`);
+                    
+                    setAccumulatedBreakMs(bTotal ? Number(bTotal) : 0);
+                    if (bStart) {
+                        setBreakStartTimestamp(Number(bStart));
+                        setIsBreakMode(true);
+                    } else {
+                        setBreakStartTimestamp(null);
+                    }
+                } else {
+                    setAccumulatedBreakMs(0);
+                    setBreakStartTimestamp(null);
+                }
 
                 const payoutType = parsedJob.payout_type || 'Semi-Monthly';
                 const periodStart = getPeriodStartDate(payoutType);
                 const periodStartStr = format(periodStart, 'yyyy-MM-dd');
                 
+                // ---- "REPORT'S READY" NOTIFICATION LOGIC ----
+                const todayDate = new Date();
+                let isCutoffEnd = false;
+                
+                if (payoutType === 'Weekly' && differenceInDays(todayDate, periodStart) >= 6) isCutoffEnd = true;
+                else if (payoutType === 'Bi-Weekly' && differenceInDays(todayDate, periodStart) >= 13) isCutoffEnd = true;
+                else if (payoutType === 'Semi-Monthly') {
+                    const d = todayDate.getDate();
+                    const lastDay = new Date(todayDate.getFullYear(), todayDate.getMonth() + 1, 0).getDate();
+                    if (d === 15 || d === lastDay) isCutoffEnd = true;
+                }
+                else if (payoutType === 'Monthly') {
+                    const lastDay = new Date(todayDate.getFullYear(), todayDate.getMonth() + 1, 0).getDate();
+                    if (todayDate.getDate() === lastDay) isCutoffEnd = true;
+                }
+
+                if (isCutoffEnd) {
+                    const cacheKey = `report_ready_notified_${periodStartStr}`;
+                    const notified = await AsyncStorage.getItem(cacheKey);
+                    if (!notified) {
+                        const newNotif = { 
+                            id: generateUUID(), 
+                            user_id: user.id, 
+                            title: "Report's Ready", 
+                            body: `Your attendance report for the period starting ${periodStartStr} is complete and ready to be generated.`, 
+                            created_at: todayDate.toISOString(), 
+                            is_read: false, 
+                            type: 'report_ready' 
+                        };
+                        await saveNotifications(newNotif);
+                        await AsyncStorage.setItem(cacheKey, 'true');
+                    }
+                }
+                // ----------------------------------------------
+
                 const periodRecords: any[] = await db.getAllAsync(
                     'SELECT * FROM attendance WHERE user_id = ? AND job_id = ? AND date >= ?', 
                     [user.id, currentJobId, periodStartStr]
@@ -453,7 +496,13 @@ export default function Home() {
                     if (r.clock_in && r.clock_out) {
                         const s = new Date(r.clock_in).getTime();
                         const e = new Date(r.clock_out).getTime();
-                        periodMins += Math.max(0, (e - s) / (1000 * 60));
+                        let grossMs = Math.max(0, e - s);
+                        
+                        if (r.remarks && r.remarks.includes('BreakMs:')) {
+                            const match = r.remarks.match(/BreakMs:(\d+)/);
+                            if (match) grossMs -= parseInt(match[1], 10);
+                        }
+                        periodMins += Math.max(0, grossMs / (1000 * 60));
                     }
                 });
                 setPeriodWorkedMinutes(periodMins);
@@ -480,7 +529,35 @@ export default function Home() {
                 isInitialLoadRef.current = false;
             }, 300); 
         }
-    }, [selectedDate]);
+    }, [selectedDate, saveNotifications]);
+
+    useEffect(() => {
+        const updateBreakState = async () => {
+            if (!latestRecord) return;
+            const breakStartKey = `break_start_${latestRecord.id}`;
+            const breakTotalKey = `break_total_${latestRecord.id}`;
+
+            if (isBreakMode) {
+                if (!breakStartTimestamp) {
+                    const now = Date.now();
+                    setBreakStartTimestamp(now);
+                    await AsyncStorage.setItem(breakStartKey, now.toString());
+                }
+            } else {
+                if (breakStartTimestamp) {
+                    const duration = Date.now() - breakStartTimestamp;
+                    const newTotal = accumulatedBreakMs + duration;
+                    setAccumulatedBreakMs(newTotal);
+                    setBreakStartTimestamp(null);
+                    
+                    await AsyncStorage.setItem(breakTotalKey, newTotal.toString());
+                    await AsyncStorage.removeItem(breakStartKey);
+                }
+            }
+        };
+        updateBreakState();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isBreakMode]);
 
     const processClockAction = useCallback(async (isOvertime = false, duration = 0) => {
         if (!activeJobId) {
@@ -500,8 +577,18 @@ export default function Home() {
             if (isClockedIn) {
                 const now = new Date().toISOString();
                 if (latestRecord) {
-                    await db.runAsync('UPDATE attendance SET clock_out = ?, status = ? WHERE id = ?', [now, 'completed', latestRecord.id]);
-                    await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', ['attendance', latestRecord.id, 'UPDATE', JSON.stringify({ clock_out: now, status: 'completed' })]);
+                    let finalRemarks = latestRecord.remarks || '';
+                    if (accumulatedBreakMs > 0) {
+                        finalRemarks = finalRemarks ? `${finalRemarks} | BreakMs:${accumulatedBreakMs}` : `BreakMs:${accumulatedBreakMs}`;
+                    }
+
+                    await db.runAsync('UPDATE attendance SET clock_out = ?, status = ?, remarks = ? WHERE id = ?', [now, 'completed', finalRemarks, latestRecord.id]);
+                    await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', ['attendance', latestRecord.id, 'UPDATE', JSON.stringify({ clock_out: now, status: 'completed', remarks: finalRemarks })]);
+                    
+                    await AsyncStorage.removeItem(`break_start_${latestRecord.id}`);
+                    await AsyncStorage.removeItem(`break_total_${latestRecord.id}`);
+                    setAccumulatedBreakMs(0);
+                    setBreakStartTimestamp(null);
                 }
                 await AsyncStorage.removeItem('active_ot_expiry');
                 setOtExpiry(null);
@@ -552,7 +639,7 @@ export default function Home() {
         } catch (e: any) { 
              setModernAlertConfig({ visible: true, type: 'error', title: 'Error', message: e.message, confirmText: 'OK', onConfirm: () => setModernAlertConfig((prev: any) => ({ ...prev, visible: false })) });
         } finally { setLoading(false); }
-    }, [activeJobId, isClockedIn, latestRecord, appSettings, loadData, triggerSync, successPlayer, router]);
+    }, [activeJobId, isClockedIn, latestRecord, appSettings, loadData, triggerSync, successPlayer, router, accumulatedBreakMs]);
 
     const handleClockButtonPress = () => {
         if (!jobSettings || !activeJobId) {
@@ -617,6 +704,12 @@ export default function Home() {
                 trigger: null,
             });
             if (appSettings?.vibrationEnabled !== false) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+
+            // Log Time Out Soon to Local Notifications
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+                await saveNotifications({ id: generateUUID(), user_id: session.user.id, title: "Time Out Soon", body: `You will be automatically timed out in 1 minute.`, created_at: new Date().toISOString(), is_read: false, type: 'timeout_soon' });
+            }
         }
 
         if (diffSeconds <= 0) {
@@ -624,12 +717,24 @@ export default function Home() {
 
             const db = await getDB();
             const endIso = targetTime.toISOString();
-            await db.runAsync('UPDATE attendance SET clock_out = ?, status = ?, remarks = ? WHERE id = ?', 
-                [endIso, 'completed', `Auto-timeout: ${reason}`, latestRecord.id]);
-            await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', 
-                ['attendance', latestRecord.id, 'UPDATE', JSON.stringify({ clock_out: endIso, status: 'completed', remarks: `Auto-timeout: ${reason}` })]);
+            
+            let finalRemarks = `Auto-timeout: ${reason}`;
+            if (accumulatedBreakMs > 0) finalRemarks += ` | BreakMs:${accumulatedBreakMs}`;
+
+            await db.runAsync('UPDATE attendance SET clock_out = ?, status = ?, remarks = ? WHERE id = ?', [endIso, 'completed', finalRemarks, latestRecord.id]);
+            await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', ['attendance', latestRecord.id, 'UPDATE', JSON.stringify({ clock_out: endIso, status: 'completed', remarks: finalRemarks })]);
             await Notifications.scheduleNotificationAsync({ content: { title: "Auto Timed Out", body: `You have been timed out. (${reason})`, sound: true }, trigger: null });
 
+            // Log Auto Timed Out to Local Notifications
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user) {
+                await saveNotifications({ id: generateUUID(), user_id: session.user.id, title: "Auto Timed Out", body: `Your session was automatically ended. (${reason})`, created_at: new Date().toISOString(), is_read: false, type: 'auto_timeout' });
+            }
+
+            await AsyncStorage.removeItem(`break_start_${latestRecord.id}`);
+            await AsyncStorage.removeItem(`break_total_${latestRecord.id}`);
+            setAccumulatedBreakMs(0);
+            setBreakStartTimestamp(null);
             setOtExpiry(null);
             hasWarnedTimeout.current = false;
             setHasShownInitialNotif(false);
@@ -640,7 +745,7 @@ export default function Home() {
             triggerSync();
             loadData(); 
         }
-    }, [isClockedIn, latestRecord, isSessionOvertime, otExpiry, jobSettings, appSettings, triggerSync, loadData]);
+    }, [isClockedIn, latestRecord, isSessionOvertime, otExpiry, jobSettings, appSettings, triggerSync, loadData, accumulatedBreakMs, saveNotifications]);
 
     useEffect(() => {
         loadNotifications();
@@ -672,18 +777,6 @@ export default function Home() {
         return () => { if (subscription) subscription.remove(); };
     }, [loadNotifications, saveNotifications, processClockAction]);
 
-    const markAllNotificationsRead = async () => {
-        try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session?.user) return;
-            
-            await markAllNotificationsReadLocal(session.user.id);
-            
-            const updated = notifications.map(n => ({ ...n, read: true }));
-            setNotifications(updated);
-        } catch (e) { console.log('Err marking read', e); }
-    };
-
     useEffect(() => {
         if (isClockedIn && latestRecord?.clock_in && appSettings?.notificationsEnabled !== false) {
              updateAttendanceNotification(
@@ -700,15 +793,30 @@ export default function Home() {
             const now = new Date();
             const currentMinute = now.getMinutes();
             let totalMs = 0;
-            if (!isBreakMode) {
-                todaysRecords.forEach((record) => {
-                    const start = new Date(record.clock_in).getTime();
-                    const end = record.clock_out ? new Date(record.clock_out).getTime() : now.getTime();
-                    totalMs += Math.max(0, end - start);
-                });
-                const workedMins = totalMs / (1000 * 60);
-                setWorkedMinutes(workedMins);
-            }
+            
+            todaysRecords.forEach((record) => {
+                const start = new Date(record.clock_in).getTime();
+                const end = record.clock_out ? new Date(record.clock_out).getTime() : now.getTime();
+                let recordMs = Math.max(0, end - start);
+
+                if (record.remarks && record.remarks.includes('BreakMs:')) {
+                    const match = record.remarks.match(/BreakMs:(\d+)/);
+                    if (match) recordMs -= parseInt(match[1], 10);
+                }
+
+                if (latestRecord && record.id === latestRecord.id) {
+                    recordMs -= accumulatedBreakMs;
+                    if (isBreakMode && breakStartTimestamp) {
+                        recordMs -= (now.getTime() - breakStartTimestamp);
+                    }
+                }
+                
+                totalMs += Math.max(0, recordMs);
+            });
+            
+            const workedMins = totalMs / (1000 * 60);
+            setWorkedMinutes(workedMins);
+
             if (isClockedIn && latestRecord?.clock_in) {
                 if (appSettings?.notificationsEnabled !== false) {
                     if (currentMinute !== lastUpdateMinute.current || !hasShownInitialNotif) {
@@ -728,13 +836,15 @@ export default function Home() {
             if (jobSettings?.break_schedule) setIsBreak(checkIsBreakTime(jobSettings.break_schedule));
         }, 1000); 
         return () => clearInterval(timer);
-    }, [todaysRecords, jobSettings, isClockedIn, isSessionOvertime, handleAutoTimeoutLogic, latestRecord, appSettings, isBreakMode, hasShownInitialNotif]);
+    }, [todaysRecords, jobSettings, isClockedIn, isSessionOvertime, handleAutoTimeoutLogic, latestRecord, appSettings, isBreakMode, hasShownInitialNotif, accumulatedBreakMs, breakStartTimestamp]);
 
+    // Added loadNotifications to useFocusEffect so badge immediately updates when coming back from notification screen
     useFocusEffect(useCallback(() => {
         loadData();
+        loadNotifications();
         AsyncStorage.getItem('appSettings').then(s => { if (s) setAppSettings(JSON.parse(s)); });
         AsyncStorage.getItem('active_ot_expiry').then(val => setOtExpiry(val));
-    }, [loadData]));
+    }, [loadData, loadNotifications]));
 
     const onRefresh = async () => {
         setRefreshing(true);
@@ -817,7 +927,6 @@ export default function Home() {
             <OvertimeModal visible={otModalVisible} onClose={() => setOtModalVisible(false)} onConfirm={(hrs: number) => { setOtModalVisible(false); processClockAction(true, hrs); }} theme={theme} />
             <BreakModeAlert visible={isBreakMode} onResume={() => setIsBreakMode(false)} />
             <DatePicker visible={timelinePickerVisible} onClose={() => setTimelinePickerVisible(false)} onSelect={(date) => setSelectedDate(date)} selectedDate={selectedDate} title="Activity History" markedDates={markedDates} />
-            <NotificationModal visible={notifModalVisible} onClose={() => setNotifModalVisible(false)} notifications={notifications} onMarkAllRead={markAllNotificationsRead} theme={theme} />
             
             <View style={StyleSheet.absoluteFill} pointerEvents="none">
                 <Svg height="100%" width="100%">
@@ -864,7 +973,7 @@ export default function Home() {
                                     startTime={latestRecord?.clock_in}
                                     targetEndTime={isSessionOvertime ? otExpiry : shiftEndTarget} 
                                     payoutType={jobSettings?.payout_type}
-                                    periodWorkedMinutes={periodWorkedMinutes + (isClockedIn && !isBreakMode ? workedMinutes : 0)} 
+                                    periodWorkedMinutes={periodWorkedMinutes + (isClockedIn ? workedMinutes : 0)} 
                                     periodTargetMinutes={dbPeriodTargetMinutes}
                                 />
                             ) : (
@@ -878,10 +987,13 @@ export default function Home() {
                                 {calendarLoading ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.textSecondary} />}
                             </TouchableOpacity>
                             <View style={styles.actionRow}>
-                                <TouchableOpacity onPress={() => setNotifModalVisible(true)} style={[styles.iconButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                                
+                                {/* 🔴 PUSHES TO THE NEW SCREEN ROUTE */}
+                                <TouchableOpacity onPress={() => router.push('/notifications')} style={[styles.iconButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                                     <HugeiconsIcon icon={Notification01Icon} size={18} color={theme.colors.text} />
                                     {unreadNotifsCount > 0 && <View style={[styles.badge, { backgroundColor: theme.colors.danger, borderColor: theme.colors.card }]} />}
                                 </TouchableOpacity>
+                                
                                 <TouchableOpacity disabled={!isClockedIn} onPress={() => router.push({ pathname: '/reports/add-entry', params: { jobId: activeJobId } })} style={[styles.iconButton, { backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background }]}>
                                     <HugeiconsIcon icon={PlusSignIcon} size={20} color={isClockedIn ? theme.colors.primary : theme.colors.icon} />
                                 </TouchableOpacity>

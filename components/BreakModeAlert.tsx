@@ -1,5 +1,6 @@
 import { PauseCircleIcon, PlayCircleIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
+import * as Haptics from 'expo-haptics';
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
@@ -16,7 +17,7 @@ const BreakModeAlert = ({ visible, onResume }: BreakModeAlertProps) => {
 
     // Timer Logic
     useEffect(() => {
-        let interval: NodeJS.Timeout;
+        let interval: ReturnType<typeof setInterval>;
         if (visible) {
             interval = setInterval(() => {
                 setDuration(prev => prev + 1);
@@ -28,36 +29,48 @@ const BreakModeAlert = ({ visible, onResume }: BreakModeAlertProps) => {
     }, [visible]);
 
     const formatTime = (secs: number) => {
-        const minutes = Math.floor(secs / 60);
+        const hours = Math.floor(secs / 3600);
+        const minutes = Math.floor((secs % 3600) / 60);
         const seconds = secs % 60;
+        
+        if (hours > 0) {
+            return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }
         return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    };
+
+    const handleResume = () => {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+        onResume();
     };
 
     if (!visible) return null;
 
     return (
         <Animated.View 
-            entering={FadeInDown.springify()} 
-            exiting={FadeOutDown}
+            // Removed springify() to eliminate the bounce, using a smooth duration instead
+            entering={FadeInDown.duration(350)} 
+            exiting={FadeOutDown.duration(250)}
             style={[styles.container, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
         >
             <View style={styles.left}>
-                <View style={[styles.iconBox, { backgroundColor: '#F59E0B' + '20' }]}>
-                    <HugeiconsIcon icon={PauseCircleIcon} size={24} color="#F59E0B" />
+                <View style={styles.iconBox}>
+                    <HugeiconsIcon icon={PauseCircleIcon} size={26} color="#F59E0B" />
                 </View>
-                <View>
-                    <Text style={[styles.title, { color: theme.colors.text }]}>Break Mode Active</Text>
-                    <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
-                        Paused for {formatTime(duration)}
+                <View style={styles.textWrapper}>
+                    <Text style={[styles.title, { color: theme.colors.text }]}>On Break</Text>
+                    <Text style={[styles.subtitle, { color: '#F59E0B' }]}>
+                        Paused for <Text style={styles.timerText}>{formatTime(duration)}</Text>
                     </Text>
                 </View>
             </View>
 
             <TouchableOpacity 
-                onPress={onResume}
+                activeOpacity={0.8}
+                onPress={handleResume}
                 style={[styles.resumeBtn, { backgroundColor: theme.colors.primary }]}
             >
-                <HugeiconsIcon icon={PlayCircleIcon} size={20} color="#FFF" />
+                <HugeiconsIcon icon={PlayCircleIcon} size={18} color="#FFF" />
                 <Text style={styles.resumeText}>Resume</Text>
             </TouchableOpacity>
         </Animated.View>
@@ -67,20 +80,21 @@ const BreakModeAlert = ({ visible, onResume }: BreakModeAlertProps) => {
 const styles = StyleSheet.create({
     container: {
         position: 'absolute',
-        bottom: 135, // Increased spacing from 100 to 135
-        left: 20,
-        right: 20,
-        borderRadius: 16,
+        bottom: 110, // Sits directly above the tab bar
+        alignSelf: 'center',
+        width: '85%', // Matches the CustomTabBar width perfectly
+        borderRadius: 24, 
         borderWidth: 1,
-        padding: 16,
+        padding: 12,
+        paddingRight: 16,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
-        shadowRadius: 12,
-        elevation: 8,
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.12,
+        shadowRadius: 16,
+        elevation: 10,
         zIndex: 1000,
     },
     left: {
@@ -89,31 +103,47 @@ const styles = StyleSheet.create({
         gap: 12,
     },
     iconBox: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        backgroundColor: '#F59E0B15', 
         alignItems: 'center',
         justifyContent: 'center',
     },
+    textWrapper: {
+        justifyContent: 'center',
+    },
     title: {
-        fontSize: 14,
-        fontWeight: '700',
+        fontSize: 15,
+        fontFamily: 'Nunito_700Bold',
+        letterSpacing: -0.2,
+        marginBottom: 2,
     },
     subtitle: {
-        fontSize: 12,
+        fontSize: 13,
+        fontFamily: 'Nunito_600SemiBold',
+    },
+    timerText: {
+        fontVariant: ['tabular-nums'], 
+        fontFamily: 'Nunito_700Bold',
     },
     resumeBtn: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 6,
-        paddingVertical: 8,
+        paddingVertical: 10,
         paddingHorizontal: 16,
         borderRadius: 20,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+        elevation: 2,
     },
     resumeText: {
         color: '#FFF',
-        fontSize: 12,
-        fontWeight: '700',
+        fontSize: 13,
+        fontFamily: 'Nunito_700Bold',
     }
 });
 
