@@ -1,3 +1,4 @@
+// filepath: vncedb/dart/dart-8346f6d6d3ba6721214d0c5b9d4684d9a2a9874e/lib/database.ts
 import { getDB } from "./db-client";
 
 // --- INITIALIZATION ---
@@ -13,6 +14,7 @@ export const initDatabase = async () => {
       user_id TEXT NOT NULL, 
       job_id TEXT, 
       date TEXT NOT NULL, 
+      title TEXT, 
       clock_in TEXT NOT NULL, 
       clock_out TEXT, 
       status TEXT, 
@@ -148,6 +150,7 @@ export const initDatabase = async () => {
   await addColumn("notifications", "updated_at", "TEXT");
   await addColumn("notifications", "type", "TEXT");
   await addColumn("notifications", "is_read", "INTEGER DEFAULT 0");
+  await addColumn("attendance", "title", "TEXT"); // NEW MIGRATION
 
   // 3. Create Indexes for fast querying
   await database.execAsync(`
@@ -235,8 +238,8 @@ export const saveAttendanceLocal = async (attendance: any) => {
   const db = await getDB();
   const now = new Date().toISOString();
   await db.runAsync(
-    `INSERT OR REPLACE INTO attendance (id, user_id, job_id, date, clock_in, clock_out, status, remarks, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-    [attendance.id, attendance.user_id, attendance.job_id, attendance.date, attendance.clock_in, attendance.clock_out || null, attendance.status || 'Active', attendance.remarks || '', now]
+    `INSERT OR REPLACE INTO attendance (id, user_id, job_id, date, title, clock_in, clock_out, status, remarks, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    [attendance.id, attendance.user_id, attendance.job_id, attendance.date, attendance.title || null, attendance.clock_in, attendance.clock_out || null, attendance.status || 'Active', attendance.remarks || '', now]
   );
   await queueSyncItem("attendance", attendance.id, "UPSERT", attendance);
 };

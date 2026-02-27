@@ -1,18 +1,15 @@
+// filepath: vncedb/dart/dart-8346f6d6d3ba6721214d0c5b9d4684d9a2a9874e/app/edit-profile.tsx
 import {
     ArrowDown01Icon,
-    Camera01Icon,
     InformationCircleIcon,
-    Tick01Icon,
     UserIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
-    Image,
+    BackHandler,
     Keyboard,
     KeyboardAvoidingView,
     Platform,
@@ -20,7 +17,6 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
-    TouchableWithoutFeedback,
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -34,7 +30,7 @@ import { PROFESSIONAL_SUFFIXES, PROFESSIONAL_TITLES } from '../constants/profile
 import { useAppTheme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useSync } from '../context/SyncContext';
-import { saveProfileLocal } from '../lib/database'; // <-- OFFLINE HELPER
+import { saveProfileLocal } from '../lib/database';
 import { getDB } from '../lib/db-client';
 
 const Tooltip = ({ message, theme }: { message: string, theme: any }) => (
@@ -113,6 +109,7 @@ export default function EditProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+  const [isKeyboardVisible, setKeyboardVisible] = useState(false);
 
   const [profile, setProfile] = useState<any>({
       first_name: '',
@@ -130,15 +127,61 @@ export default function EditProfileScreen() {
   const [titleModalVisible, setTitleModalVisible] = useState(false);
   const [suffixModalVisible, setSuffixModalVisible] = useState(false);
 
-  // 1. OFFLINE PULL
+  useEffect(() => {
+      const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+      const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+
+      const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
+      const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
+      
+      return () => {
+          showSub.remove();
+          hideSub.remove();
+      };
+  }, []);
+
+  // Capture System back button safely
+  useEffect(() => {
+      const backAction = () => {
+          if (router.canGoBack()) {
+              router.back();
+          } else {
+              router.replace('/(tabs)/profile');
+          }
+          return true; // Prevents the app from closing
+      };
+      
+      const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
+      return () => backHandler.remove();
+  }, [router]);
+
   const loadProfile = useCallback(async () => {
       if (!user) return;
       try {
           const db = await getDB();
           const localProfile: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
-          if (localProfile) {
-              setProfile(localProfile);
+          
+          let currentProfile = localProfile || {};
+          const meta = user.user_metadata || {};
+
+          let fName = currentProfile.first_name || meta.given_name || '';
+          let lName = currentProfile.last_name || meta.family_name || '';
+
+          if (!fName && !lName) {
+              const fullName = meta.full_name || meta.name || '';
+              if (fullName) {
+                  const nameParts = fullName.trim().split(' ');
+                  fName = nameParts[0] || '';
+                  lName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+              }
           }
+
+          setProfile({
+              ...currentProfile,
+              first_name: fName,
+              last_name: lName,
+          });
+
       } catch (e) {
           console.error("Load Profile Error:", e);
       } finally {
@@ -148,30 +191,6 @@ export default function EditProfileScreen() {
 
   useFocusEffect(useCallback(() => { loadProfile(); }, [loadProfile]));
 
-  // 2. CACHE IMAGE LOCALLY
-  const handleImagePick = async () => {
-      try {
-          const result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
-              allowsEditing: true,
-              aspect: [1, 1],
-              quality: 0.5,
-          });
-
-          if (!result.canceled && result.assets && result.assets.length > 0) {
-              const uri = result.assets[0].uri;
-              const filename = uri.split('/').pop();
-              const newPath = FileSystem.documentDirectory + (filename || `avatar_${Date.now()}.jpg`);
-              
-              await FileSystem.copyAsync({ from: uri, to: newPath });
-              setProfile({ ...profile, local_avatar_path: newPath }); // Save local path!
-          }
-      } catch (e) {
-          setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Could not select image.', onConfirm: () => setAlertConfig({ visible: false }) });
-      }
-  };
-
-  // 3. OFFLINE SAVE & QUEUE
   const handleSave = async () => {
       Keyboard.dismiss();
       setVisibleTooltip(null);
@@ -187,7 +206,6 @@ export default function EditProfileScreen() {
 
       setSaving(true);
       try {
-          // Re-generate full name
           const first = profile.first_name.trim();
           const middle = profile.middle_name ? `${profile.middle_name.trim()} ` : '';
           const last = profile.last_name.trim();
@@ -201,12 +219,15 @@ export default function EditProfileScreen() {
               updated_at: new Date().toISOString()
           };
 
-          // Save instantly to SQLite and trigger background queue!
           await saveProfileLocal(updatedProfile);
           await refreshProfile();
           triggerSync(); 
 
-          router.back();
+          if (router.canGoBack()) {
+              router.back();
+          } else {
+              router.replace('/(tabs)/profile');
+          }
       } catch (error: any) {
           setAlertConfig({ visible: true, type: 'error', title: 'Save Failed', message: error.message || 'Could not update profile.', onConfirm: () => setAlertConfig({ visible: false }) });
       } finally {
@@ -216,58 +237,52 @@ export default function EditProfileScreen() {
 
   if (loading) return <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={theme.colors.primary} /></View>;
 
-  const displayAvatar = profile.local_avatar_path ? { uri: profile.local_avatar_path } : (profile.avatar_url ? { uri: profile.avatar_url } : null);
-
   return (
-    <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setVisibleTooltip(null); }}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
-            <LoadingOverlay visible={saving} message="Saving Profile..." />
-            <ModernAlert {...alertConfig} />
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
+        <LoadingOverlay visible={saving} message="Saving Profile..." />
+        <ModernAlert {...alertConfig} />
 
-            <SearchableSelectionModal visible={titleModalVisible} onClose={() => setTitleModalVisible(false)} onSelect={(val) => setProfile({...profile, title: val})} title="Select Title" options={PROFESSIONAL_TITLES} placeholder="Search title..." currentValue={profile.title} />
-            <SearchableSelectionModal visible={suffixModalVisible} onClose={() => setSuffixModalVisible(false)} onSelect={(val) => setProfile({...profile, professional_suffix: val})} title="Select Suffix" options={PROFESSIONAL_SUFFIXES} placeholder="Search suffix..." currentValue={profile.professional_suffix} />
+        <SearchableSelectionModal visible={titleModalVisible} onClose={() => setTitleModalVisible(false)} onSelect={(val) => setProfile({...profile, title: val})} title="Select Title" options={PROFESSIONAL_TITLES} placeholder="Search title..." currentValue={profile.title} />
+        <SearchableSelectionModal visible={suffixModalVisible} onClose={() => setSuffixModalVisible(false)} onSelect={(val) => setProfile({...profile, professional_suffix: val})} title="Select Suffix" options={PROFESSIONAL_SUFFIXES} placeholder="Search suffix..." currentValue={profile.professional_suffix} />
 
-            <Header title="Edit Profile" />
+        <Header title="Edit Profile" />
 
-            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-                <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 100 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                    
-                    <View style={{ alignItems: 'center', marginBottom: 32 }}>
-                        <TouchableOpacity onPress={handleImagePick} activeOpacity={0.8} style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: theme.colors.card, borderWidth: 2, borderColor: theme.colors.primary + '40', alignItems: 'center', justifyContent: 'center', shadowColor: theme.colors.primary, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 16, elevation: 8 }}>
-                            {displayAvatar ? (
-                                <Image source={displayAvatar} style={{ width: '100%', height: '100%', borderRadius: 55 }} />
-                            ) : (
-                                <HugeiconsIcon icon={UserIcon} size={40} color={theme.colors.textSecondary} />
-                            )}
-                            <View style={{ position: 'absolute', bottom: -4, right: -4, backgroundColor: theme.colors.primary, width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: theme.colors.background }}>
-                                <HugeiconsIcon icon={Camera01Icon} size={16} color="#fff" />
-                            </View>
-                        </TouchableOpacity>
-                        <Text style={{ marginTop: 16, fontSize: 13, fontFamily: 'Nunito_500Medium', color: theme.colors.textSecondary }}>Tap to change picture</Text>
-                    </View>
+        <KeyboardAvoidingView 
+            style={{ flex: 1 }} 
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+            <ScrollView 
+                contentContainerStyle={{ 
+                    padding: 24, 
+                    paddingBottom: isKeyboardVisible ? 240 : 120 
+                }} 
+                showsVerticalScrollIndicator={false} 
+                keyboardShouldPersistTaps="handled"
+                automaticallyAdjustKeyboardInsets={true}
+                onScrollBeginDrag={() => setVisibleTooltip(null)}
+            >
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontFamily: 'Nunito_500Medium', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Professional Details</Text>
+                <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, marginBottom: 24, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
+                    <AuthInput label="Title" value={profile.title} placeholder="Select Title" onPress={() => setTitleModalVisible(true)} readonly icon={UserIcon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                    <AuthInput label="Professional Suffix" value={profile.professional_suffix} placeholder="Select Suffix" onPress={() => setSuffixModalVisible(true)} readonly icon={UserIcon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                </View>
 
-                    <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontFamily: 'Nunito_500Medium', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Professional Details</Text>
-                    <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, marginBottom: 24, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
-                        <AuthInput label="Title" value={profile.title || 'Select Title'} onPress={() => setTitleModalVisible(true)} readonly icon={UserIcon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
-                        <AuthInput label="Professional Suffix" value={profile.professional_suffix || 'Select Suffix'} onPress={() => setSuffixModalVisible(true)} readonly icon={UserIcon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
-                    </View>
-
-                    <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontFamily: 'Nunito_500Medium', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Personal Information</Text>
-                    <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
-                        <AuthInput label="First Name" value={profile.first_name} onChange={(t: string) => setProfile({...profile, first_name: t})} required icon={UserIcon} errorKey="firstName" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
-                        <AuthInput label="Middle Name" value={profile.middle_name} onChange={(t: string) => setProfile({...profile, middle_name: t})} icon={UserIcon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
-                        <AuthInput label="Last Name" value={profile.last_name} onChange={(t: string) => setProfile({...profile, last_name: t})} required icon={UserIcon} errorKey="lastName" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
-                    </View>
-                </ScrollView>
-            </KeyboardAvoidingView>
-            
+                <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontFamily: 'Nunito_500Medium', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Personal Information</Text>
+                <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
+                    <AuthInput label="First Name" value={profile.first_name} placeholder="Enter your first name" onChange={(t: string) => setProfile({...profile, first_name: t})} required icon={UserIcon} errorKey="firstName" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                    <AuthInput label="Middle Name" value={profile.middle_name} placeholder="Enter your middle name" onChange={(t: string) => setProfile({...profile, middle_name: t})} icon={UserIcon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                    <AuthInput label="Last Name" value={profile.last_name} placeholder="Enter your last name" onChange={(t: string) => setProfile({...profile, last_name: t})} required icon={UserIcon} errorKey="lastName" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                </View>
+            </ScrollView>
+        </KeyboardAvoidingView>
+        
+        {!isKeyboardVisible && (
             <Footer>
                 <TouchableOpacity onPress={handleSave} disabled={saving} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.primary, height: 56, borderRadius: 16, shadowColor: theme.colors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}>
-                    <Text style={{ color: 'white', fontSize: 16, fontFamily: 'Nunito_700Bold', marginRight: 8 }}>Save Changes</Text>
-                    <HugeiconsIcon icon={Tick01Icon} size={20} color="white" strokeWidth={2.5} />
+                    <Text style={{ color: 'white', fontSize: 16, fontFamily: 'Nunito_700Bold' }}>Save Changes</Text>
                 </TouchableOpacity>
             </Footer>
-        </SafeAreaView>
-    </TouchableWithoutFeedback>
+        )}
+    </SafeAreaView>
   );
 }

@@ -1,3 +1,4 @@
+// filepath: vncedb/dart/dart-8346f6d6d3ba6721214d0c5b9d4684d9a2a9874e/app/onboarding.tsx
 import { ArrowRight01Icon, Tick01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { useRouter } from 'expo-router';
@@ -16,6 +17,7 @@ import {
 import Animated, {
     FadeInDown,
     interpolate,
+    SharedValue,
     useAnimatedStyle,
     useSharedValue
 } from 'react-native-reanimated';
@@ -23,7 +25,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import PrivacyModal from '../components/PrivacyModal';
 import { useAppTheme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
-import { queueSyncItem } from '../lib/database'; // <-- Added to queue the name update
+import { queueSyncItem } from '../lib/database';
 import { getDB } from '../lib/db-client';
 import { supabase } from '../lib/supabase';
 
@@ -50,7 +52,7 @@ const SLIDES = [
     }
 ];
 
-const PaginatorDot = ({ index, scrollX, theme }: { index: number, scrollX: Animated.SharedValue<number>, theme: any }) => {
+const PaginatorDot = ({ index, scrollX, theme }: { index: number, scrollX: SharedValue<number>, theme: any }) => {
     const inputRange = [(index - 1) * SCREEN_WIDTH, index * SCREEN_WIDTH, (index + 1) * SCREEN_WIDTH];
     
     const animatedStyle = useAnimatedStyle(() => {
@@ -114,40 +116,40 @@ export default function OnboardingScreen() {
             const { data: { session } } = await supabase.auth.getSession();
             
             if (session?.user) {
-                // Check local database for profile completeness
-                const profile: any = await db.getFirstAsync(
-                    'SELECT first_name, last_name FROM profiles WHERE id = ?', 
-                    [session.user.id]
-                );
+                const provider = session.user.app_metadata?.provider || 'email';
                 
-                // Auto-generate name if missing
-                if (!profile?.first_name) {
-                    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-                    let randomSuffix = '';
-                    for (let i = 0; i < 4; i++) {
-                        randomSuffix += chars.charAt(Math.floor(Math.random() * chars.length));
-                    }
-                    
-                    const generatedName = `User${randomSuffix}`;
-
-                    // Update local database instantly
-                    await db.runAsync(
-                        'UPDATE profiles SET first_name = ?, full_name = ? WHERE id = ?', 
-                        [generatedName, generatedName, session.user.id]
+                // ONLY auto-generate username for Email users
+                if (provider === 'email') {
+                    const profile: any = await db.getFirstAsync(
+                        'SELECT first_name, last_name FROM profiles WHERE id = ?', 
+                        [session.user.id]
                     );
+                    
+                    if (!profile?.first_name) {
+                        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                        let randomSuffix = '';
+                        for (let i = 0; i < 4; i++) {
+                            randomSuffix += chars.charAt(Math.floor(Math.random() * chars.length));
+                        }
+                        
+                        const generatedName = `User${randomSuffix}`;
 
-                    // Queue for server sync
-                    await queueSyncItem('profiles', session.user.id, 'UPDATE', {
-                        first_name: generatedName,
-                        full_name: generatedName
-                    });
+                        await db.runAsync(
+                            'UPDATE profiles SET first_name = ?, full_name = ? WHERE id = ?', 
+                            [generatedName, generatedName, session.user.id]
+                        );
+
+                        await queueSyncItem('profiles', session.user.id, 'UPDATE', {
+                            first_name: generatedName,
+                            full_name: generatedName
+                        });
+                    }
                 }
             }
         } catch (e) {
             console.log("Error checking missing data during onboarding:", e);
         }
 
-        // Give the database a brief millisecond to settle, then route to home
         setTimeout(() => {
              router.replace('/(tabs)/home');
         }, 100);
@@ -157,26 +159,16 @@ export default function OnboardingScreen() {
         <Animated.View entering={FadeInDown} style={[styles.container, { backgroundColor: theme.colors.background }]}>
              <StatusBar barStyle={isDark ? "light-content" : "dark-content"} backgroundColor="transparent" translucent />
              
-             {/* Skip Button - Top Right */}
              <SafeAreaView style={styles.skipContainer}>
-                 <TouchableOpacity 
-                    onPress={() => setPrivacyVisible(true)}
-                    activeOpacity={0.7}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                 >
+                 <TouchableOpacity onPress={() => setPrivacyVisible(true)} activeOpacity={0.7} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                      <Text style={[styles.skipText, { color: theme.colors.textSecondary }]}>Skip</Text>
                  </TouchableOpacity>
              </SafeAreaView>
 
              <Animated.FlatList
-                ref={flatListRef}
-                data={SLIDES}
-                horizontal
-                pagingEnabled
-                showsHorizontalScrollIndicator={false}
-                keyExtractor={(item) => item.id}
-                onScroll={(e) => { scrollX.value = e.nativeEvent.contentOffset.x; }}
-                scrollEventThrottle={16}
+                ref={flatListRef} data={SLIDES} horizontal pagingEnabled
+                showsHorizontalScrollIndicator={false} keyExtractor={(item) => item.id}
+                onScroll={(e) => { scrollX.value = e.nativeEvent.contentOffset.x; }} scrollEventThrottle={16}
                 onViewableItemsChanged={onViewableItemsChanged}
                 renderItem={({ item }) => (
                     <View style={styles.slideContainer}>
@@ -194,11 +186,7 @@ export default function OnboardingScreen() {
              <View style={styles.footerContainer}>
                  <Paginator data={SLIDES} scrollX={scrollX} theme={theme} />
                  
-                 <TouchableOpacity 
-                    onPress={handleNextSlide}
-                    activeOpacity={0.8}
-                    style={[styles.circleButton, { backgroundColor: theme.colors.primary }]}
-                >
+                 <TouchableOpacity onPress={handleNextSlide} activeOpacity={0.8} style={[styles.circleButton, { backgroundColor: theme.colors.primary }]}>
                     {currentIndex === SLIDES.length - 1 ? (
                         <HugeiconsIcon icon={Tick01Icon} size={28} color="white" strokeWidth={3} />
                     ) : (
@@ -207,57 +195,21 @@ export default function OnboardingScreen() {
                 </TouchableOpacity>
              </View>
 
-             <PrivacyModal
-                visible={privacyVisible}
-                onClose={() => setPrivacyVisible(false)}
-                onAgree={handlePrivacyAgreed}
-            />
+             <PrivacyModal visible={privacyVisible} onClose={() => setPrivacyVisible(false)} onAgree={handlePrivacyAgreed} />
         </Animated.View>
     );
 }
 
 const styles = StyleSheet.create({
     container: { flex: 1 },
-    skipContainer: { 
-        width: '100%',
-        alignItems: 'flex-end', 
-        paddingHorizontal: 24, 
-        paddingTop: 10,
-        zIndex: 10
-    },
+    skipContainer: { width: '100%', alignItems: 'flex-end', paddingHorizontal: 24, paddingTop: 10, zIndex: 10 },
     skipText: { fontSize: 16, fontWeight: '600', opacity: 0.8 },
-    
     slideContainer: { width: SCREEN_WIDTH, alignItems: 'center', padding: 32, justifyContent: 'center' },
-    imageContainer: {
-        width: SCREEN_WIDTH * 0.8,
-        height: SCREEN_WIDTH * 0.8,
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 40,
-    },
+    imageContainer: { width: SCREEN_WIDTH * 0.8, height: SCREEN_WIDTH * 0.8, justifyContent: 'center', alignItems: 'center', marginBottom: 40 },
     slideImage: { width: '100%', height: '100%' },
-    
     slideTextContainer: { alignItems: 'center', maxWidth: '90%' },
     slideTitle: { fontSize: 28, fontWeight: 'bold', marginBottom: 12, textAlign: 'center' },
     slideDesc: { fontSize: 16, textAlign: 'center', lineHeight: 24 },
-    
-    footerContainer: { 
-        paddingHorizontal: 32, 
-        paddingBottom: 50, 
-        flexDirection: 'row', 
-        justifyContent: 'space-between', 
-        alignItems: 'center' 
-    },
-    circleButton: {
-        width: 64,
-        height: 64,
-        borderRadius: 32,
-        alignItems: 'center',
-        justifyContent: 'center',
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 5,
-    }
+    footerContainer: { paddingHorizontal: 32, paddingBottom: 50, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    circleButton: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 }
 });

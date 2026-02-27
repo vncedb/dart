@@ -1,14 +1,15 @@
+// filepath: vncedb/dart/dart-8346f6d6d3ba6721214d0c5b9d4684d9a2a9874e/context/AuthContext.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { Session, User } from '@supabase/supabase-js';
 import * as Notifications from 'expo-notifications';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { queueSyncItem } from '../lib/database';
-import { getDB } from '../lib/db-client';
 import { supabase } from '../lib/supabase';
-import { syncPull } from '../lib/sync'; // <-- ADDED: For initial hydration
+import { syncPull } from '../lib/sync';
 import { clearAttendanceNotification } from '../utils/NotificationService';
 
 const APP_SETTINGS_KEY = 'appSettings';
+const DEVICE_ONBOARDED_KEY = 'device_onboarded'; // Device-bound offline key
 
 type AuthContextType = {
   session: Session | null;
@@ -38,89 +39,49 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [isOnboarded, setIsOnboarded] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  const getUserOnboardKey = useCallback((userId: string) => `onboarded_${userId}`, []);
-
-  const checkOnboardingStatus = useCallback(async (userId: string): Promise<boolean> => {
+  // Strictly checks if THIS specific device has seen the onboarding
+  const checkOnboardingStatus = useCallback(async (): Promise<boolean> => {
       try {
-          const userKey = getUserOnboardKey(userId);
-
-          const localStatus = await AsyncStorage.getItem(userKey);
-          if (localStatus === 'true') return true;
-
-          const db = await getDB();
-          const localProfile: any = await db.getFirstAsync(
-              'SELECT is_onboarded FROM profiles WHERE id = ?', 
-              [userId]
-          );
-          if (localProfile?.is_onboarded) {
-              await AsyncStorage.setItem(userKey, 'true'); 
-              return true;
-          }
-
-          // Only reaches here if local DB is empty/un-synced
-          const { data: remoteProfile } = await supabase
-              .from('profiles')
-              .select('is_onboarded')
-              .eq('id', userId)
-              .single();
-
-          if (remoteProfile?.is_onboarded) {
-              await db.runAsync(`UPDATE profiles SET is_onboarded = 1 WHERE id = ?`, [userId]);
-              await AsyncStorage.setItem(userKey, 'true');
-              return true;
-          }
-
-          return false;
-      } catch (_) {
+          const localStatus = await AsyncStorage.getItem(DEVICE_ONBOARDED_KEY);
+          return localStatus === 'true';
+      } catch {
           return false;
       }
-  }, [getUserOnboardKey]);
+  }, []);
 
   const refreshProfile = useCallback(async () => {
-      if (!user) return;
-      const status = await checkOnboardingStatus(user.id);
+      const status = await checkOnboardingStatus();
       setIsOnboarded(status);
-      if (status) {
-          await AsyncStorage.setItem(getUserOnboardKey(user.id), 'true');
-      }
-  }, [user, checkOnboardingStatus, getUserOnboardKey]);
+  }, [checkOnboardingStatus]);
 
   const completeOnboarding = useCallback(async () => {
-    if (!user) return;
-
     try {
-      const userKey = getUserOnboardKey(user.id);
-      await AsyncStorage.setItem(userKey, 'true');
-
-      const db = await getDB();
-      await db.runAsync(`UPDATE profiles SET is_onboarded = 1 WHERE id = ?`, [user.id]);
-
+      // Save offline strictly for this device
+      await AsyncStorage.setItem(DEVICE_ONBOARDED_KEY, 'true');
       setIsOnboarded(true);
-
-      const { error } = await supabase
-          .from('profiles')
-          .update({ is_onboarded: true })
-          .eq('id', user.id);
-
-      if (error) {
-          console.log("Online update failed, queuing sync...");
-          await queueSyncItem('profiles', user.id, 'UPDATE', { is_onboarded: true });
-      }
-
     } catch (error) {
       console.error('Local onboarding update error:', error);
       setIsOnboarded(true); 
     }
-  }, [user, getUserOnboardKey]);
+  }, []);
 
   const signOut = useCallback(async () => {
     setIsLoading(true);
     try {
+      // 1. Force Google Sign-Out to clear active session and prompt account picker next time
+      try {
+          await GoogleSignin.hasPlayServices();
+          await GoogleSignin.signOut();
+      } catch (googleErr) {
+          console.log('Google SignOut error', googleErr);
+      }
+
       await clearAttendanceNotification();
       await Notifications.cancelAllScheduledNotificationsAsync();
 
       const keys = ['active_ot_expiry', 'shift_start_time', 'last_break_time', 'local_notifications'];
       await AsyncStorage.multiRemove(keys);
+      // Notice we DO NOT remove DEVICE_ONBOARDED_KEY so it remains true for the device
 
       const settings = await AsyncStorage.getItem(APP_SETTINGS_KEY);
       if (settings) {
@@ -135,10 +96,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     } finally {
       setSession(null);
       setUser(null);
-      setIsOnboarded(false);
+      
+      // If device is onboarded, keep it true so it doesn't trigger onboarding unecessarily on next login
+      const status = await checkOnboardingStatus();
+      setIsOnboarded(status);
+      
       setIsLoading(false);
     }
-  }, []);
+  }, [checkOnboardingStatus]);
 
   useEffect(() => {
     const initAuth = async () => {
@@ -147,29 +112,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
 
-        if (currentSession?.user) {
-            const status = await checkOnboardingStatus(currentSession.user.id);
-            setIsOnboarded(status);
-        } else {
-            setIsOnboarded(false);
-        }
+        const status = await checkOnboardingStatus();
+        setIsOnboarded(status);
       } catch (error) {
         console.error('Auth Init Error:', error);
       } finally {
-        setIsLoading(false); // Done loading initial state
+        setIsLoading(false); 
       }
     };
 
     initAuth();
 
-    // LISTEN FOR LOGIN EVENTS
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
-      
-      // HYDRATION STEP: If the user just logged in, pause and pull their data
       if (event === 'SIGNED_IN' && newSession?.user) {
-         setIsLoading(true); // Keep the loading state active while fetching
+         setIsLoading(true);
          try {
-             console.log("[Auth] New login detected. Hydrating local database...");
              await syncPull(newSession.user.id);
          } catch (e) {
              console.error("[Auth] Initial hydration failed:", e);
@@ -179,14 +136,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setSession(newSession);
       setUser(newSession?.user ?? null);
       
-      if (newSession?.user) {
-          const status = await checkOnboardingStatus(newSession.user.id);
-          setIsOnboarded(status);
-      } else {
-          setIsOnboarded(false);
-      }
+      const status = await checkOnboardingStatus();
+      setIsOnboarded(status);
       
-      setIsLoading(false); // Release the UI
+      setIsLoading(false); 
     });
 
     return () => subscription.unsubscribe();

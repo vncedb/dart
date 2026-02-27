@@ -1,10 +1,10 @@
+// filepath: vncedb/dart/dart-8346f6d6d3ba6721214d0c5b9d4684d9a2a9874e/app/reports/add-entry.tsx
 import {
     Calendar03Icon,
     Camera01Icon,
     Delete02Icon,
     Image01Icon,
-    PencilEdit02Icon,
-    Tick01Icon
+    PencilEdit02Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { format } from 'date-fns';
@@ -33,9 +33,9 @@ import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
 import { useAppTheme } from '../../constants/theme';
-import { useAuth } from '../../context/AuthContext'; // <-- ADDED: Local offline auth
+import { useAuth } from '../../context/AuthContext';
 import { useSync } from '../../context/SyncContext';
-import { generateUUID, queueSyncItem } from '../../lib/database'; // <-- ADDED: Sync Queue helper
+import { generateUUID, queueSyncItem } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
 
 const MAX_PHOTOS = 4;
@@ -44,17 +44,17 @@ export default function AddEntryScreen() {
     const router = useRouter();
     const navigation = useNavigation();
     const theme = useAppTheme();
-    const { user } = useAuth(); // <-- FETCH USER LOCALLY
+    const { user } = useAuth(); 
     const { triggerSync } = useSync();
     
-    // Params: 'id' (from Timeline Edit), 'jobId' (from Home Add), 'date' (from Reports Add)
-    const { id, jobId, date: paramDate } = useLocalSearchParams();
+    // Params: 'id' (from Timeline Edit), 'jobId' (from Home Add), 'date' (from Reports Add), 'fixedDate'
+    const { id, jobId, date: paramDate, fixedDate } = useLocalSearchParams();
     const entryId = Array.isArray(id) ? id[0] : id; 
     const passedJobId = Array.isArray(jobId) ? jobId[0] : jobId;
+    const isFixedDate = fixedDate === 'true';
     
-    // RULE: If we have an explicit ID (Timeline) or JobID (Home Action), lock the Date.
-    // If navigating directly from the Reports tab, allow Date editing.
-    const canEditDate = !passedJobId && !entryId;
+    // RULE: If we have an explicit ID (Timeline), JobID (Home Action), or specifically requested (fixedDate param), lock Date.
+    const canEditDate = !passedJobId && !entryId && !isFixedDate;
     
     const [description, setDescription] = useState('');
     const [remarks, setRemarks] = useState('');
@@ -110,7 +110,6 @@ export default function AddEntryScreen() {
         init();
     }, [entryId, passedJobId, user]);
 
-    // 🔴 OFFLINE-FIRST FIX: Read from local SQLite instead of Supabase
     const fetchActiveJob = async () => {
         if (!user) return;
         try {
@@ -191,7 +190,6 @@ export default function AddEntryScreen() {
         });
     };
 
-    // 🔴 OFFLINE-FIRST FIX: Write straight to SQLite and background sync queue
     const saveEntry = async () => {
         if (!description.trim()) {
             setErrors({ description: true });
@@ -205,7 +203,6 @@ export default function AddEntryScreen() {
 
         setLoading(true);
         try {
-            // Photos are cached locally. Our Background Sync Engine will handle the Cloud upload.
             const processedImages = await Promise.all(images.map(async (uri) => {
                 if (uri.startsWith('http')) return uri;
                 if (!FileSystem.documentDirectory) return uri;
@@ -255,7 +252,7 @@ export default function AddEntryScreen() {
             }
 
             setIsDirty(false);
-            triggerSync(); // Will attempt network push in background
+            triggerSync(); 
             router.back(); 
 
         } catch (e: any) { 
@@ -387,7 +384,6 @@ export default function AddEntryScreen() {
                     isLoading={loading} 
                     disabled={loading || !description.trim()}
                     style={{ width: '100%' }}
-                    icon={<HugeiconsIcon icon={Tick01Icon} size={20} color="#fff" strokeWidth={2.5} />}
                 />
             </Footer>
         </SafeAreaView>

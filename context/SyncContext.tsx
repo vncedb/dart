@@ -1,5 +1,6 @@
+// filepath: vncedb/dart/dart-8346f6d6d3ba6721214d0c5b9d4684d9a2a9874e/context/SyncContext.tsx
 import NetInfo from '@react-native-community/netinfo';
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { getDB } from '../lib/db-client';
 import { syncPull, syncPush } from '../lib/sync';
@@ -35,14 +36,14 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
         const db = await getDB();
         const res: any = await db.getFirstAsync('SELECT value FROM app_settings WHERE key = ?', ['last_synced_at']);
         if (res?.value) setLastSyncedAt(res.value);
-      } catch (e) {
+      } catch {
         // Safe to ignore on fresh installs
       }
     };
     loadSettings();
   }, []);
 
-  const triggerSync = async (): Promise<boolean> => {
+  const triggerSync = useCallback(async (): Promise<boolean> => {
     if (!user || isSyncing.current) return false;
     
     // Quick connection check
@@ -54,7 +55,7 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
       setSyncStatus('syncing');
       
       // 1. PUSH local changes to Cloud
-      const pushResult = await syncPush();
+      await syncPush();
       
       // 2. PULL new data from Cloud
       const pullResult = await syncPull(user.id);
@@ -74,15 +75,15 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
       setTimeout(() => setSyncStatus('idle'), 3000); 
       return true;
 
-    } catch (e) {
-      console.error("[SyncContext] Critical Sync Error:", e);
+    } catch (error) {
+      console.error("[SyncContext] Critical Sync Error:", error);
       setSyncStatus('error');
       setTimeout(() => setSyncStatus('idle'), 3000); 
       return false;
     } finally {
       isSyncing.current = false; // Always release the lock
     }
-  };
+  }, [user]);
 
   // Trigger 1: When App comes to foreground
   useEffect(() => {
@@ -90,7 +91,7 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
       if (nextAppState === 'active') triggerSync();
     });
     return () => subscription.remove();
-  }, [user]);
+  }, [triggerSync]);
 
   // Trigger 2: When network is restored
   useEffect(() => {
@@ -100,12 +101,12 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
       }
     });
     return () => unsubscribe();
-  }, [user]);
+  }, [triggerSync]);
 
   // Trigger 3: Initial load
   useEffect(() => {
     if (user) triggerSync();
-  }, [user]);
+  }, [user, triggerSync]);
 
   // Trigger 4: Background Interval (Every 2 Minutes)
   useEffect(() => {
@@ -115,7 +116,7 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
     }, 2 * 60 * 1000); 
     
     return () => clearInterval(intervalId);
-  }, [user]);
+  }, [user, triggerSync]);
 
   return (
     <SyncContext.Provider value={{ syncStatus, lastSyncedAt, triggerSync }}>

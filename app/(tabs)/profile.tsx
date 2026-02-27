@@ -1,3 +1,4 @@
+// filepath: vncedb/dart/dart-8346f6d6d3ba6721214d0c5b9d4684d9a2a9874e/app/(tabs)/profile.tsx
 import {
     Briefcase01Icon,
     Camera01Icon,
@@ -10,14 +11,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-// FIX: Changed to named imports to resolve "Property does not exist" errors
-import {
-    cacheDirectory,
-    documentDirectory,
-    downloadAsync,
-    getInfoAsync,
-    makeDirectoryAsync
-} from 'expo-file-system';
+import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -32,6 +26,13 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
+import Animated, {
+    useAnimatedStyle,
+    useSharedValue,
+    withRepeat,
+    withSequence,
+    withTiming
+} from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import EditAvatarModal from '../../components/EditAvatarModal';
@@ -40,20 +41,19 @@ import JobCard from '../../components/JobCard';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import LoadingScreen from '../../components/LoadingScreen';
 import ModernAlert from '../../components/ModernAlert';
-import TabHeader from '../../components/TabHeader'; // FIX: Imported TabHeader
+import TabHeader from '../../components/TabHeader';
 import { useAppTheme } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { useSync } from '../../context/SyncContext';
-import { queueSyncItem, saveJobLocal, saveProfileLocal } from '../../lib/database';
+import { queueSyncItem, saveProfileLocal } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
-import { supabase } from '../../lib/supabase';
 
 const shadowStyle = Platform.select({
     ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12 },
     android: { elevation: 4 }
 });
 
-const EmptyJobCard = ({ theme, hasJobs, router }: any) => (
+const EmptyJobCard = ({ theme, hasJobs }: any) => (
     <View style={[styles.emptyCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
         <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.primary + '10' }]}>
             <HugeiconsIcon icon={Briefcase01Icon} size={32} color={theme.colors.primary} />
@@ -66,9 +66,6 @@ const EmptyJobCard = ({ theme, hasJobs, router }: any) => (
                 ? "You have saved jobs but none are set as active." 
                 : "Set up your job profile to start tracking your attendance."}
         </Text>
-        <TouchableOpacity onPress={() => router.push('/job/job')} style={[styles.emptyButton, { backgroundColor: theme.colors.primary }]}>
-            <Text style={styles.emptyButtonText}>{hasJobs ? 'Select Job' : 'Create Job'}</Text>
-        </TouchableOpacity>
     </View>
 );
 
@@ -96,7 +93,26 @@ export default function ProfileScreen() {
     
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
-    // Load saved Job Card configuration on mount
+    const pulseScale = useSharedValue(1);
+
+    useEffect(() => {
+        if (!hasJobs && !isLoading) {
+            pulseScale.value = withRepeat(
+                withSequence(
+                    withTiming(1.05, { duration: 800 }),
+                    withTiming(1, { duration: 800 })
+                ),
+                -1, true
+            );
+        } else {
+            pulseScale.value = withTiming(1, { duration: 300 });
+        }
+    }, [hasJobs, isLoading, pulseScale]);
+
+    const animatedManageJobsStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: pulseScale.value }]
+    }));
+
     useEffect(() => {
         const loadDisplayConfig = async () => {
             try {
@@ -111,7 +127,6 @@ export default function ProfileScreen() {
         loadDisplayConfig();
     }, []);
 
-    // Save modified Job Card configuration
     const handleSaveDisplayConfig = async (newKeys: string[]) => {
         setVisibleDetailKeys(newKeys);
         try {
@@ -139,11 +154,11 @@ export default function ProfileScreen() {
 
             const localProfile: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [userId]);
             
-            let tempProfile = localProfile;
+            let tempProfile = localProfile || null;
             let tempJob = null;
 
-            if (localProfile) {
-                const jobId = (localProfile as any).current_job_id;
+            if (tempProfile) {
+                const jobId = (tempProfile as any).current_job_id;
                 if (jobId && jobsData) {
                     const localJob = (jobsData as any[]).find(j => j.id === jobId);
                     if (localJob) {
@@ -155,52 +170,36 @@ export default function ProfileScreen() {
                         tempJob = lj;
                     }
                 }
-            }
 
-            if (tempProfile) setViewData({ profile: tempProfile, job: tempJob });
-            else setIsLoading(true);
-
-            const state = await NetInfo.fetch();
-            if (state.isConnected) {
-                const { data: remoteProfile } = await supabase.from('profiles').select('*').eq('id', userId).single();
-                if (remoteProfile) {
-                    if (remoteProfile.avatar_url) {
+                // Check and download avatar if not cached locally
+                if (tempProfile.avatar_url && !tempProfile.local_avatar_path) {
+                    const state = await NetInfo.fetch();
+                    if (state.isConnected) {
                         try {
-                            const rawFileName = remoteProfile.avatar_url.split('/').pop();
-                            const cleanFileName = rawFileName ? rawFileName.split('?')[0].replace(/[^a-zA-Z0-9._-]/g, '_') : 'avatar.jpg';
+                            const rawFileName = tempProfile.avatar_url.split('/').pop() || 'avatar.jpg';
+                            const cleanFileName = rawFileName.split('?')[0].replace(/[^a-zA-Z0-9._-]/g, '_');
                             const fileName = `${userId}_${cleanFileName}`;
                             
-                            // FIX: Use named export
-                            const rootDir = documentDirectory || cacheDirectory;
+                            const rootDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
                             if (rootDir) {
                                 const avatarDir = `${rootDir}avatars/`;
-                                // FIX: Use named export
-                                const dirInfo = await getInfoAsync(avatarDir);
-                                if (!dirInfo.exists) await makeDirectoryAsync(avatarDir, { intermediates: true });
+                                const dirInfo = await FileSystem.getInfoAsync(avatarDir);
+                                if (!dirInfo.exists) await FileSystem.makeDirectoryAsync(avatarDir, { intermediates: true });
 
                                 const localUri = `${avatarDir}${fileName}`;
-                                const fileInfo = await getInfoAsync(localUri);
+                                const fileInfo = await FileSystem.getInfoAsync(localUri);
                                 
-                                if (!fileInfo.exists) await downloadAsync(remoteProfile.avatar_url, localUri);
-                                remoteProfile.local_avatar_path = localUri;
+                                if (!fileInfo.exists) await FileSystem.downloadAsync(tempProfile.avatar_url, localUri);
+                                
+                                await db.runAsync('UPDATE profiles SET local_avatar_path = ? WHERE id = ?', [localUri, userId]);
+                                tempProfile.local_avatar_path = localUri;
                             }
-                        } catch {
-                            if (tempProfile && (tempProfile as any).local_avatar_path) {
-                                 remoteProfile.local_avatar_path = (tempProfile as any).local_avatar_path;
-                            }
-                        }
+                        } catch (e) { console.log("Failed caching avatar:", e); }
                     }
-                    await saveProfileLocal(remoteProfile);
-                    
-                    let remoteJob = null;
-                    if (remoteProfile.current_job_id) {
-                        const { data: jobRes } = await supabase.from('job_positions').select('*').eq('id', remoteProfile.current_job_id).single();
-                        remoteJob = jobRes;
-                        if (remoteJob) await saveJobLocal(remoteJob);
-                    }
-                    setViewData({ profile: remoteProfile, job: remoteJob || tempJob });
                 }
             }
+
+            setViewData({ profile: tempProfile, job: tempJob });
         } catch (e) { 
             console.log("Error loading profile:", e); 
         } finally { 
@@ -291,7 +290,6 @@ export default function ProfileScreen() {
             
             <EditAvatarModal visible={avatarModalVisible} onClose={() => setAvatarModalVisible(false)} onPickImage={pickAvatar} onRemoveImage={removeAvatar} />
             
-            {/* FIX: Replaced custom header with TabHeader */}
             <TabHeader 
                 title="Profile"
                 rightElement={
@@ -336,17 +334,17 @@ export default function ProfileScreen() {
                         </View>
 
                         <View style={styles.actionButtonsRow}>
-                            <TouchableOpacity onPress={() => router.push('/edit-profile')} style={[styles.actionButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                            <TouchableOpacity onPress={() => router.push('/edit-profile')} style={[styles.actionButtonWrapper, styles.actionButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                                 <HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.text} />
                                 <Text style={[styles.actionButtonText, { color: theme.colors.text }]}>Edit Info</Text>
                             </TouchableOpacity>
-                            <TouchableOpacity onPress={() => router.push('/job/job')} style={[styles.actionButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, position: 'relative' }]}>
-                                <HugeiconsIcon icon={Layers01Icon} size={16} color={theme.colors.primary} />
-                                <Text style={[styles.actionButtonText, { color: theme.colors.primary }]}>Manage Jobs</Text>
-                                {!hasJobs && (
-                                    <View style={{ position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: '#ef4444' }} />
-                                )}
-                            </TouchableOpacity>
+                            
+                            <Animated.View style={[styles.actionButtonWrapper, animatedManageJobsStyle]}>
+                                <TouchableOpacity onPress={() => router.push('/job/job')} style={[styles.actionButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, width: '100%' }]}>
+                                    <HugeiconsIcon icon={Layers01Icon} size={16} color={theme.colors.primary} />
+                                    <Text style={[styles.actionButtonText, { color: theme.colors.primary }]}>Manage Jobs</Text>
+                                </TouchableOpacity>
+                            </Animated.View>
                         </View>
                     </View>
 
@@ -361,7 +359,7 @@ export default function ProfileScreen() {
                                 router={router}
                             />
                         ) : (
-                            <EmptyJobCard theme={theme} router={router} hasJobs={hasJobs} />
+                            <EmptyJobCard theme={theme} hasJobs={hasJobs} />
                         )}
                     </View>
                 </ScrollView>
@@ -371,7 +369,6 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-    // FIX: Removed 'header' and 'headerTitle' styles as they are no longer used
     settingsButton: { padding: 10, borderRadius: 99, borderWidth: 1 },
     loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     scrollContent: { paddingBottom: 120 },
@@ -392,7 +389,8 @@ const styles = StyleSheet.create({
     badgeText: { fontSize: 12, fontFamily: 'Nunito_500Medium', textTransform: 'uppercase', letterSpacing: 0.5 },
     
     actionButtonsRow: { flexDirection: 'row', gap: 12, marginTop: 24, width: '100%' },
-    actionButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderRadius: 16, borderWidth: 1, flex: 1, justifyContent: 'center', ...shadowStyle },
+    actionButtonWrapper: { flex: 1 },
+    actionButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderRadius: 16, borderWidth: 1, justifyContent: 'center', ...shadowStyle },
     actionButtonText: { marginLeft: 8, fontFamily: 'Nunito_500Medium', fontSize: 14 },
     
     sectionContainer: { paddingHorizontal: 24, marginBottom: 20 },
@@ -402,7 +400,5 @@ const styles = StyleSheet.create({
     emptyCard: { padding: 32, alignItems: 'center', borderRadius: 24, borderWidth: 1, borderStyle: 'dashed' },
     emptyIconContainer: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
     emptyTitle: { fontSize: 18, fontFamily: 'Nunito_500Medium', marginBottom: 8 },
-    emptyDesc: { textAlign: 'center', fontSize: 14, marginBottom: 24, opacity: 0.7, fontFamily: 'Nunito_400Regular' },
-    emptyButton: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 },
-    emptyButtonText: { color: '#fff', fontFamily: 'Nunito_500Medium', fontSize: 14 },
+    emptyDesc: { textAlign: 'center', fontSize: 14, opacity: 0.7, fontFamily: 'Nunito_400Regular', paddingHorizontal: 10 },
 });

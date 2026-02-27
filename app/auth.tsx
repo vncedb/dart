@@ -1,3 +1,4 @@
+// filepath: vncedb/dart/dart-8346f6d6d3ba6721214d0c5b9d4684d9a2a9874e/app/auth.tsx
 import {
     ArrowLeft02Icon,
     ArrowRight01Icon,
@@ -9,7 +10,7 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { GoogleSignin } from '@react-native-google-signin/google-signin'; // <-- NATIVE GOOGLE IMPORT
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useColorScheme } from 'nativewind';
 import React, { useEffect, useState } from 'react';
@@ -32,12 +33,10 @@ import LoadingOverlay from '../components/LoadingOverlay';
 import ModernAlert from '../components/ModernAlert';
 import { ModernToast } from '../components/ModernUI';
 import OtpVerificationModal from '../components/OtpVerificationModal';
-import { getDB, queueSyncItem, saveProfileLocal } from '../lib/database';
+import { queueSyncItem, saveProfileLocal } from '../lib/database';
+import { getDB } from '../lib/db-client';
 import { supabase } from '../lib/supabase';
 
-// =========================================================================
-// CONFIGURE GOOGLE SIGN IN (Replace with your Google Cloud Web Client ID)
-// =========================================================================
 GoogleSignin.configure({
     webClientId: '668715947282-h8h20h74tdtmj47efrkj9m7vjp8o39du.apps.googleusercontent.com',
     scopes: ['profile', 'email'],
@@ -83,7 +82,7 @@ export default function AuthScreen() {
 
   const [showOtp, setShowOtp] = useState(false);
   const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
-  const [toastVisible, setToastVisible] = useState(false);
+  const [toastVisible] = useState(false);
 
   useEffect(() => {
     if (routeParams.mode === 'signup') setAuthMode('signup');
@@ -93,7 +92,7 @@ export default function AuthScreen() {
     const backAction = () => { router.replace('/'); return true; };
     const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
     return () => backHandler.remove();
-  }, []);
+  }, [router]);
 
   const toggleAuthMode = () => {
     Keyboard.dismiss();
@@ -132,26 +131,23 @@ export default function AuthScreen() {
       try {
           const userId = user.id;
           const db = await getDB();
-
           const localProfile: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [userId]);
           
           if (localProfile) {
-              const isOnboarded = Boolean(localProfile.is_onboarded);
-              await AsyncStorage.setItem('isOnboarded', isOnboarded ? 'true' : 'false');
-              return isOnboarded;
+              const deviceOnboarded = await AsyncStorage.getItem('device_onboarded');
+              return deviceOnboarded === 'true';
           }
 
           const { data: remoteProfile, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
           
           if (remoteProfile && !error) {
               await saveProfileLocal(remoteProfile);
-              const isOnboarded = Boolean(remoteProfile.is_onboarded);
-              await AsyncStorage.setItem('isOnboarded', isOnboarded ? 'true' : 'false');
-              return isOnboarded;
+              const deviceOnboarded = await AsyncStorage.getItem('device_onboarded');
+              return deviceOnboarded === 'true';
           }
 
+          // ONLY parse from Google meta if no profile exists anywhere
           const meta = user.user_metadata || {};
-
           const avatarUrl = meta.avatar_url || meta.picture || meta.avatar || null;
           let fullName = meta.full_name || meta.name || '';
           const firstName = meta.given_name || meta.first_name || '';
@@ -160,14 +156,11 @@ export default function AuthScreen() {
           if (!fullName && (firstName || lastName)) {
               fullName = `${firstName} ${lastName}`.trim();
           }
-          if (!fullName) {
-             fullName = user.email ? user.email.split('@')[0] : 'User';
-          }
 
           const newProfile = { 
               id: userId, 
               email: user.email, 
-              full_name: fullName,
+              full_name: fullName || (user.email ? user.email.split('@')[0] : 'User'),
               first_name: firstName,
               last_name: lastName,
               avatar_url: avatarUrl, 
@@ -176,12 +169,10 @@ export default function AuthScreen() {
           };
 
           await saveProfileLocal(newProfile);
+          await queueSyncItem('profiles', userId, 'UPSERT', { ...newProfile, is_onboarded: false });
 
-          const remotePayload = { ...newProfile, is_onboarded: false };
-          await queueSyncItem('profiles', userId, 'UPSERT', remotePayload);
-
-          await AsyncStorage.setItem('isOnboarded', 'false');
-          return false; 
+          const deviceOnboarded = await AsyncStorage.getItem('device_onboarded');
+          return deviceOnboarded === 'true';
 
       } catch (e) {
           console.log("Registration Check Error", e);
@@ -189,7 +180,7 @@ export default function AuthScreen() {
       }
   };
 
-  const onLoginSuccess = (isUserOnboarded: boolean) => {
+  const onLoginSuccess = (isDeviceOnboarded: boolean) => {
       setLoading(true); 
       setSuccessMode(true); 
       
@@ -198,7 +189,7 @@ export default function AuthScreen() {
           setGoogleLoading(false);
           
           setTimeout(() => {
-              if (isUserOnboarded) {
+              if (isDeviceOnboarded) {
                   router.replace('/(tabs)/home'); 
               } else {
                   router.replace({ pathname: '/onboarding', params: { welcome: 'true' } });
@@ -235,8 +226,8 @@ export default function AuthScreen() {
                 }
             } else {
                 if (data.user) {
-                    const isUserOnboarded = await checkAppRegistration(data.user);
-                    onLoginSuccess(isUserOnboarded);
+                    const isDeviceOnboarded = await checkAppRegistration(data.user);
+                    onLoginSuccess(isDeviceOnboarded);
                 } else {
                     setLoading(false);
                 }
@@ -257,8 +248,8 @@ export default function AuthScreen() {
                 setAlertConfig({ visible: true, type: 'error', title: 'Sign Up Failed', message: error.message, onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) });
             } else {
                 if (session && user) {
-                     await checkAppRegistration(user);
-                     onLoginSuccess(false); 
+                     const isDeviceOnboarded = await checkAppRegistration(user);
+                     onLoginSuccess(isDeviceOnboarded); 
                 } else {
                     setLoading(false); 
                     setShowOtp(true);
@@ -271,22 +262,14 @@ export default function AuthScreen() {
     }
   };
 
-  // =========================================================================
-  // NATIVE GOOGLE SIGN IN FUNCTION
-  // =========================================================================
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     try {
         await GoogleSignin.hasPlayServices();
-        
-        // This opens the native bottom sheet account picker
         const userInfo = await GoogleSignin.signIn();
-        
-        // Handle both older v12 and newer v13+ library response formats
         const idToken = userInfo?.data?.idToken || (userInfo as any)?.idToken;
 
         if (idToken) {
-            // Pass the generated ID token to Supabase
             const { data, error } = await supabase.auth.signInWithIdToken({
                 provider: 'google',
                 token: idToken,
@@ -295,8 +278,8 @@ export default function AuthScreen() {
             if (error) throw error;
             
             if (data?.user) {
-                const isUserOnboarded = await checkAppRegistration(data.user);
-                onLoginSuccess(isUserOnboarded);
+                const isDeviceOnboarded = await checkAppRegistration(data.user);
+                onLoginSuccess(isDeviceOnboarded);
             }
         } else {
             throw new Error('No ID token present in Google response.');
@@ -304,12 +287,7 @@ export default function AuthScreen() {
 
     } catch (error: any) {
         setGoogleLoading(false);
-        console.log("GOOGLE SIGN IN ERROR:", error);
-        
-        if (error.code === 'SIGN_IN_CANCELLED') {
-            console.log('User cancelled Google Sign-In');
-        } else {
-            // Force the exact error code and message to show on the screen
+        if (error.code !== 'SIGN_IN_CANCELLED') {
             setAlertConfig({ 
                 visible: true, 
                 type: 'error', 
@@ -346,13 +324,9 @@ export default function AuthScreen() {
                 if(error) return false;
                 if (session?.user) {
                     supabase.functions.invoke('send-email', { body: { email: session.user.email, type: 'WELCOME' } });
-                    await checkAppRegistration(session.user);
+                    const isDeviceOnboarded = await checkAppRegistration(session.user);
                     setShowOtp(false);
-                    
-                    setTimeout(() => {
-                        onLoginSuccess(false); 
-                    }, 300);
-                    
+                    setTimeout(() => { onLoginSuccess(isDeviceOnboarded); }, 300);
                     return true;
                 }
                 setShowOtp(false);
@@ -445,11 +419,7 @@ export default function AuthScreen() {
 
                     <View className="mt-8">
                         <View>
-                            <TouchableOpacity 
-                                onPress={handleAuthAction} 
-                                disabled={loading || googleLoading} 
-                                className="flex-row items-center justify-center w-full gap-2 bg-indigo-600 shadow-lg h-14 rounded-2xl shadow-indigo-500/30 active:opacity-90"
-                            >
+                            <TouchableOpacity onPress={handleAuthAction} disabled={loading || googleLoading} className="flex-row items-center justify-center w-full gap-2 bg-indigo-600 shadow-lg h-14 rounded-2xl shadow-indigo-500/30 active:opacity-90">
                                 <Text className="text-lg font-bold text-white">{authMode === 'login' ? 'Sign In' : 'Create Account'}</Text>
                                 <HugeiconsIcon icon={ArrowRight01Icon} color="white" size={20} strokeWidth={2.5} />
                             </TouchableOpacity>
@@ -462,11 +432,7 @@ export default function AuthScreen() {
                                 <View className={`flex-1 h-[1px] ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
                             </View>
 
-                            <TouchableOpacity 
-                                onPress={handleGoogleLogin} 
-                                disabled={loading || googleLoading} 
-                                className={`flex-row items-center justify-center gap-3 border h-14 rounded-2xl active:opacity-90 ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}
-                            >
+                            <TouchableOpacity onPress={handleGoogleLogin} disabled={loading || googleLoading} className={`flex-row items-center justify-center gap-3 border h-14 rounded-2xl active:opacity-90 ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
                                 <Image source={require('../assets/images/google-logo.png')} style={{ width: 24, height: 24 }} resizeMode="contain" />
                                 <Text className={`font-bold ${isDark ? 'text-white' : 'text-slate-700'}`}>Continue with Google</Text>
                             </TouchableOpacity>
