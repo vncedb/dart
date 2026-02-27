@@ -26,6 +26,7 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   
+  // Use a ref to prevent overlapping sync operations
   const isSyncing = useRef(false);
 
   useEffect(() => {
@@ -35,7 +36,7 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
         const res: any = await db.getFirstAsync('SELECT value FROM app_settings WHERE key = ?', ['last_synced_at']);
         if (res?.value) setLastSyncedAt(res.value);
       } catch (e) {
-        console.error("Sync Settings Load Failed:", e);
+        // Safe to ignore on fresh installs
       }
     };
     loadSettings();
@@ -44,45 +45,46 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
   const triggerSync = async (): Promise<boolean> => {
     if (!user || isSyncing.current) return false;
     
+    // Quick connection check
     const state = await NetInfo.fetch();
-    
-    // FIX: Removed state.isInternetReachable check to avoid false offline state blocking the sync
-    if (!state.isConnected) {
-        return false; 
-    }
+    if (!state.isConnected) return false; 
 
     try {
       isSyncing.current = true;
       setSyncStatus('syncing');
       
-      // 1. PUSH Local Changes -> Cloud
+      // 1. PUSH local changes to Cloud
       const pushResult = await syncPush();
-      if (pushResult.success === false) {
-          throw new Error('Push failed');
+      
+      // 2. PULL new data from Cloud
+      const pullResult = await syncPull(user.id);
+      
+      // Update UI timestamp if successful
+      if (pullResult.success) {
+        const db = await getDB();
+        const res: any = await db.getFirstAsync('SELECT value FROM app_settings WHERE key = ?', ['last_synced_at']);
+        if (res?.value) setLastSyncedAt(res.value);
+        
+        setSyncStatus('success');
+      } else {
+        setSyncStatus('error');
       }
-      
-      // 2. PULL Cloud Changes -> Local
-      await syncPull(user.id);
-      
-      const db = await getDB();
-      const res: any = await db.getFirstAsync('SELECT value FROM app_settings WHERE key = ?', ['last_synced_at']);
-      if (res?.value) setLastSyncedAt(res.value);
-      
-      setSyncStatus('success');
+
+      // Reset UI state after 3 seconds
       setTimeout(() => setSyncStatus('idle'), 3000); 
       return true;
 
     } catch (e) {
-      console.error("Sync Context Error:", e);
+      console.error("[SyncContext] Critical Sync Error:", e);
       setSyncStatus('error');
       setTimeout(() => setSyncStatus('idle'), 3000); 
       return false;
     } finally {
-      isSyncing.current = false;
+      isSyncing.current = false; // Always release the lock
     }
   };
 
-  // Auto-sync triggers
+  // Trigger 1: When App comes to foreground
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextAppState => {
       if (nextAppState === 'active') triggerSync();
@@ -90,23 +92,27 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
     return () => subscription.remove();
   }, [user]);
 
+  // Trigger 2: When network is restored
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
-      if (state.isConnected) triggerSync();
+      if (state.isConnected && state.isInternetReachable) {
+         triggerSync();
+      }
     });
     return () => unsubscribe();
   }, [user]);
 
+  // Trigger 3: Initial load
   useEffect(() => {
     if (user) triggerSync();
   }, [user]);
 
-  // Background Auto-Sync Interval
+  // Trigger 4: Background Interval (Every 2 Minutes)
   useEffect(() => {
     if (!user) return;
     const intervalId = setInterval(() => {
       triggerSync();
-    }, 3 * 60 * 1000); // 3 minutes
+    }, 2 * 60 * 1000); 
     
     return () => clearInterval(intervalId);
   }, [user]);

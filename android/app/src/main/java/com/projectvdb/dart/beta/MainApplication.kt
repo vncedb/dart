@@ -1,4 +1,4 @@
-package com.projectvdb.dart.dev
+package com.projectvdb.dart.beta
 
 import android.app.Application
 import android.content.res.Configuration

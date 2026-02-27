@@ -9,10 +9,8 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { makeRedirectUri } from 'expo-auth-session';
-import * as QueryParams from 'expo-auth-session/build/QueryParams';
+import { GoogleSignin } from '@react-native-google-signin/google-signin'; // <-- NATIVE GOOGLE IMPORT
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import * as WebBrowser from 'expo-web-browser';
 import { useColorScheme } from 'nativewind';
 import React, { useEffect, useState } from 'react';
 import {
@@ -37,7 +35,13 @@ import OtpVerificationModal from '../components/OtpVerificationModal';
 import { getDB, queueSyncItem, saveProfileLocal } from '../lib/database';
 import { supabase } from '../lib/supabase';
 
-WebBrowser.maybeCompleteAuthSession();
+// =========================================================================
+// CONFIGURE GOOGLE SIGN IN (Replace with your Google Cloud Web Client ID)
+// =========================================================================
+GoogleSignin.configure({
+    webClientId: '668715947282-3aj7sab049eice766d098fvkot1jerg5.apps.googleusercontent.com',
+    scopes: ['profile', 'email'],
+});
 
 const Tooltip = ({ message, isDark }: { message: string, isDark: boolean }) => (
     <View className="absolute right-0 z-50 w-64 mt-2 top-full">
@@ -147,7 +151,6 @@ export default function AuthScreen() {
           }
 
           const meta = user.user_metadata || {};
-          console.log("Processing New User Metadata:", JSON.stringify(meta));
 
           const avatarUrl = meta.avatar_url || meta.picture || meta.avatar || null;
           let fullName = meta.full_name || meta.name || '';
@@ -191,18 +194,16 @@ export default function AuthScreen() {
       setSuccessMode(true); 
       
       setTimeout(() => {
-          // 1. Hide the modals to trigger the fade animation
           setLoading(false);
           setGoogleLoading(false);
           
-          // 2. WAIT 500ms to guarantee the Modal fade out is 100% finished before routing
           setTimeout(() => {
               if (isUserOnboarded) {
                   router.replace('/(tabs)/home'); 
               } else {
                   router.replace({ pathname: '/onboarding', params: { welcome: 'true' } });
               }
-          }, 500); // <-- THIS PREVENTS THE GHOST MODAL
+          }, 500); 
           
       }, 800);
   };
@@ -257,7 +258,6 @@ export default function AuthScreen() {
             } else {
                 if (session && user) {
                      await checkAppRegistration(user);
-                     // REMOVED setLoading(false) from here to prevent the state race condition
                      onLoginSuccess(false); 
                 } else {
                     setLoading(false); 
@@ -271,50 +271,52 @@ export default function AuthScreen() {
     }
   };
 
+  // =========================================================================
+  // NATIVE GOOGLE SIGN IN FUNCTION
+  // =========================================================================
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     try {
-      const redirectTo = makeRedirectUri({ path: 'auth/callback' }); 
-      const { data, error } = await supabase.auth.signInWithOAuth({ 
-          provider: 'google', 
-          options: { 
-              redirectTo, 
-              skipBrowserRedirect: true,
-              scopes: 'openid profile email' 
-          } 
-      });
-      
-      if (error) throw error;
-      if (!data?.url) throw new Error('No auth URL returned from Supabase');
-
-      const res = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-      
-      if (res.type === 'success' && res.url) {
-        const paramsStr = res.url.includes('#') ? res.url.split('#')[1] : res.url.split('?')[1];
-        const result = QueryParams.getQueryParams('?' + paramsStr);
-        const authParams = result.params;
+        await GoogleSignin.hasPlayServices();
         
-        if (authParams['access_token'] && authParams['refresh_token']) {
-            const { data: { user }, error: sessionError } = await supabase.auth.setSession({ 
-                access_token: authParams['access_token'], 
-                refresh_token: authParams['refresh_token'] 
+        // This opens the native bottom sheet account picker
+        const userInfo = await GoogleSignin.signIn();
+        
+        // Handle both older v12 and newer v13+ library response formats
+        const idToken = userInfo?.data?.idToken || (userInfo as any)?.idToken;
+
+        if (idToken) {
+            // Pass the generated ID token to Supabase
+            const { data, error } = await supabase.auth.signInWithIdToken({
+                provider: 'google',
+                token: idToken,
             });
             
-            if (sessionError) throw sessionError;
+            if (error) throw error;
             
-            if (user) {
-                const isUserOnboarded = await checkAppRegistration(user);
+            if (data?.user) {
+                const isUserOnboarded = await checkAppRegistration(data.user);
                 onLoginSuccess(isUserOnboarded);
             }
+        } else {
+            throw new Error('No ID token present in Google response.');
         }
-      } else {
-          setGoogleLoading(false);
-      }
+
     } catch (error: any) {
-        setGoogleLoading(false);
-        if (error.message !== 'User cancelled the auth session') {
-            setAlertConfig({ visible: true, type: 'error', title: 'Google Sign In Failed', message: error.message || "Could not sign in.", onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) });
+        if (error.code === 'SIGN_IN_CANCELLED') {
+            // The user closed the native modal; just fail silently.
+            console.log('User cancelled Google Sign-In');
+        } else {
+            setAlertConfig({ 
+                visible: true, 
+                type: 'error', 
+                title: 'Google Sign In Failed', 
+                message: error.message || "Could not sign in.", 
+                onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) 
+            });
         }
+    } finally {
+        setGoogleLoading(false);
     }
   };
 
@@ -344,7 +346,6 @@ export default function AuthScreen() {
                     await checkAppRegistration(session.user);
                     setShowOtp(false);
                     
-                    // Small delay to let OTP modal close before starting Login Success
                     setTimeout(() => {
                         onLoginSuccess(false); 
                     }, 300);

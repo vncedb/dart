@@ -1,15 +1,18 @@
-// app/edit-profile.tsx
 import {
     ArrowDown01Icon,
+    Camera01Icon,
     InformationCircleIcon,
     Tick01Icon,
     UserIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
     ActivityIndicator,
+    Image,
     Keyboard,
     KeyboardAvoidingView,
     Platform,
@@ -31,9 +34,8 @@ import { PROFESSIONAL_SUFFIXES, PROFESSIONAL_TITLES } from '../constants/profile
 import { useAppTheme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useSync } from '../context/SyncContext';
-import { queueSyncItem, saveProfileLocal } from '../lib/database';
+import { saveProfileLocal } from '../lib/database'; // <-- OFFLINE HELPER
 import { getDB } from '../lib/db-client';
-import { supabase } from '../lib/supabase';
 
 const Tooltip = ({ message, theme }: { message: string, theme: any }) => (
     <View style={{ position: 'absolute', right: 0, zIndex: 100, width: 220, marginTop: 8, top: '100%' }}>
@@ -43,8 +45,8 @@ const Tooltip = ({ message, theme }: { message: string, theme: any }) => (
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
                     <HugeiconsIcon icon={InformationCircleIcon} size={16} color="#ef4444" />
                     <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 11, fontWeight: '800', marginBottom: 2, color: theme.colors.text }}>Attention Needed</Text>
-                        <Text style={{ fontSize: 11, lineHeight: 15, color: theme.colors.textSecondary }}>{message}</Text>
+                        <Text style={{ fontSize: 11, fontFamily: 'Nunito_500Medium', marginBottom: 2, color: theme.colors.text }}>Attention Needed</Text>
+                        <Text style={{ fontSize: 11, lineHeight: 15, fontFamily: 'Nunito_400Regular', color: theme.colors.textSecondary }}>{message}</Text>
                     </View>
                 </View>
             </View>
@@ -52,217 +54,219 @@ const Tooltip = ({ message, theme }: { message: string, theme: any }) => (
     </View>
 );
 
-const AuthInput = ({ label, value, onChange, required, icon, errorKey, theme, errors, setErrors, visibleTooltip, setVisibleTooltip }: any) => {
+const AuthInput = ({ label, value, onChange, placeholder, icon, required, errorKey, readonly, onPress, theme, errors, setErrors, visibleTooltip, setVisibleTooltip }: any) => {
     const isError = errorKey && errors[errorKey];
     const showTooltip = errorKey && visibleTooltip === errorKey;
+    const hasValue = value && value.length > 0;
+    
     return (
-      <View style={{ marginBottom: 20, zIndex: showTooltip ? 50 : 1 }}>
-          <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>{label} {required && <Text style={{ color: '#ef4444' }}>*</Text>}</Text>
-          <View style={{ position: 'relative' }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.card, borderRadius: 16, borderWidth: 1, borderColor: isError ? '#ef4444' : theme.colors.border, height: 56, paddingHorizontal: 16 }}>
-                  <HugeiconsIcon icon={icon} size={22} color={isError ? "#ef4444" : theme.colors.textSecondary} />
-                  <TextInput value={value} onChangeText={(t) => { onChange(t); if(errorKey) { setErrors((prev:any) => ({...prev, [errorKey]: undefined})); setVisibleTooltip(null); }}} style={{ flex: 1, marginLeft: 12, fontSize: 16, fontWeight: '600', color: theme.colors.text }} placeholder={`Enter ${label}`} placeholderTextColor={theme.colors.textSecondary} onFocus={() => setVisibleTooltip(null)} />
-                  {isError && (<TouchableOpacity onPress={() => setVisibleTooltip(showTooltip ? null : errorKey)}><HugeiconsIcon icon={InformationCircleIcon} size={22} color="#ef4444" /></TouchableOpacity>)}
-              </View>
-              {showTooltip && <Tooltip message={errors[errorKey] || ''} theme={theme} />}
-          </View>
-      </View>
+        <View style={{ marginBottom: 20, zIndex: showTooltip ? 50 : 1 }}>
+            <Text style={{ fontSize: 11, fontFamily: 'Nunito_500Medium', color: theme.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8, marginLeft: 4 }}>
+                {label} {required && <Text style={{ color: '#ef4444' }}>*</Text>}
+            </Text>
+            <View style={{ position: 'relative' }}>
+                <TouchableOpacity activeOpacity={readonly ? 0.7 : 1} onPress={onPress}>
+                    <View style={{ 
+                        flexDirection: 'row', alignItems: 'center', 
+                        backgroundColor: theme.colors.card, 
+                        borderRadius: 16, borderWidth: 1, 
+                        borderColor: isError ? '#ef4444' : theme.colors.border,
+                        height: 56, paddingHorizontal: 16 
+                    }}>
+                        {icon && <HugeiconsIcon icon={icon} size={22} color={isError ? "#ef4444" : (readonly && hasValue ? theme.colors.primary : theme.colors.textSecondary)} />}
+                        
+                        {readonly ? (
+                            <Text numberOfLines={1} style={{ flex: 1, marginLeft: 12, fontSize: 15, fontFamily: 'Nunito_500Medium', color: hasValue ? theme.colors.text : theme.colors.textSecondary }}>
+                                {hasValue ? value : placeholder}
+                            </Text>
+                        ) : (
+                            <TextInput 
+                                value={value} 
+                                onChangeText={(t) => { onChange(t); if(errorKey) { setErrors((prev:any) => ({...prev, [errorKey]: undefined})); setVisibleTooltip(null); }}} 
+                                style={{ flex: 1, marginLeft: 12, padding: 0, fontSize: 15, fontFamily: 'Nunito_500Medium', color: theme.colors.text }} 
+                                placeholder={placeholder} 
+                                placeholderTextColor={theme.colors.textSecondary}
+                                onFocus={() => setVisibleTooltip(null)}
+                            />
+                        )}
+                        
+                        {readonly && <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.icon} />}
+                        {isError && !readonly && (
+                            <TouchableOpacity onPress={() => setVisibleTooltip(showTooltip ? null : errorKey)}>
+                                <HugeiconsIcon icon={InformationCircleIcon} size={22} color="#ef4444" />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                </TouchableOpacity>
+                {showTooltip && <Tooltip message={errors[errorKey] || ''} theme={theme} />}
+            </View>
+        </View>
     );
 };
-
-const AuthSelect = ({ label, value, onPress, theme }: any) => (
-    <View style={{ marginBottom: 20 }}>
-        <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.textSecondary, textTransform: 'uppercase', marginBottom: 8, marginLeft: 4 }}>{label}</Text>
-        <TouchableOpacity onPress={onPress} activeOpacity={0.7} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, height: 56, backgroundColor: theme.colors.card, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border }}>
-            <Text numberOfLines={1} style={{ fontSize: 16, fontWeight: '600', color: value ? theme.colors.text : theme.colors.textSecondary }}>{value || 'Select'}</Text>
-            <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.textSecondary} />
-        </TouchableOpacity>
-    </View>
-);
 
 export default function EditProfileScreen() {
   const router = useRouter();
   const theme = useAppTheme();
+  const { user, refreshProfile } = useAuth();
   const { triggerSync } = useSync();
-  const { user } = useAuth();
-  
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [titleModalVisible, setTitleModalVisible] = useState(false);
-  const [suffixModalVisible, setSuffixModalVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
-  const [profile, setProfile] = useState({
-    id: '', first_name: '', middle_name: '', last_name: '', title: '', professional_suffix: '', full_name: '', 
-    current_job_id: null as string | null, avatar_url: null as string | null, local_avatar_path: null as string | null, email: '', is_onboarded: 0
+  const [profile, setProfile] = useState<any>({
+      first_name: '',
+      middle_name: '',
+      last_name: '',
+      title: '',
+      professional_suffix: '',
+      avatar_url: null,
+      local_avatar_path: null
   });
-  const [errors, setErrors] = useState<{ firstName?: string; lastName?: string }>({});
-  const [visibleTooltip, setVisibleTooltip] = useState<'firstName' | 'lastName' | null>(null);
 
-  // Memoize fetchData to resolve ESLint warning
-  const fetchData = useCallback(async () => {
-      setLoading(true);
+  const [errors, setErrors] = useState<any>({});
+  const [visibleTooltip, setVisibleTooltip] = useState<string | null>(null);
+  
+  const [titleModalVisible, setTitleModalVisible] = useState(false);
+  const [suffixModalVisible, setSuffixModalVisible] = useState(false);
+
+  // 1. OFFLINE PULL
+  const loadProfile = useCallback(async () => {
+      if (!user) return;
       try {
-        if (!user) {
-            console.warn("No local session found.");
-            return;
-        }
-        
-        const db = await getDB();
-        
-        let profileData: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
-        
-        if (!profileData) {
-             try {
-                 const { data: remoteProfile, error: remoteError } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-                 if (remoteProfile && !remoteError) { 
-                     profileData = remoteProfile; 
-                     await saveProfileLocal(remoteProfile); 
-                 }
-             } catch {
-                 // Removed unused 'e' variable to fix ESLint warning
-                 console.log("Offline or failed remote fetch");
-             }
-        }
-
-        const meta = user.user_metadata || {};
-        let firstName = profileData?.first_name || '';
-        let lastName = profileData?.last_name || '';
-        let fullName = profileData?.full_name || '';
-
-        if (!firstName && !lastName) {
-            if (meta.full_name) {
-                const parts = meta.full_name.split(' ');
-                firstName = parts[0];
-                if (parts.length > 1) lastName = parts.slice(1).join(' ');
-                fullName = meta.full_name;
-            } else if (meta.name) {
-                const parts = meta.name.split(' ');
-                firstName = parts[0];
-                if (parts.length > 1) lastName = parts.slice(1).join(' ');
-                fullName = meta.name;
-            }
-        }
-
-        setProfile({
-            id: user.id, 
-            first_name: firstName, 
-            last_name: lastName, 
-            middle_name: profileData?.middle_name || '', 
-            title: profileData?.title || '', 
-            professional_suffix: profileData?.professional_suffix || '', 
-            full_name: fullName || `${firstName} ${lastName}`.trim(), 
-            current_job_id: profileData?.current_job_id || null,
-            avatar_url: profileData?.avatar_url || null,
-            local_avatar_path: profileData?.local_avatar_path || null,
-            email: profileData?.email || user.email || '',
-            is_onboarded: profileData?.is_onboarded || 0,
-        });
-
-      } catch (e) { 
-          console.log("Fetch Error (Offline safe fail):", e); 
-      } finally { 
-          setLoading(false); 
+          const db = await getDB();
+          const localProfile: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
+          if (localProfile) {
+              setProfile(localProfile);
+          }
+      } catch (e) {
+          console.error("Load Profile Error:", e);
+      } finally {
+          setLoading(false);
       }
   }, [user]);
 
-  // Include fetchData in the dependency array
-  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+  useFocusEffect(useCallback(() => { loadProfile(); }, [loadProfile]));
 
-  const validate = () => {
-      const newErrors: any = {};
-      let isValid = true;
-      if (!profile.first_name.trim()) { newErrors.firstName = "First Name is required."; isValid = false; }
-      if (!profile.last_name.trim()) { newErrors.lastName = "Last Name is required."; isValid = false; }
-      setErrors(newErrors);
-      if (newErrors.firstName) setVisibleTooltip('firstName');
-      else if (newErrors.lastName) setVisibleTooltip('lastName');
-      return isValid;
+  // 2. CACHE IMAGE LOCALLY
+  const handleImagePick = async () => {
+      try {
+          const result = await ImagePicker.launchImageLibraryAsync({
+              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              allowsEditing: true,
+              aspect: [1, 1],
+              quality: 0.5,
+          });
+
+          if (!result.canceled && result.assets && result.assets.length > 0) {
+              const uri = result.assets[0].uri;
+              const filename = uri.split('/').pop();
+              const newPath = FileSystem.documentDirectory + (filename || `avatar_${Date.now()}.jpg`);
+              
+              await FileSystem.copyAsync({ from: uri, to: newPath });
+              setProfile({ ...profile, local_avatar_path: newPath }); // Save local path!
+          }
+      } catch (e) {
+          setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Could not select image.', onConfirm: () => setAlertConfig({ visible: false }) });
+      }
   };
 
+  // 3. OFFLINE SAVE & QUEUE
   const handleSave = async () => {
-    Keyboard.dismiss();
-    setVisibleTooltip(null);
-    if (!validate()) return;
-    setSaving(true);
-    try {
-      if (!user) throw new Error("No user found locally.");
-      
-      const updates = {
-        id: user.id, 
-        email: profile.email,
-        first_name: profile.first_name, 
-        middle_name: profile.middle_name, 
-        last_name: profile.last_name, 
-        title: profile.title, 
-        professional_suffix: profile.professional_suffix, 
-        full_name: `${profile.first_name} ${profile.last_name}`.trim(), 
-        current_job_id: profile.current_job_id,
-        avatar_url: profile.avatar_url,
-        local_avatar_path: profile.local_avatar_path,
-        is_onboarded: profile.is_onboarded,
-        updated_at: new Date().toISOString(),
-      };
-      
-      await saveProfileLocal(updates);
-      await queueSyncItem('profiles', user.id, 'UPDATE', updates);
-      triggerSync();
-      router.back();
-    } catch (error: any) {
-      setAlertConfig({ visible: true, type: 'error', title: 'Save Failed', message: error.message, confirmText: 'OK', onConfirm: () => setAlertConfig((p:any)=>({...p, visible: false})) });
-    } finally {
-      setSaving(false);
-    }
+      Keyboard.dismiss();
+      setVisibleTooltip(null);
+
+      if (!profile.first_name || !profile.last_name) {
+          setErrors({ 
+              firstName: !profile.first_name ? "First name is required." : undefined,
+              lastName: !profile.last_name ? "Last name is required." : undefined
+          });
+          setAlertConfig({ visible: true, type: 'warning', title: 'Missing Info', message: 'Please complete required fields.', onConfirm: () => setAlertConfig({ visible: false }) });
+          return;
+      }
+
+      setSaving(true);
+      try {
+          // Re-generate full name
+          const first = profile.first_name.trim();
+          const middle = profile.middle_name ? `${profile.middle_name.trim()} ` : '';
+          const last = profile.last_name.trim();
+          const suffix = profile.professional_suffix ? `, ${profile.professional_suffix.trim()}` : '';
+          const title = profile.title ? `${profile.title.trim()} ` : '';
+          const generatedFullName = `${title}${first} ${middle}${last}${suffix}`;
+
+          const updatedProfile = {
+              ...profile,
+              full_name: generatedFullName,
+              updated_at: new Date().toISOString()
+          };
+
+          // Save instantly to SQLite and trigger background queue!
+          await saveProfileLocal(updatedProfile);
+          await refreshProfile();
+          triggerSync(); 
+
+          router.back();
+      } catch (error: any) {
+          setAlertConfig({ visible: true, type: 'error', title: 'Save Failed', message: error.message || 'Could not update profile.', onConfirm: () => setAlertConfig({ visible: false }) });
+      } finally {
+          setSaving(false);
+      }
   };
+
+  if (loading) return <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={theme.colors.primary} /></View>;
+
+  const displayAvatar = profile.local_avatar_path ? { uri: profile.local_avatar_path } : (profile.avatar_url ? { uri: profile.avatar_url } : null);
 
   return (
     <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setVisibleTooltip(null); }}>
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
-            <ModernAlert {...alertConfig} />
             <LoadingOverlay visible={saving} message="Saving Profile..." />
-            
-            {/* Removed the unregistered `theme` prop to fix TS2322 */}
-            <SearchableSelectionModal visible={titleModalVisible} onClose={() => setTitleModalVisible(false)} title="Select Title" options={PROFESSIONAL_TITLES} onSelect={(val: string) => setProfile({...profile, title: val})} placeholder="Search titles..." currentValue={profile.title} />
-            <SearchableSelectionModal visible={suffixModalVisible} onClose={() => setSuffixModalVisible(false)} title="Select Professional Suffix" options={PROFESSIONAL_SUFFIXES} onSelect={(val: string) => setProfile({...profile, professional_suffix: val})} placeholder="Search suffixes..." currentValue={profile.professional_suffix} />
-            
+            <ModernAlert {...alertConfig} />
+
+            <SearchableSelectionModal visible={titleModalVisible} onClose={() => setTitleModalVisible(false)} onSelect={(val) => setProfile({...profile, title: val})} title="Select Title" options={PROFESSIONAL_TITLES} placeholder="Search title..." currentValue={profile.title} />
+            <SearchableSelectionModal visible={suffixModalVisible} onClose={() => setSuffixModalVisible(false)} onSelect={(val) => setProfile({...profile, professional_suffix: val})} title="Select Suffix" options={PROFESSIONAL_SUFFIXES} placeholder="Search suffix..." currentValue={profile.professional_suffix} />
+
             <Header title="Edit Profile" />
 
-            {loading ? (
-                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={theme.colors.primary} /></View>
-            ) : (
-                <>
-                    <KeyboardAvoidingView 
-                        behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
-                        style={{ flex: 1 }}
-                    >
-                        <ScrollView 
-                            contentContainerStyle={{ padding: 24, paddingBottom: 40 }} 
-                            showsVerticalScrollIndicator={false}
-                        >
-                            <View style={{ backgroundColor: theme.colors.card, borderRadius: 24, padding: 20, borderWidth: 1, borderColor: theme.colors.border, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
-                                <View style={{ flexDirection: 'row', gap: 12 }}>
-                                    <View style={{ flex: 1 }}>
-                                        <AuthSelect label="Title" value={profile.title} onPress={() => setTitleModalVisible(true)} theme={theme} />
-                                    </View>
-                                    <View style={{ flex: 1 }}>
-                                        <AuthSelect label="Suffix" value={profile.professional_suffix} onPress={() => setSuffixModalVisible(true)} theme={theme} />
-                                    </View>
-                                </View>
-                                <AuthInput label="First Name" value={profile.first_name} onChange={(t: string) => setProfile({...profile, first_name: t})} required icon={UserIcon} errorKey="firstName" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
-                                <AuthInput label="Middle Name" value={profile.middle_name} onChange={(t: string) => setProfile({...profile, middle_name: t})} icon={UserIcon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
-                                <AuthInput label="Last Name" value={profile.last_name} onChange={(t: string) => setProfile({...profile, last_name: t})} required icon={UserIcon} errorKey="lastName" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
-                            </View>
-                        </ScrollView>
-                    </KeyboardAvoidingView>
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+                <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 100 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                     
-                    <Footer>
-                        <TouchableOpacity onPress={handleSave} disabled={saving} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.primary, height: 56, borderRadius: 16, shadowColor: theme.colors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}>
-                            <Text style={{ color: 'white', fontSize: 16, fontWeight: '700', marginRight: 8 }}>Save Changes</Text>
-                            <HugeiconsIcon icon={Tick01Icon} size={20} color="white" strokeWidth={2.5} />
+                    <View style={{ alignItems: 'center', marginBottom: 32 }}>
+                        <TouchableOpacity onPress={handleImagePick} activeOpacity={0.8} style={{ width: 110, height: 110, borderRadius: 55, backgroundColor: theme.colors.card, borderWidth: 2, borderColor: theme.colors.primary + '40', alignItems: 'center', justifyContent: 'center', shadowColor: theme.colors.primary, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 16, elevation: 8 }}>
+                            {displayAvatar ? (
+                                <Image source={displayAvatar} style={{ width: '100%', height: '100%', borderRadius: 55 }} />
+                            ) : (
+                                <HugeiconsIcon icon={UserIcon} size={40} color={theme.colors.textSecondary} />
+                            )}
+                            <View style={{ position: 'absolute', bottom: -4, right: -4, backgroundColor: theme.colors.primary, width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: theme.colors.background }}>
+                                <HugeiconsIcon icon={Camera01Icon} size={16} color="#fff" />
+                            </View>
                         </TouchableOpacity>
-                    </Footer>
-                </>
-            )}
+                        <Text style={{ marginTop: 16, fontSize: 13, fontFamily: 'Nunito_500Medium', color: theme.colors.textSecondary }}>Tap to change picture</Text>
+                    </View>
+
+                    <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontFamily: 'Nunito_500Medium', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Professional Details</Text>
+                    <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, marginBottom: 24, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
+                        <AuthInput label="Title" value={profile.title || 'Select Title'} onPress={() => setTitleModalVisible(true)} readonly icon={UserIcon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                        <AuthInput label="Professional Suffix" value={profile.professional_suffix || 'Select Suffix'} onPress={() => setSuffixModalVisible(true)} readonly icon={UserIcon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                    </View>
+
+                    <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontFamily: 'Nunito_500Medium', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Personal Information</Text>
+                    <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
+                        <AuthInput label="First Name" value={profile.first_name} onChange={(t: string) => setProfile({...profile, first_name: t})} required icon={UserIcon} errorKey="firstName" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                        <AuthInput label="Middle Name" value={profile.middle_name} onChange={(t: string) => setProfile({...profile, middle_name: t})} icon={UserIcon} theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                        <AuthInput label="Last Name" value={profile.last_name} onChange={(t: string) => setProfile({...profile, last_name: t})} required icon={UserIcon} errorKey="lastName" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                    </View>
+                </ScrollView>
+            </KeyboardAvoidingView>
+            
+            <Footer>
+                <TouchableOpacity onPress={handleSave} disabled={saving} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.primary, height: 56, borderRadius: 16, shadowColor: theme.colors.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 5 }}>
+                    <Text style={{ color: 'white', fontSize: 16, fontFamily: 'Nunito_700Bold', marginRight: 8 }}>Save Changes</Text>
+                    <HugeiconsIcon icon={Tick01Icon} size={20} color="white" strokeWidth={2.5} />
+                </TouchableOpacity>
+            </Footer>
         </SafeAreaView>
     </TouchableWithoutFeedback>
   );

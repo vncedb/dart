@@ -1,8 +1,8 @@
 import { ArrowRight01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import { useRootNavigationState, useRouter } from 'expo-router'; // <-- Added Root Nav State
+import { useRootNavigationState, useRouter } from 'expo-router';
 import { useColorScheme } from 'nativewind';
-import React, { useEffect, useRef } from 'react'; // <-- Added useRef
+import React, { useEffect } from 'react';
 import {
     BackHandler,
     Image,
@@ -22,22 +22,14 @@ export default function Index() {
   const { user, isLoading, isOnboarded } = useAuth();
   
   const rootNavigationState = useRootNavigationState();
-  const hasRouted = useRef(false); // <-- NEW: Prevents background routing race conditions
 
   useEffect(() => {
-    // Wait for Expo Router to be fully mounted
-    if (!rootNavigationState?.key) return;
+    // Wait for Expo Router to be fully mounted and Auth to finish loading
+    if (!rootNavigationState?.key || isLoading) return;
 
-    if (!isLoading && !hasRouted.current) {
-        if (user) {
-            if (isOnboarded) {
-                 router.replace('/(tabs)/home');
-            } else {
-                 router.replace('/onboarding');
-            }
-        }
-        // Mark as routed so it NEVER auto-routes from the background again
-        hasRouted.current = true;
+    // If a user exists, instantly route them away from the index screen
+    if (user) {
+        router.replace(isOnboarded ? '/(tabs)/home' : '/onboarding');
     }
   }, [user, isLoading, isOnboarded, rootNavigationState?.key]);
 
@@ -47,7 +39,11 @@ export default function Index() {
     return () => backHandler.remove();
   }, []);
 
-  if (isLoading) return null;
+  // Return a completely blank screen while auth is initially loading 
+  // to prevent flashing the "Welcome" UI to logged-in users.
+  if (isLoading || user) return (
+      <View style={{ flex: 1, backgroundColor: isDark ? '#020617' : '#f8fafc' }} />
+  );
 
   return (
     <ImageBackground 

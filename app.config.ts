@@ -2,7 +2,7 @@
 import { ConfigContext, ExpoConfig } from 'expo/config';
 
 // 1. Change this to 'dev', 'beta', or 'stable' to switch your environment globally
-const APP_ENV = 'dev'; 
+const APP_ENV = 'beta'; 
 
 const ENV_CONFIG = {
   dev: {

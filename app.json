@@ -69,7 +69,8 @@
       ],
       "expo-audio",
       "expo-sqlite",
-      "./plugins/withNotificationIcons"
+      "./plugins/withNotificationIcons",
+      "@react-native-google-signin/google-signin"
     ],
     "experiments": {
       "typedRoutes": true

@@ -7,7 +7,7 @@ import {
     WifiOffIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import notifee, { EventType } from '@notifee/react-native'; // <-- NOTIFEE IMPORT
+import notifee, { EventType } from '@notifee/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNetInfo } from '@react-native-community/netinfo';
 import { addDays, addHours, differenceInDays, differenceInSeconds, format, isToday, set, startOfMonth, startOfWeek } from 'date-fns';
@@ -48,10 +48,10 @@ import OvertimeModal from '../../components/OvertimeModal';
 import ScaleButton from '../../components/ScaleButton';
 
 import { useAppTheme } from '../../constants/theme';
+import { useAuth } from '../../context/AuthContext'; // <-- ADDED: Local Auth State
 import { useSync } from '../../context/SyncContext';
-import { generateUUID, getNotificationsLocal, saveNotificationLocal } from '../../lib/database';
+import { generateUUID, getNotificationsLocal, queueSyncItem, saveAttendanceLocal, saveNotificationLocal } from '../../lib/database'; // <-- ADDED: Offline Helpers
 import { getDB } from '../../lib/db-client';
-import { supabase } from '../../lib/supabase';
 import {
     clearAttendanceNotification,
     initNotificationSystem,
@@ -213,6 +213,7 @@ export default function Home() {
     const insets = useSafeAreaInsets();
     const router = useRouter();
     const theme = useAppTheme();
+    const { user } = useAuth(); // <-- OFFLINE-SAFE USER FETCH
     const { triggerSync, syncStatus } = useSync();
     
     const netInfo = useNetInfo();
@@ -306,13 +307,12 @@ export default function Home() {
     const handleHideAlert = useCallback(() => { setAlertVisible(false); }, []);
 
     const loadNotifications = useCallback(async () => {
+        if (!user) return; // OFFLINE-SAFE
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session?.user) return;
-            const data = await getNotificationsLocal(session.user.id);
+            const data = await getNotificationsLocal(user.id);
             setNotifications(data);
         } catch (e) { console.log('Err loading notifs', e); }
-    }, []);
+    }, [user]);
 
     const saveNotifications = useCallback(async (newNotif: any) => {
         try {
@@ -322,11 +322,9 @@ export default function Home() {
     }, [loadNotifications]);
 
     const loadData = useCallback(async () => {
+        if (!user) return; // OFFLINE-SAFE
         if (!isInitialLoadRef.current) setTimelineLoading(true);
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session?.user) return;
-            const user = session.user;
             const db = await getDB();
             const dateStr = format(selectedDate, 'yyyy-MM-dd');
 
@@ -453,36 +451,31 @@ export default function Home() {
             setRefreshing(false); setTimelineLoading(false);
             setTimeout(() => { setIsInitialLoading(false); isInitialLoadRef.current = false; }, 300); 
         }
-    }, [selectedDate, saveNotifications]);
+    }, [user, selectedDate, saveNotifications]);
 
     const processClockAction = useCallback(async (isOvertime = false, duration = 0) => {
-        if (!activeJobId) {
+        if (!user || !activeJobId) {
             setModernAlertConfig({ visible: true, type: 'warning', title: 'No Job Active', message: 'Please set an active job in your profile.', confirmText: 'Manage Jobs', onConfirm: () => { setModernAlertConfig((prev:any)=>({...prev, visible:false})); router.push('/job/job'); } });
             return;
         }
 
         setLoading(true);
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session?.user) return;
-            const user = session.user;
-            const db = await getDB();
             const todayStr = format(new Date(), 'yyyy-MM-dd');
 
-            if (isClockedIn) {
+            if (isClockedIn && latestRecord) {
                 const now = new Date().toISOString();
-                if (latestRecord) {
-                    let finalRemarks = latestRecord.remarks || '';
-                    if (accumulatedBreakMs > 0) finalRemarks = finalRemarks ? `${finalRemarks} | BreakMs:${accumulatedBreakMs}` : `BreakMs:${accumulatedBreakMs}`;
+                let finalRemarks = latestRecord.remarks || '';
+                if (accumulatedBreakMs > 0) finalRemarks = finalRemarks ? `${finalRemarks} | BreakMs:${accumulatedBreakMs}` : `BreakMs:${accumulatedBreakMs}`;
 
-                    await db.runAsync('UPDATE attendance SET clock_out = ?, status = ?, remarks = ? WHERE id = ?', [now, 'completed', finalRemarks, latestRecord.id]);
-                    await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', ['attendance', latestRecord.id, 'UPDATE', JSON.stringify({ clock_out: now, status: 'completed', remarks: finalRemarks })]);
-                    
-                    await AsyncStorage.removeItem(`break_start_${latestRecord.id}`);
-                    await AsyncStorage.removeItem(`break_total_${latestRecord.id}`);
-                    setAccumulatedBreakMs(0);
-                    setBreakStartTimestamp(null);
-                }
+                // TRUE OFFLINE FIRST: Use our new local helper
+                const updatedRecord = { ...latestRecord, clock_out: now, status: 'completed', remarks: finalRemarks };
+                await saveAttendanceLocal(updatedRecord);
+                
+                await AsyncStorage.removeItem(`break_start_${latestRecord.id}`);
+                await AsyncStorage.removeItem(`break_total_${latestRecord.id}`);
+                setAccumulatedBreakMs(0);
+                setBreakStartTimestamp(null);
                 await AsyncStorage.removeItem('active_ot_expiry');
                 setOtExpiry(null);
                 hasWarnedTimeout.current = false;
@@ -502,14 +495,15 @@ export default function Home() {
                 } else {
                      setOtExpiry(null);
                 }
-                const newId = generateUUID();
-                const record = { id: newId, user_id: user.id, job_id: activeJobId, clock_in: now.toISOString(), date: todayStr, status: 'pending', remarks };
-                await db.runAsync('INSERT INTO attendance (id, user_id, job_id, date, clock_in, status, remarks) VALUES (?, ?, ?, ?, ?, ?, ?)', [record.id, record.user_id, record.job_id, record.date, record.clock_in, record.status, record.remarks]);
-                await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', ['attendance', record.id, 'INSERT', JSON.stringify(record)]);
+                
+                // TRUE OFFLINE FIRST: Use our new local helper
+                const record = { id: generateUUID(), user_id: user.id, job_id: activeJobId, clock_in: now.toISOString(), date: todayStr, status: 'pending', remarks };
+                await saveAttendanceLocal(record);
                 
                 setAlertMessage(isOvertime ? "Overtime Started!" : "Welcome In!"); 
                 setAlertType('check-in'); 
             }
+            
             if (appSettings?.soundEnabled && successPlayer) {
                 try { successPlayer.seekTo(0); successPlayer.play(); } catch (e) {}
             }
@@ -522,7 +516,7 @@ export default function Home() {
         } catch (e: any) { 
              setModernAlertConfig({ visible: true, type: 'error', title: 'Error', message: e.message, confirmText: 'OK', onConfirm: () => setModernAlertConfig((prev: any) => ({ ...prev, visible: false })) });
         } finally { setLoading(false); }
-    }, [activeJobId, isClockedIn, latestRecord, appSettings, loadData, triggerSync, successPlayer, router, accumulatedBreakMs]);
+    }, [user, activeJobId, isClockedIn, latestRecord, appSettings, loadData, triggerSync, successPlayer, router, accumulatedBreakMs]);
 
     const handleClockButtonPress = () => {
         if (!jobSettings || !activeJobId) {
@@ -542,7 +536,7 @@ export default function Home() {
     };
 
     const handleAutoTimeoutLogic = useCallback(async () => {
-        if (!isClockedIn || !latestRecord) return;
+        if (!isClockedIn || !latestRecord || !user) return;
         const now = new Date();
         let targetTime: Date | null = null;
         let reason = "";
@@ -567,29 +561,22 @@ export default function Home() {
             await showStandardNotification("Time Out Soon", `You will be automatically timed out in 1 minute.`);
             if (appSettings?.vibrationEnabled !== false) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
 
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.user) {
-                await saveNotifications({ id: generateUUID(), user_id: session.user.id, title: "Time Out Soon", body: `You will be automatically timed out in 1 minute.`, created_at: new Date().toISOString(), is_read: false, type: 'timeout_soon' });
-            }
+            await saveNotifications({ id: generateUUID(), user_id: user.id, title: "Time Out Soon", body: `You will be automatically timed out in 1 minute.`, created_at: new Date().toISOString(), is_read: false, type: 'timeout_soon' });
         }
 
         if (diffSeconds <= 0) {
             await clearAttendanceNotification();
-            const db = await getDB();
             const endIso = targetTime.toISOString();
             
             let finalRemarks = `Auto-timeout: ${reason}`;
             if (accumulatedBreakMs > 0) finalRemarks += ` | BreakMs:${accumulatedBreakMs}`;
 
-            await db.runAsync('UPDATE attendance SET clock_out = ?, status = ?, remarks = ? WHERE id = ?', [endIso, 'completed', finalRemarks, latestRecord.id]);
-            await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)', ['attendance', latestRecord.id, 'UPDATE', JSON.stringify({ clock_out: endIso, status: 'completed', remarks: finalRemarks })]);
+            // TRUE OFFLINE FIRST:
+            const updatedRecord = { ...latestRecord, clock_out: endIso, status: 'completed', remarks: finalRemarks };
+            await saveAttendanceLocal(updatedRecord);
             
             await showStandardNotification("Auto Timed Out", `You have been timed out. (${reason})`);
-
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.user) {
-                await saveNotifications({ id: generateUUID(), user_id: session.user.id, title: "Auto Timed Out", body: `Your session was automatically ended. (${reason})`, created_at: new Date().toISOString(), is_read: false, type: 'auto_timeout' });
-            }
+            await saveNotifications({ id: generateUUID(), user_id: user.id, title: "Auto Timed Out", body: `Your session was automatically ended. (${reason})`, created_at: new Date().toISOString(), is_read: false, type: 'auto_timeout' });
 
             await AsyncStorage.removeItem(`break_start_${latestRecord.id}`);
             await AsyncStorage.removeItem(`break_total_${latestRecord.id}`);
@@ -601,7 +588,7 @@ export default function Home() {
             
             triggerSync(); loadData(); 
         }
-    }, [isClockedIn, latestRecord, isSessionOvertime, otExpiry, jobSettings, appSettings, triggerSync, loadData, accumulatedBreakMs, saveNotifications]);
+    }, [user, isClockedIn, latestRecord, isSessionOvertime, otExpiry, jobSettings, appSettings, triggerSync, loadData, accumulatedBreakMs, saveNotifications]);
 
     // 🔴 NOTIFEE FOREGROUND EVENTS 
     useEffect(() => {
@@ -710,7 +697,27 @@ export default function Home() {
     }, [todaysRecords, tasks, jobSettings]);
 
     const handleEdit = (t: any) => { router.push({ pathname: '/reports/add-entry', params: { id: t.id } }); };
-    const handleDeleteTask = (t: any) => { setModernAlertConfig({ visible: true, type: 'warning', title: 'Delete Entry?', message: 'This will remove the entry from your history.', confirmText: 'Delete', cancelText: 'Cancel', onConfirm: async () => { setModernAlertConfig((prev: any) => ({ ...prev, visible: false })); setLoading(true); try { const db = await getDB(); await db.runAsync('DELETE FROM accomplishments WHERE id = ?', [t.id]); await db.runAsync('INSERT INTO sync_queue (table_name, row_id, action) VALUES (?, ?, ?)', ['accomplishments', t.id, 'DELETE']); await loadData(); triggerSync(); setAlertMessage("Entry deleted"); setAlertType('success'); setAlertVisible(true); } catch (e) { console.log(e); } finally { setLoading(false); } }, onCancel: () => setModernAlertConfig((prev: any) => ({ ...prev, visible: false })) }); };
+    
+    // OFFLINE FIRST DELETION:
+    const handleDeleteTask = (t: any) => { 
+        setModernAlertConfig({ 
+            visible: true, type: 'warning', title: 'Delete Entry?', message: 'This will remove the entry from your history.', confirmText: 'Delete', cancelText: 'Cancel', 
+            onConfirm: async () => { 
+                setModernAlertConfig((prev: any) => ({ ...prev, visible: false })); 
+                setLoading(true); 
+                try { 
+                    const db = await getDB(); 
+                    await db.runAsync('DELETE FROM accomplishments WHERE id = ?', [t.id]); 
+                    await queueSyncItem('accomplishments', t.id, 'DELETE'); // Uses Helper instead of raw SQL
+                    await loadData(); 
+                    triggerSync(); 
+                    setAlertMessage("Entry deleted"); setAlertType('success'); setAlertVisible(true); 
+                } catch (e) { console.log(e); } 
+                finally { setLoading(false); } 
+            }, 
+            onCancel: () => setModernAlertConfig((prev: any) => ({ ...prev, visible: false })) 
+        }); 
+    };
 
     const handleTitlePress = () => { setCalendarLoading(true); setTimeout(() => { setTimelinePickerVisible(true); setCalendarLoading(false); }, 50); };
 

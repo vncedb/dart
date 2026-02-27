@@ -228,6 +228,26 @@ export default function AccountSecurityScreen() {
         }
     };
 
+    const handleConfirmDelete = async () => {
+        setDeleteModalVisible(false);
+        try {
+            setLoading(true);
+            setLoadingMsg("Sending Verification Code...");
+            await sendDeleteOtp();
+            setLoading(false);
+            setOtpVisible(true);
+        } catch (error: any) {
+            setLoading(false);
+            setAlertConfig({ 
+                visible: true, 
+                type: 'error', 
+                title: 'Request Failed', 
+                message: error.message || 'Could not send the verification code. Please try again.', 
+                onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false })) 
+            });
+        }
+    };
+
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
             <Header title="Account & Security" />

@@ -32,10 +32,10 @@ import LoadingOverlay from '../../components/LoadingOverlay';
 import LoadingScreen from '../../components/LoadingScreen';
 import ModernAlert from '../../components/ModernAlert';
 import { useAppTheme } from '../../constants/theme';
+import { useAuth } from '../../context/AuthContext'; // <-- ADDED: Local Auth
 import { useSync } from '../../context/SyncContext';
 import { deleteJobLocal, queueSyncItem } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
-import { supabase } from '../../lib/supabase';
 
 type JobPosition = {
     id: string;
@@ -196,6 +196,7 @@ export default function MyJobsScreen() {
     const theme = useAppTheme();
     const router = useRouter();
     const { triggerSync } = useSync();
+    const { user } = useAuth(); // <-- OFFLINE-FIRST: Local Auth
     
     const [jobs, setJobs] = useState<JobPosition[]>([]);
     const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -226,14 +227,11 @@ export default function MyJobsScreen() {
     );
 
     const fetchJobs = useCallback(async () => {
+        if (!user) { setLoading(false); return; } // <-- Use Local Auth
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session?.user?.id) { setLoading(false); return; }
-            const userId = String(session.user.id);
-
             const db = await getDB();
-            const localJobs = await db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ? ORDER BY created_at DESC', [userId]);
-            const profile: any = await db.getFirstAsync('SELECT current_job_id FROM profiles WHERE id = ?', [userId]);
+            const localJobs = await db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ? ORDER BY created_at DESC', [user.id]);
+            const profile: any = await db.getFirstAsync('SELECT current_job_id FROM profiles WHERE id = ?', [user.id]);
 
             setActiveJobId(profile?.current_job_id || null);
             setJobs(localJobs as JobPosition[]);
@@ -245,7 +243,7 @@ export default function MyJobsScreen() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [user]);
 
     useFocusEffect(useCallback(() => { setLoading(true); fetchJobs(); }, [fetchJobs]));
 
@@ -274,17 +272,15 @@ export default function MyJobsScreen() {
     };
 
     const handleSetActive = async (jobId: string) => {
+        if (!user) return; // <-- Use Local Auth
         setLoadingMessage('Configuring Active Job...');
         setProcessing(true);
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session?.user?.id) return;
-            const userId = String(session.user.id);
             const db = await getDB();
             
-            await db.runAsync('UPDATE profiles SET current_job_id = ? WHERE id = ?', [jobId, userId]);
-            await db.runAsync('INSERT OR IGNORE INTO profiles (id, current_job_id, updated_at) VALUES (?, ?, ?)', [userId, jobId, new Date().toISOString()]);
-            await queueSyncItem('profiles', userId, 'UPDATE', { id: userId, current_job_id: jobId, updated_at: new Date().toISOString() });
+            await db.runAsync('UPDATE profiles SET current_job_id = ? WHERE id = ?', [jobId, user.id]);
+            await db.runAsync('INSERT OR IGNORE INTO profiles (id, current_job_id, updated_at) VALUES (?, ?, ?)', [user.id, jobId, new Date().toISOString()]);
+            await queueSyncItem('profiles', user.id, 'UPDATE', { id: user.id, current_job_id: jobId, updated_at: new Date().toISOString() });
             
             setActiveJobId(jobId);
             await triggerSync();
@@ -315,6 +311,7 @@ export default function MyJobsScreen() {
     };
 
     const handleDelete = async (jobId: string) => {
+        if (!user) return; // <-- Use Local Auth
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         setAlertConfig({
             visible: true,
@@ -331,13 +328,10 @@ export default function MyJobsScreen() {
                 try {
                     await deleteJobLocal(jobId);
                     if (activeJobId === jobId) {
-                        const { data: { session } } = await supabase.auth.getSession();
-                        if (session?.user?.id) {
-                            const db = await getDB();
-                            await db.runAsync('UPDATE profiles SET current_job_id = NULL WHERE id = ?', [session.user.id]);
-                            await queueSyncItem('profiles', session.user.id, 'UPDATE', { current_job_id: null });
-                            setActiveJobId(null);
-                        }
+                        const db = await getDB();
+                        await db.runAsync('UPDATE profiles SET current_job_id = NULL WHERE id = ?', [user.id]);
+                        await queueSyncItem('profiles', user.id, 'UPDATE', { current_job_id: null });
+                        setActiveJobId(null);
                     }
                     fetchJobs();
                 } catch(e) { /* handle error */ } finally { setProcessing(false); }

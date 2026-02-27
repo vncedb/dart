@@ -33,10 +33,10 @@ import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
 import { useAppTheme } from '../../constants/theme';
+import { useAuth } from '../../context/AuthContext'; // <-- ADDED: Local offline auth
 import { useSync } from '../../context/SyncContext';
-import { generateUUID } from '../../lib/database';
+import { generateUUID, queueSyncItem } from '../../lib/database'; // <-- ADDED: Sync Queue helper
 import { getDB } from '../../lib/db-client';
-import { supabase } from '../../lib/supabase';
 
 const MAX_PHOTOS = 4;
 
@@ -44,6 +44,7 @@ export default function AddEntryScreen() {
     const router = useRouter();
     const navigation = useNavigation();
     const theme = useAppTheme();
+    const { user } = useAuth(); // <-- FETCH USER LOCALLY
     const { triggerSync } = useSync();
     
     // Params: 'id' (from Timeline Edit), 'jobId' (from Home Add), 'date' (from Reports Add)
@@ -107,17 +108,16 @@ export default function AddEntryScreen() {
             }
         };
         init();
-    }, [entryId, passedJobId]);
+    }, [entryId, passedJobId, user]);
 
+    // 🔴 OFFLINE-FIRST FIX: Read from local SQLite instead of Supabase
     const fetchActiveJob = async () => {
+        if (!user) return;
         try {
             const db = await getDB();
-            const { data: { session } } = await supabase.auth.getSession();
-            if (session?.user) {
-                const profile = await db.getFirstAsync('SELECT current_job_id FROM profiles WHERE id = ?', [session.user.id]);
-                if (profile && (profile as any).current_job_id) {
-                    setActiveJobId((profile as any).current_job_id);
-                }
+            const profile = await db.getFirstAsync('SELECT current_job_id FROM profiles WHERE id = ?', [user.id]);
+            if (profile && (profile as any).current_job_id) {
+                setActiveJobId((profile as any).current_job_id);
             }
         } catch (e) { console.log(e); } finally { setInitialLoading(false); }
     };
@@ -191,6 +191,7 @@ export default function AddEntryScreen() {
         });
     };
 
+    // 🔴 OFFLINE-FIRST FIX: Write straight to SQLite and background sync queue
     const saveEntry = async () => {
         if (!description.trim()) {
             setErrors({ description: true });
@@ -204,6 +205,7 @@ export default function AddEntryScreen() {
 
         setLoading(true);
         try {
+            // Photos are cached locally. Our Background Sync Engine will handle the Cloud upload.
             const processedImages = await Promise.all(images.map(async (uri) => {
                 if (uri.startsWith('http')) return uri;
                 if (!FileSystem.documentDirectory) return uri;
@@ -221,38 +223,43 @@ export default function AddEntryScreen() {
             const dateStr = format(selectedDate, 'yyyy-MM-dd'); 
             
             const db = await getDB();
-            const { data: { session } } = await supabase.auth.getSession();
-            const userId = session?.user?.id;
-            if (!userId) throw new Error("Auth error");
+            if (!user) throw new Error("Authentication context lost.");
 
             if (entryId) {
-                await db.runAsync(
-                    'UPDATE accomplishments SET description = ?, remarks = ?, image_url = ?, date = ?, updated_at = ? WHERE id = ?',
-                    [description.trim(), remarks.trim(), imagesJson, dateStr, now, entryId]
-                );
-                await db.runAsync(
-                    'INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)',
-                    ['accomplishments', entryId, 'UPDATE', JSON.stringify({ description: description.trim(), remarks: remarks.trim(), image_url: imagesJson, date: dateStr, updated_at: now })]
-                );
-            } else {
-                const newId = generateUUID();
-                const newRecord = { id: newId, user_id: userId, job_id: activeJobId, date: dateStr, description: description.trim(), remarks: remarks.trim(), image_url: imagesJson, created_at: now, updated_at: now };
+                const payload = { 
+                    id: entryId, user_id: user.id, job_id: activeJobId, 
+                    description: description.trim(), remarks: remarks.trim(), 
+                    image_url: imagesJson, date: dateStr, updated_at: now 
+                };
 
                 await db.runAsync(
-                    'INSERT INTO accomplishments (id, user_id, job_id, date, description, remarks, image_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    [newRecord.id, userId, activeJobId, dateStr, newRecord.description, newRecord.remarks, imagesJson, now, now]
+                    'UPDATE accomplishments SET description = ?, remarks = ?, image_url = ?, date = ?, updated_at = ?, is_synced = 0 WHERE id = ?',
+                    [payload.description, payload.remarks, payload.image_url, payload.date, payload.updated_at, entryId]
                 );
+                await queueSyncItem('accomplishments', entryId, 'UPDATE', payload);
+
+            } else {
+                const newId = generateUUID();
+                const newRecord = { 
+                    id: newId, user_id: user.id, job_id: activeJobId, 
+                    date: dateStr, description: description.trim(), 
+                    remarks: remarks.trim(), image_url: imagesJson, 
+                    created_at: now, updated_at: now 
+                };
+
                 await db.runAsync(
-                    'INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)',
-                    ['accomplishments', newId, 'INSERT', JSON.stringify(newRecord)]
+                    'INSERT INTO accomplishments (id, user_id, job_id, date, description, remarks, image_url, created_at, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)',
+                    [newRecord.id, newRecord.user_id, newRecord.job_id, newRecord.date, newRecord.description, newRecord.remarks, newRecord.image_url, newRecord.created_at, newRecord.updated_at]
                 );
+                await queueSyncItem('accomplishments', newId, 'INSERT', newRecord);
             }
 
             setIsDirty(false);
-            triggerSync(); 
+            triggerSync(); // Will attempt network push in background
             router.back(); 
+
         } catch (e: any) { 
-            setAlertConfig({ visible: true, type: 'error', title: 'Save Failed', message: e.message || 'An error occurred while saving.', confirmText: 'Okay', onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false })) });
+            setAlertConfig({ visible: true, type: 'error', title: 'Save Failed', message: e.message || 'An error occurred while saving locally.', confirmText: 'Okay', onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false })) });
         } finally { 
             setLoading(false); 
         }
@@ -304,7 +311,7 @@ export default function AddEntryScreen() {
                             </TouchableOpacity>
                         </View>
 
-                        {/* Description Field (Icon Removed) */}
+                        {/* Description Field */}
                         <View style={styles.inputBlock}>
                             <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Description <Text style={{color: theme.colors.danger}}>*</Text></Text>
                             <View style={[styles.inputWrapper, { borderColor: errors.description ? theme.colors.danger : theme.colors.border, backgroundColor: theme.colors.card }]}>
@@ -319,7 +326,7 @@ export default function AddEntryScreen() {
                             </View>
                         </View>
 
-                        {/* Remarks / Notes Field (Icon Removed) */}
+                        {/* Remarks Field */}
                         <View style={styles.inputBlock}>
                             <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Remarks (Optional)</Text>
                             <View style={[styles.inputWrapper, styles.textAreaWrapper, { borderColor: theme.colors.border, backgroundColor: theme.colors.card }]}>
@@ -335,7 +342,7 @@ export default function AddEntryScreen() {
                             </View>
                         </View>
 
-                        {/* Modern Split Attachments Section */}
+                        {/* Attachments Section */}
                         <View style={styles.inputBlock}>
                             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                                 <Text style={[styles.label, { marginBottom: 0, color: theme.colors.textSecondary }]}>Attachments</Text>

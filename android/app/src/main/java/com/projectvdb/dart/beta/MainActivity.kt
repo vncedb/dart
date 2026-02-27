@@ -1,4 +1,4 @@
-package com.projectvdb.dart.dev
+package com.projectvdb.dart.beta
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

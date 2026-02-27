@@ -13,6 +13,7 @@ import {
     UserIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
+import NetInfo from '@react-native-community/netinfo'; // <-- ADDED: To check connection before fallback
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -253,9 +254,13 @@ export default function JobForm() {
             const localJob = await db.getFirstAsync('SELECT * FROM job_positions WHERE id = ?', [jobId]);
             let data: any = localJob;
 
+            // OFFLINE-FIRST: Only attempt remote fetch if device is connected AND local doesn't exist
             if (!localJob) {
-                const { data: remoteData } = await supabase.from('job_positions').select('*').eq('id', jobId).single();
-                data = remoteData;
+                const netInfo = await NetInfo.fetch();
+                if (netInfo.isConnected) {
+                    const { data: remoteData } = await supabase.from('job_positions').select('*').eq('id', jobId).single();
+                    data = remoteData;
+                }
             }
 
             if (data) {
@@ -272,7 +277,6 @@ export default function JobForm() {
                 setRateType(data.rate_type || 'hourly');
                 setPayoutType(data.payout_type || 'Semi-Monthly'); 
 
-                // FIX: Bulletproof parsing to ensure it strictly applies values if they exist
                 if (data.period_target !== undefined && data.period_target !== null) {
                     const totalMins = Number(data.period_target);
                     if (!isNaN(totalMins) && totalMins > 0) {
@@ -385,10 +389,10 @@ export default function JobForm() {
 
             if (!jobId) (payload as any).created_at = now;
             
+            // 1. Save Locally
             await saveJobLocal(payload);
             
             // Manual fallback force-update. 
-            // Ensures `period_target` is not stripped from the local DB if your saveJobLocal schema is outdated.
             try {
                 const db = await getDB();
                 await db.runAsync('UPDATE job_positions SET period_target = ? WHERE id = ?', [periodTargetMins, finalJobId]);
@@ -396,17 +400,17 @@ export default function JobForm() {
                 console.log("Local fallback update for period_target failed:", err);
             }
             
+            // 2. Queue for Sync
             await queueSyncItem('job_positions', finalJobId, jobId ? 'UPDATE' : 'INSERT', payload);
             
+            // 3. Set Active if New Job (Locally only)
             if (!jobId) {
                 const db = await getDB();
                 await db.runAsync('UPDATE profiles SET current_job_id = ? WHERE id = ?', [finalJobId, user.id]);
-                queueSyncItem('profiles', user.id, 'UPDATE', { current_job_id: finalJobId }).then();
-                supabase.from('profiles').update({ current_job_id: finalJobId }).eq('id', user.id).then();
+                await queueSyncItem('profiles', user.id, 'UPDATE', { current_job_id: finalJobId });
             }
             
-            // IMPORTANT: If 'period_target' does not exist in Supabase, this will silently fail or drop the column.
-            supabase.from('job_positions').upsert(payload).then();
+            // REMOVED RAW SUPABASE UPSERTS HERE! Let the Sync Engine do the heavy lifting.
             
             setIsDirty(false);
             setSaving(false);
