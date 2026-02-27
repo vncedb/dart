@@ -303,15 +303,18 @@ export default function AuthScreen() {
         }
 
     } catch (error: any) {
+        setGoogleLoading(false);
+        console.log("GOOGLE SIGN IN ERROR:", error);
+        
         if (error.code === 'SIGN_IN_CANCELLED') {
-            // The user closed the native modal; just fail silently.
             console.log('User cancelled Google Sign-In');
         } else {
+            // Force the exact error code and message to show on the screen
             setAlertConfig({ 
                 visible: true, 
                 type: 'error', 
-                title: 'Google Sign In Failed', 
-                message: error.message || "Could not sign in.", 
+                title: 'Google Error', 
+                message: `Code: ${error.code}\nMessage: ${error.message}`, 
                 onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) 
             });
         }

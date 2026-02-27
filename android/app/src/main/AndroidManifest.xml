@@ -36,8 +36,8 @@
         <action android:name="android.intent.action.VIEW"/>
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:scheme="dartappbeta"/>
-        <data android:scheme="exp+dart-app-beta"/>
+        <data android:scheme="dartapp"/>
+        <data android:scheme="exp+dart-app"/>
       </intent-filter>
     </activity>
   </application>

@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "DART (Dev)",
-    "slug": "dart-app-dev",
-    "version": "1.0.2-dev",
+    "name": "DART",
+    "slug": "dart-app",
+    "version": "1.0.3",
     "owner": "project-vdb",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -11,7 +11,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.projectvdb.dart.dev",
+      "bundleIdentifier": "com.projectvdb.dart",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -26,7 +26,7 @@
         "backgroundColor": "#F1F5F9"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.projectvdb.dart.dev",
+      "package": "com.projectvdb.dart",
       "launchMode": "singleTask",
       "permissions": [
         "android.permission.RECORD_AUDIO",
@@ -78,7 +78,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "908d73d8-cf2e-41b3-a728-d62f8bd84408"
+        "projectId": "b87b2b51-77da-47f5-930f-5539a1304dc0"
       }
     }
   }
