@@ -69,7 +69,12 @@ export const syncPush = async () => {
 
       try {
         payload = data ? JSON.parse(data) : {};
-        if ("is_synced" in payload) delete payload.is_synced; // Never push local sync flags to Supabase
+        if ("is_synced" in payload) delete payload.is_synced; 
+        
+        // FIX: Prevent 'updated_at' schema cache errors for attendance
+        if (table_name === "attendance" && "updated_at" in payload) {
+            delete payload.updated_at;
+        }
 
         // Handle File Uploads before pushing the DB row
         if (table_name === "accomplishments" && payload.image_url?.startsWith("file://") && action !== "DELETE") {
@@ -80,7 +85,7 @@ export const syncPush = async () => {
           const remoteUrl = await uploadFileToSupabase(payload.file_path, payload.user_id, "reports");
           if (remoteUrl) {
             payload.remote_url = remoteUrl;
-            delete payload.file_path; // Local path isn't needed on cloud
+            delete payload.file_path; 
           }
         }
         if (table_name === "profiles" && payload.local_avatar_path?.startsWith("file://") && action !== "DELETE") {
@@ -98,7 +103,6 @@ export const syncPush = async () => {
         continue;
       }
 
-      // Execute Supabase Action
       let error = null;
       try {
         if (action === "INSERT" || action === "UPSERT") {
@@ -108,7 +112,6 @@ export const syncPush = async () => {
           const { error: err } = await supabase.from(table_name).update(payload).eq("id", row_id);
           error = err;
         } else if (action === "DELETE") {
-          // Cleanup storage files if a row is deleted
           if (table_name === 'saved_reports' && payload.remote_url) await deleteFileFromSupabase(payload.remote_url, "reports");
           else if (table_name === 'accomplishments' && payload.image_url) {
             const bucket = payload.image_url.includes('/entry-images/') ? 'entry-images' : 'accomplishments';
@@ -118,11 +121,9 @@ export const syncPush = async () => {
           error = err;
         }
 
-        // Handle Success or non-fatal duplicate errors
         if (!error || error.code === "PGRST116" || error.code === "23505") {
            await db.runAsync("DELETE FROM sync_queue WHERE id = ?", [id]);
            
-           // Mark local row as fully synced
            if (action !== 'DELETE') {
              try { await db.runAsync(`UPDATE ${table_name} SET is_synced = 1 WHERE id = ?`, [row_id]); } catch(e) {}
            }
@@ -152,7 +153,6 @@ export const syncPull = async (userId: string) => {
     const lastSyncedAt = result?.value || "1970-01-01T00:00:00.000Z";
     const newSyncTime = new Date().toISOString();
 
-    // 1. PULL JOBS
     const { data: jobsData } = await supabase.from('job_positions').select('*').eq('user_id', userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`);
     if (jobsData) {
       for (const job of jobsData) {
@@ -163,7 +163,6 @@ export const syncPull = async (userId: string) => {
       }
     }
 
-    // 2. PULL PROFILE
     const { data: profileData } = await supabase.from('profiles').select('*').eq('id', userId).gt('updated_at', lastSyncedAt).maybeSingle();
     if (profileData) {
        const existing: any = await db.getFirstAsync("SELECT local_avatar_path FROM profiles WHERE id = ?", [userId]);
@@ -173,15 +172,15 @@ export const syncPull = async (userId: string) => {
        );
     }
 
-    // 3. PULL ATTENDANCE
-    const { data: attendanceData } = await supabase.from("attendance").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},date.gt.${lastSyncedAt}`);
+    // FIX: Pull attendance using date instead of updated_at to prevent schema cache failures
+    const dateLimit = lastSyncedAt.split('T')[0];
+    const { data: attendanceData } = await supabase.from("attendance").select("*").eq("user_id", userId).gte("date", dateLimit);
     if (attendanceData) {
        for (const row of attendanceData) {
          await db.runAsync(`INSERT OR REPLACE INTO attendance (id, user_id, job_id, date, clock_in, clock_out, status, remarks, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`, [row.id, row.user_id, row.job_id, row.date, row.clock_in, row.clock_out, row.status, row.remarks, row.updated_at || row.clock_in]);
        }
     }
 
-    // 4. PULL ACCOMPLISHMENTS
     const { data: taskData } = await supabase.from("accomplishments").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`);
     if (taskData) {
       for (const row of taskData) {
@@ -189,7 +188,6 @@ export const syncPull = async (userId: string) => {
       }
     }
     
-    // 5. PULL REPORTS 
     const { data: reportsData } = await supabase.from("saved_reports").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`);
     if (reportsData) {
         for (const row of reportsData) {
@@ -197,7 +195,6 @@ export const syncPull = async (userId: string) => {
         }
     }
 
-    // 6. PULL NOTIFICATIONS
     const { data: notifData } = await supabase.from("notifications").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`);
     if (notifData) {
       for (const row of notifData) {
@@ -205,7 +202,6 @@ export const syncPull = async (userId: string) => {
       }
     }
 
-    // IMPORTANT: Update local settings to record this sync event
     await db.runAsync("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)", ["last_synced_at", newSyncTime]);
     return { success: true };
   } catch (e) {

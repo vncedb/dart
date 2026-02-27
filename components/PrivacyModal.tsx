@@ -1,24 +1,16 @@
-import {
-    ArrowDown01Icon,
-    Cancel01Icon,
-    SecurityCheckIcon,
-    Tick01Icon
-} from '@hugeicons/core-free-icons';
+import { SecurityCheckIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import React, { useEffect, useState } from 'react';
+import { useRouter } from 'expo-router';
+import React, { useEffect } from 'react';
 import {
-    ActivityIndicator,
     Dimensions,
     Modal,
-    NativeScrollEvent,
-    NativeSyntheticEvent,
     Pressable,
     StyleSheet,
     Text,
-    TouchableOpacity,
-    View
+    View,
 } from 'react-native';
-import { Gesture, GestureDetector, GestureHandlerRootView, ScrollView } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated, {
     Easing,
     FadeIn,
@@ -30,11 +22,12 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppTheme } from '../constants/theme';
+import Button from './Button';
+import ModalHeader from './ModalHeader';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-// Modal Configuration
-const SHEET_HEIGHT = SCREEN_HEIGHT * 0.85; // 85% of Screen
+const SHEET_HEIGHT = 440; 
 const SNAP_OPEN = 0;
 const SNAP_CLOSE = SHEET_HEIGHT;
 
@@ -45,27 +38,16 @@ interface PrivacyModalProps {
     isLoading?: boolean;
 }
 
-const Section = ({ title, content, theme }: { title: string, content: string, theme: any }) => (
-    <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{title}</Text>
-        <Text style={[styles.sectionContent, { color: theme.colors.textSecondary }]}>{content}</Text>
-    </View>
-);
-
 export default function PrivacyModal({ visible, onClose, onAgree, isLoading = false }: PrivacyModalProps) {
     const theme = useAppTheme();
     const insets = useSafeAreaInsets();
+    const router = useRouter();
     
-    // Logic State
-    const [isAtBottom, setIsAtBottom] = useState(false);
-
-    // Animation Values (Reanimated)
     const translateY = useSharedValue(SNAP_CLOSE);
     const context = useSharedValue({ y: 0 });
 
     useEffect(() => {
         if (visible) {
-            setIsAtBottom(false);
             translateY.value = SNAP_CLOSE;
             translateY.value = withTiming(SNAP_OPEN, { 
                 duration: 350, 
@@ -81,13 +63,18 @@ export default function PrivacyModal({ visible, onClose, onAgree, isLoading = fa
     };
 
     const handleAgree = () => {
-        // If isLoading is true, parent controls flow, don't close automatically
-        if (isAtBottom && !isLoading) {
-            if (onAgree) onAgree();
+        if (!isLoading && onAgree) {
+            onAgree();
         }
     };
 
-    // Drag Gesture Logic
+    const openLink = (path: any) => {
+        close();
+        setTimeout(() => {
+            router.push(path);
+        }, 300);
+    };
+
     const pan = Gesture.Pan()
         .onStart(() => {
             context.value = { y: translateY.value };
@@ -109,22 +96,12 @@ export default function PrivacyModal({ visible, onClose, onAgree, isLoading = fa
         transform: [{ translateY: translateY.value }]
     }));
 
-    const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-        const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
-        // Check if close to bottom
-        const isClose = layoutMeasurement.height + contentOffset.y >= contentSize.height - 50;
-        if (isClose && !isAtBottom) {
-            setIsAtBottom(true);
-        }
-    };
-
     if (!visible) return null;
 
     return (
         <Modal transparent visible={visible} animationType="none" onRequestClose={close} statusBarTranslucent>
             <GestureHandlerRootView style={styles.overlay}>
                 
-                {/* Backdrop */}
                 <Animated.View 
                     entering={FadeIn.duration(300)} 
                     exiting={FadeOut.duration(300)} 
@@ -133,128 +110,57 @@ export default function PrivacyModal({ visible, onClose, onAgree, isLoading = fa
                     <Pressable style={StyleSheet.absoluteFill} onPress={close} disabled={isLoading} />
                 </Animated.View>
 
-                {/* Bottom Sheet */}
                 <GestureDetector gesture={pan}>
                     <Animated.View style={[
                         styles.sheetContainer, 
-                        { backgroundColor: theme.colors.background, height: SHEET_HEIGHT, paddingBottom: insets.bottom },
+                        { backgroundColor: theme.colors.background, paddingBottom: insets.bottom + 24 },
                         animatedStyle
                     ]}>
-                        {/* Drag Handle */}
+                        
                         <View style={styles.dragHandleArea}>
                             <View style={[styles.dragHandle, { backgroundColor: theme.colors.border }]} />
                         </View>
 
-                        {/* Header - No Icon as requested */}
-                        <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-                            <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Terms & Privacy</Text>
-                            <TouchableOpacity 
-                                onPress={close} 
-                                disabled={isLoading}
-                                style={[styles.closeButton, { backgroundColor: theme.colors.card }]}
-                            >
-                                <HugeiconsIcon icon={Cancel01Icon} size={20} color={theme.colors.text} />
-                            </TouchableOpacity>
-                        </View>
+                        <ModalHeader 
+                            title="Legal & Privacy" 
+                            subtitle="Review our terms before continuing"
+                            onClose={close}
+                            position="bottom" 
+                        />
 
-                        {/* Content */}
-                        <View style={{ flex: 1, position: 'relative' }}>
-                            <ScrollView 
-                                onScroll={handleScroll}
-                                scrollEventThrottle={16}
-                                contentContainerStyle={styles.content}
-                                showsVerticalScrollIndicator={true}
-                            >
-                                {/* Icon moved to content */}
-                                <View style={{ alignItems: 'center', marginBottom: 24, marginTop: 8 }}>
-                                    <View style={[styles.largeIconBox, { backgroundColor: theme.colors.primary + '15' }]}>
-                                        <HugeiconsIcon icon={SecurityCheckIcon} size={48} color={theme.colors.primary} />
-                                    </View>
-                                </View>
+                        <View style={styles.content}>
+                            <View style={[styles.iconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
+                                <HugeiconsIcon icon={SecurityCheckIcon} size={42} color={theme.colors.primary} />
+                            </View>
 
-                                <Text style={[styles.intro, { color: theme.colors.text }]}>
-                                    By using DART, you agree to the following terms regarding the collection and use of your personal data.
-                                </Text>
-
-                                <Section 
-                                    title="1. Data Collection" 
-                                    theme={theme}
-                                    content="We collect information strictly necessary for the app's functionality, including your name, email, and attendance logs. This data is used to generate accurate work reports."
-                                />
-
-                                <Section 
-                                    title="2. Secure Storage" 
-                                    theme={theme}
-                                    content="Your data is encrypted and stored securely using industry-standard protocols. Sensitive actions require additional verification."
-                                />
-
-                                <Section 
-                                    title="3. Biometrics" 
-                                    theme={theme}
-                                    content="If you enable biometric login, your fingerprint or face data remains on your device and is never shared with our servers."
-                                />
-
-                                <Section 
-                                    title="4. Account Control" 
-                                    theme={theme}
-                                    content="You maintain full control over your data. You can request a complete data wipe and account deletion at any time via the Settings menu."
-                                />
-                                
-                                <Section 
-                                    title="5. Updates" 
-                                    theme={theme}
-                                    content="We may update this policy periodically. Continued use of the application implies acceptance of any changes."
-                                />
-
-                                <View style={{ height: 20 }} />
-                            </ScrollView>
-
-                            {/* Scroll Indicator */}
-                            {!isAtBottom && (
-                                <Animated.View 
-                                    entering={FadeIn.duration(300)}
-                                    exiting={FadeOut.duration(300)}
-                                    style={[
-                                        styles.scrollIndicator, 
-                                        { 
-                                            backgroundColor: theme.colors.card, 
-                                            shadowColor: "#000",
-                                            borderColor: theme.colors.border,
-                                        }
-                                    ]}
-                                    pointerEvents="none"
+                            <Text style={[styles.description, { color: theme.colors.textSecondary }]}>
+                                By tapping &quot;Agree &amp; Continue&quot;, you acknowledge that you have read and agree to DART&quot;s{' '}
+                                <Text 
+                                    style={[styles.hyperlink, { color: theme.colors.primary }]} 
+                                    // UPDATED PATH HERE
+                                    onPress={() => openLink('/settings/docs/terms-of-service')}
                                 >
-                                    <HugeiconsIcon icon={ArrowDown01Icon} size={14} color={theme.colors.primary} />
-                                    <Text style={[styles.scrollText, { color: theme.colors.primary }]}>Scroll to read</Text>
-                                </Animated.View>
-                            )}
+                                    Terms of Service
+                                </Text>
+                                {' '}and{' '}
+                                <Text 
+                                    style={[styles.hyperlink, { color: theme.colors.primary }]} 
+                                    // UPDATED PATH HERE
+                                    onPress={() => openLink('/settings/docs/privacy-details')}
+                                >
+                                    Privacy Policy
+                                </Text>.
+                            </Text>
                         </View>
 
-                        {/* Footer */}
-                        <View style={[styles.footer, { borderTopColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
-                            <TouchableOpacity 
+                        <View style={styles.footer}>
+                            <Button 
+                                title="Agree & Continue"
+                                variant="primary"
                                 onPress={handleAgree}
-                                activeOpacity={0.8}
-                                disabled={!isAtBottom || isLoading}
-                                style={[
-                                    styles.agreeButton, 
-                                    { 
-                                        backgroundColor: isAtBottom ? theme.colors.primary : theme.colors.border,
-                                        opacity: isAtBottom && !isLoading ? 1 : 0.5
-                                    }
-                                ]}
-                            >
-                                {isLoading ? (
-                                    <ActivityIndicator color="#fff" size="small" />
-                                ) : (
-                                    <>
-                                        <Text style={[styles.agreeButtonText, { color: isAtBottom ? '#fff' : theme.colors.textSecondary }]}>
-                                            {isAtBottom ? "Agree & Continue" : "Read to Continue"}
-                                        </Text>
-                                        {isAtBottom && <HugeiconsIcon icon={Tick01Icon} size={20} color="#fff" strokeWidth={2.5} />}
-                                    </>
-                                )}
-                            </TouchableOpacity>
+                                isLoading={isLoading}
+                                disabled={isLoading}
+                            />
                         </View>
                     </Animated.View>
                 </GestureDetector>
@@ -267,8 +173,8 @@ const styles = StyleSheet.create({
     overlay: { flex: 1, justifyContent: 'flex-end' },
     sheetContainer: {
         width: '100%',
-        borderTopLeftRadius: 28,
-        borderTopRightRadius: 28,
+        borderTopLeftRadius: 32,
+        borderTopRightRadius: 32,
         overflow: 'hidden',
         shadowColor: "#000",
         shadowOffset: { width: 0, height: -4 },
@@ -278,20 +184,11 @@ const styles = StyleSheet.create({
         position: 'absolute',
         bottom: 0,
     },
-    dragHandleArea: { width: '100%', height: 24, alignItems: 'center', justifyContent: 'center' },
-    dragHandle: { width: 40, height: 4, borderRadius: 2, opacity: 0.4 },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingBottom: 16, borderBottomWidth: 1 },
-    largeIconBox: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center' },
-    headerTitle: { fontSize: 18, fontWeight: '800' },
-    closeButton: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-    content: { padding: 24 },
-    intro: { fontSize: 16, fontWeight: '600', marginBottom: 24, lineHeight: 24, opacity: 0.9, textAlign: 'center' },
-    section: { marginBottom: 24 },
-    sectionTitle: { fontSize: 14, fontWeight: '800', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5, opacity: 0.8 },
-    sectionContent: { fontSize: 15, lineHeight: 24 },
-    scrollIndicator: { position: 'absolute', bottom: 20, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, borderWidth: 1, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8, elevation: 4 },
-    scrollText: { fontSize: 12, fontWeight: '700' },
-    footer: { padding: 24, borderTopWidth: 1 },
-    agreeButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, borderRadius: 18, gap: 8, height: 56 },
-    agreeButtonText: { fontSize: 16, fontWeight: '700' },
+    dragHandleArea: { width: '100%', height: 24, alignItems: 'center', justifyContent: 'center', paddingTop: 8 },
+    dragHandle: { width: 48, height: 5, borderRadius: 2.5, opacity: 0.5 },
+    content: { paddingHorizontal: 32, paddingTop: 24, paddingBottom: 32, alignItems: 'center' },
+    iconContainer: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
+    description: { fontSize: 15, lineHeight: 24, textAlign: 'center', fontFamily: 'Nunito_500Medium' },
+    hyperlink: { fontFamily: 'Nunito_700Bold' },
+    footer: { paddingHorizontal: 24 },
 });

@@ -1,10 +1,7 @@
 import {
     ArrowDown01Icon,
-    Layers01Icon,
     Notification01Icon,
-    PlusSignIcon,
-    Settings02Icon,
-    WifiOffIcon
+    PlusSignIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import notifee, { EventType } from '@notifee/react-native';
@@ -25,7 +22,6 @@ import {
     View,
 } from 'react-native';
 import Animated, {
-    FadeIn,
     useAnimatedScrollHandler,
     useAnimatedStyle,
     useSharedValue,
@@ -37,6 +33,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import ActivityTimeline from '../../components/ActivityTimeline';
+import AppTutorialCards from '../../components/AppTutorialCards';
 import BiometricButton from '../../components/BiometricButton';
 import BreakModeAlert from '../../components/BreakModeAlert';
 import DailySummaryCard from '../../components/DailySummaryCard';
@@ -44,13 +41,13 @@ import DatePicker from '../../components/DatePicker';
 import DynamicBar from '../../components/DynamicBar';
 import DynamicHeader from '../../components/DynamicHeader';
 import ModernAlert from '../../components/ModernAlert';
+import NoActiveJobCard from '../../components/NoActiveJobCard';
 import OvertimeModal from '../../components/OvertimeModal';
-import ScaleButton from '../../components/ScaleButton';
 
 import { useAppTheme } from '../../constants/theme';
-import { useAuth } from '../../context/AuthContext'; // <-- ADDED: Local Auth State
+import { useAuth } from '../../context/AuthContext';
 import { useSync } from '../../context/SyncContext';
-import { generateUUID, getNotificationsLocal, queueSyncItem, saveAttendanceLocal, saveNotificationLocal } from '../../lib/database'; // <-- ADDED: Offline Helpers
+import { generateUUID, getNotificationsLocal, queueSyncItem, saveAttendanceLocal, saveNotificationLocal } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
 import {
     clearAttendanceNotification,
@@ -58,7 +55,6 @@ import {
     showStandardNotification,
     updateAttendanceNotification
 } from '../../utils/NotificationService';
-
 
 const timeToMinutes = (timeStr: string) => {
     if (!timeStr) return 0;
@@ -181,39 +177,11 @@ const HomeContentSkeleton = () => {
     );
 };
 
-const NoJobState = ({ theme, router, isOffline }: any) => (
-    <Animated.View entering={FadeIn.duration(500)} style={[styles.noJobCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-        <View style={{ flex: 1, alignItems: 'center' }}>
-            <View style={{ marginBottom: 12, opacity: 0.8 }}>
-                <HugeiconsIcon icon={isOffline ? WifiOffIcon : Settings02Icon} size={32} color={theme.colors.textSecondary} />
-            </View>
-            
-            <Text style={[styles.noJobTitle, { color: theme.colors.text }]}>
-                {isOffline ? 'Offline Mode' : 'No Active Job Set'}
-            </Text>
-            
-            <Text style={[styles.noJobDesc, { color: theme.colors.textSecondary }]}>
-                {isOffline ? "Your job details couldn't be loaded." : "Activate a job profile to start tracking your progress."}
-            </Text>
-            {!isOffline && (
-                <View style={{ width: '100%', marginTop: 20 }}>
-                    <ScaleButton onPress={() => router.push('/job/job')}>
-                        <View style={[styles.noJobButton, { backgroundColor: theme.colors.primary, shadowColor: theme.colors.primary }]}>
-                            <HugeiconsIcon icon={Layers01Icon} size={18} color="#fff" />
-                            <Text style={styles.noJobButtonText}>Manage Jobs</Text>
-                        </View>
-                    </ScaleButton>
-                </View>
-            )}
-        </View>
-    </Animated.View>
-);
-
 export default function Home() {
     const insets = useSafeAreaInsets();
     const router = useRouter();
     const theme = useAppTheme();
-    const { user } = useAuth(); // <-- OFFLINE-SAFE USER FETCH
+    const { user } = useAuth();
     const { triggerSync, syncStatus } = useSync();
     
     const netInfo = useNetInfo();
@@ -262,6 +230,11 @@ export default function Home() {
 
     const [appSettings, setAppSettings] = useState<any>({ vibrationEnabled: true, soundEnabled: true, notificationsEnabled: true });
 
+    // SCROLLING REFS & STATES
+    const scrollViewRef = useRef<any>(null);
+    const [noJobCardY, setNoJobCardY] = useState(0);
+    const [highlightNoJob, setHighlightNoJob] = useState(0); // Trigger for animation
+
     const scrollY = useSharedValue(0);
     const headerTranslateY = useSharedValue(0);
     const HEADER_HEIGHT = 100 + insets.top; 
@@ -307,7 +280,7 @@ export default function Home() {
     const handleHideAlert = useCallback(() => { setAlertVisible(false); }, []);
 
     const loadNotifications = useCallback(async () => {
-        if (!user) return; // OFFLINE-SAFE
+        if (!user) return;
         try {
             const data = await getNotificationsLocal(user.id);
             setNotifications(data);
@@ -322,7 +295,7 @@ export default function Home() {
     }, [loadNotifications]);
 
     const loadData = useCallback(async () => {
-        if (!user) return; // OFFLINE-SAFE
+        if (!user) return;
         if (!isInitialLoadRef.current) setTimelineLoading(true);
         try {
             const db = await getDB();
@@ -468,7 +441,6 @@ export default function Home() {
                 let finalRemarks = latestRecord.remarks || '';
                 if (accumulatedBreakMs > 0) finalRemarks = finalRemarks ? `${finalRemarks} | BreakMs:${accumulatedBreakMs}` : `BreakMs:${accumulatedBreakMs}`;
 
-                // TRUE OFFLINE FIRST: Use our new local helper
                 const updatedRecord = { ...latestRecord, clock_out: now, status: 'completed', remarks: finalRemarks };
                 await saveAttendanceLocal(updatedRecord);
                 
@@ -496,7 +468,6 @@ export default function Home() {
                      setOtExpiry(null);
                 }
                 
-                // TRUE OFFLINE FIRST: Use our new local helper
                 const record = { id: generateUUID(), user_id: user.id, job_id: activeJobId, clock_in: now.toISOString(), date: todayStr, status: 'pending', remarks };
                 await saveAttendanceLocal(record);
                 
@@ -518,9 +489,15 @@ export default function Home() {
         } finally { setLoading(false); }
     }, [user, activeJobId, isClockedIn, latestRecord, appSettings, loadData, triggerSync, successPlayer, router, accumulatedBreakMs]);
 
+    // UPDATED CLOCK BUTTON PRESS LOGIC
     const handleClockButtonPress = () => {
         if (!jobSettings || !activeJobId) {
-            setModernAlertConfig({ visible: true, type: 'warning', title: 'No Job Active', message: 'Please select an active job in your profile.', confirmText: 'Manage Jobs', onConfirm: () => { setModernAlertConfig((prev:any)=>({...prev, visible:false})); router.push('/job/job'); } });
+            // Scroll to the NoActiveJobCard smoothly (-120px offset to show it clearly below header)
+            if (scrollViewRef.current) {
+                scrollViewRef.current.scrollTo({ y: Math.max(0, noJobCardY - 120), animated: true });
+            }
+            // Trigger the animation in the card
+            setHighlightNoJob(prev => prev + 1);
             return;
         }
         
@@ -571,7 +548,6 @@ export default function Home() {
             let finalRemarks = `Auto-timeout: ${reason}`;
             if (accumulatedBreakMs > 0) finalRemarks += ` | BreakMs:${accumulatedBreakMs}`;
 
-            // TRUE OFFLINE FIRST:
             const updatedRecord = { ...latestRecord, clock_out: endIso, status: 'completed', remarks: finalRemarks };
             await saveAttendanceLocal(updatedRecord);
             
@@ -590,7 +566,6 @@ export default function Home() {
         }
     }, [user, isClockedIn, latestRecord, isSessionOvertime, otExpiry, jobSettings, appSettings, triggerSync, loadData, accumulatedBreakMs, saveNotifications]);
 
-    // 🔴 NOTIFEE FOREGROUND EVENTS 
     useEffect(() => {
         const unsubscribeNotifee = notifee.onForegroundEvent(({ type, detail }) => {
             if (type === EventType.ACTION_PRESS && detail.pressAction) {
@@ -698,7 +673,6 @@ export default function Home() {
 
     const handleEdit = (t: any) => { router.push({ pathname: '/reports/add-entry', params: { id: t.id } }); };
     
-    // OFFLINE FIRST DELETION:
     const handleDeleteTask = (t: any) => { 
         setModernAlertConfig({ 
             visible: true, type: 'warning', title: 'Delete Entry?', message: 'This will remove the entry from your history.', confirmText: 'Delete', cancelText: 'Cancel', 
@@ -708,7 +682,7 @@ export default function Home() {
                 try { 
                     const db = await getDB(); 
                     await db.runAsync('DELETE FROM accomplishments WHERE id = ?', [t.id]); 
-                    await queueSyncItem('accomplishments', t.id, 'DELETE'); // Uses Helper instead of raw SQL
+                    await queueSyncItem('accomplishments', t.id, 'DELETE'); 
                     await loadData(); 
                     triggerSync(); 
                     setAlertMessage("Entry deleted"); setAlertType('success'); setAlertVisible(true); 
@@ -756,7 +730,10 @@ export default function Home() {
             </Animated.View>
 
             <Animated.ScrollView 
-                onScroll={scrollHandler} scrollEventThrottle={16} showsVerticalScrollIndicator={false} 
+                ref={scrollViewRef} // <-- ATTACHED REF FOR SCROLLING
+                onScroll={scrollHandler} 
+                scrollEventThrottle={16} 
+                showsVerticalScrollIndicator={false} 
                 contentContainerStyle={{ padding: 24, paddingTop: 120 + insets.top, paddingBottom: 140 }} 
                 refreshControl={<RefreshControl refreshing={refreshing || syncStatus === 'syncing'} onRefresh={onRefresh} progressViewOffset={insets.top + 100} tintColor={theme.colors.primary} />}
             >
@@ -771,35 +748,46 @@ export default function Home() {
                             </View>
                         </View>
 
-                        <View style={{ marginBottom: 24 }} collapsable={false}>
+                        {/* ADDED onLayout TO TRACK CARD POSITION */}
+                        <View 
+                            style={{ marginBottom: 24 }} 
+                            collapsable={false}
+                            onLayout={(e) => setNoJobCardY(e.nativeEvent.layout.y)}
+                        >
                             {jobSettings ? (
                                 <DailySummaryCard totalMinutes={workedMinutes} isClockedIn={isClockedIn} theme={theme} dailyGoal={dailyGoal} isOvertime={isSessionOvertime} startTime={latestRecord?.clock_in} targetEndTime={isSessionOvertime ? otExpiry : shiftEndTarget} payoutType={jobSettings?.payout_type} periodWorkedMinutes={periodWorkedMinutes + (isClockedIn ? workedMinutes : 0)} periodTargetMinutes={dbPeriodTargetMinutes} />
                             ) : (
-                                <NoJobState theme={theme} router={router} isOffline={isOffline} />
+                                <NoActiveJobCard theme={theme} isOffline={isOffline} highlightTrigger={highlightNoJob} />
                             )}
                         </View>
 
-                        <View style={styles.sectionHeader}>
-                            <TouchableOpacity onPress={handleTitlePress} activeOpacity={0.6} disabled={calendarLoading} style={styles.titleRow}>
-                                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{activityTitle}</Text>
-                                {calendarLoading ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.textSecondary} />}
-                            </TouchableOpacity>
-                            <View style={styles.actionRow}>
-                                <TouchableOpacity onPress={() => router.push('/notifications')} style={[styles.iconButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                                    <HugeiconsIcon icon={Notification01Icon} size={18} color={theme.colors.text} />
-                                    {unreadNotifsCount > 0 && <View style={[styles.badge, { backgroundColor: theme.colors.danger, borderColor: theme.colors.card }]} />}
-                                </TouchableOpacity>
-                                <TouchableOpacity disabled={!isClockedIn} onPress={() => router.push({ pathname: '/reports/add-entry', params: { jobId: activeJobId } })} style={[styles.iconButton, { backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background }]}>
-                                    <HugeiconsIcon icon={PlusSignIcon} size={20} color={isClockedIn ? theme.colors.primary : theme.colors.icon} />
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                        
-                        <View style={[styles.timelineCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]} collapsable={false}>
-                            <View style={{ padding: 20 }}>
-                                <ActivityTimeline timelineData={timelineData} theme={theme} onEditTask={handleEdit} onDeleteTask={handleDeleteTask} isLoading={timelineLoading} />
-                            </View>
-                        </View>
+                        {jobSettings ? (
+                            <>
+                                <View style={styles.sectionHeader}>
+                                    <TouchableOpacity onPress={handleTitlePress} activeOpacity={0.6} disabled={calendarLoading} style={styles.titleRow}>
+                                        <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{activityTitle}</Text>
+                                        {calendarLoading ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.textSecondary} />}
+                                    </TouchableOpacity>
+                                    <View style={styles.actionRow}>
+                                        <TouchableOpacity onPress={() => router.push('/notifications')} style={[styles.iconButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                                            <HugeiconsIcon icon={Notification01Icon} size={18} color={theme.colors.text} />
+                                            {unreadNotifsCount > 0 && <View style={[styles.badge, { backgroundColor: theme.colors.danger, borderColor: theme.colors.card }]} />}
+                                        </TouchableOpacity>
+                                        <TouchableOpacity disabled={!isClockedIn} onPress={() => router.push({ pathname: '/reports/add-entry', params: { jobId: activeJobId } })} style={[styles.iconButton, { backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background }]}>
+                                            <HugeiconsIcon icon={PlusSignIcon} size={20} color={isClockedIn ? theme.colors.primary : theme.colors.icon} />
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                                
+                                <View style={[styles.timelineCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]} collapsable={false}>
+                                    <View style={{ padding: 20 }}>
+                                        <ActivityTimeline timelineData={timelineData} theme={theme} onEditTask={handleEdit} onDeleteTask={handleDeleteTask} isLoading={timelineLoading} />
+                                    </View>
+                                </View>
+                            </>
+                        ) : (
+                            <AppTutorialCards />
+                        )}
                     </>
                 )}
             </Animated.ScrollView>
@@ -811,11 +799,6 @@ const styles = StyleSheet.create({
     skeletonContainer: { flex: 1, paddingHorizontal: 0 },
     skeletonDynamicBar: { flexDirection: 'row', alignItems: 'center', padding: 6, borderRadius: 24, borderWidth: 1, width: '100%', maxWidth: 380, height: 64 },
     skeletonCard: { borderRadius: 24, borderWidth: 1.5, justifyContent: 'space-between', overflow: 'hidden' },
-    noJobCard: { borderWidth: 1, padding: 28, borderRadius: 24, flexDirection: 'row', shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10, elevation: 3 },
-    noJobTitle: { fontFamily: 'Nunito_500Medium', fontSize: 18, marginBottom: 8, textAlign: 'center' },
-    noJobDesc: { fontFamily: 'Nunito_400Regular', fontSize: 14, lineHeight: 22, textAlign: 'center', opacity: 0.8 },
-    noJobButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 14, borderRadius: 16, width: '100%', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4, gap: 10 },
-    noJobButtonText: { fontFamily: 'Nunito_500Medium', color: '#fff', fontSize: 16 },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     sectionTitle: { fontFamily: 'Nunito_500Medium', fontSize: 18, letterSpacing: -0.5 },

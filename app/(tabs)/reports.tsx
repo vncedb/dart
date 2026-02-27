@@ -1,10 +1,10 @@
 import {
-    File02Icon,
-    FileVerifiedIcon,
-    PlusSignIcon,
-    RefreshIcon,
-    Search01Icon,
-    WifiOff01Icon,
+  File02Icon,
+  FileVerifiedIcon,
+  PlusSignIcon,
+  RefreshIcon,
+  Search01Icon,
+  WifiOff01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import NetInfo from "@react-native-community/netinfo";
@@ -12,34 +12,31 @@ import { endOfMonth, format } from "date-fns";
 import { useFocusEffect, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-    Platform,
-    RefreshControl,
-    SectionList,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    UIManager,
-    View,
+  RefreshControl,
+  SectionList,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Animated, {
-    cancelAnimation,
-    useAnimatedStyle,
-    useSharedValue,
-    withRepeat,
-    withTiming,
+  cancelAnimation,
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withTiming,
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import ActionMenu from "../../components/ActionMenu";
 import DatePicker from "../../components/DatePicker";
 import FloatingAlert from "../../components/FloatingAlert";
-import LoadingOverlay from "../../components/LoadingOverlay";
 import LoadingScreen from "../../components/LoadingScreen";
 import ModernAlert from "../../components/ModernAlert";
 import ReportFilterBar from "../../components/ReportFilterBar";
 import ReportFilterModal, {
-    DateRange,
+  DateRange,
 } from "../../components/ReportFilterModal";
 import ReportItem from "../../components/ReportItem";
 import TabHeader from "../../components/TabHeader";
@@ -48,15 +45,6 @@ import { useSync } from "../../context/SyncContext";
 import { getDB } from "../../lib/db-client";
 import { supabase } from "../../lib/supabase";
 import { ReportService } from "../../services/ReportService";
-
-if (
-  Platform.OS === "android" &&
-  UIManager.setLayoutAnimationEnabledExperimental
-) {
-  if (typeof UIManager.setLayoutAnimationEnabledExperimental === "function") {
-    UIManager.setLayoutAnimationEnabledExperimental(true);
-  }
-}
 
 const OfflineIndicator = ({ isOffline, theme }: { isOffline: boolean; theme: any; }) => {
   if (!isOffline) return null;
@@ -86,7 +74,6 @@ export default function ReportsScreen() {
 
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [loadingAction, setLoadingAction] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const [calendarLoading, setCalendarLoading] = useState(false);
 
@@ -142,7 +129,7 @@ export default function ReportsScreen() {
           });
         }
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
     }
   };
@@ -210,16 +197,22 @@ export default function ReportsScreen() {
       const sortedDates = Array.from(allDatesSet).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
 
       const merged = sortedDates.map((dateStr) => {
-        const att: any = attendance?.find((a: any) => a.date === dateStr);
+        const dayAtts = attendance
+          ?.filter((a: any) => a.date === dateStr)
+          .sort((a: any, b: any) => new Date(a.clock_in).getTime() - new Date(b.clock_in).getTime()) || [];
         const taskList: any = tasks?.filter((t: any) => t.date === dateStr) || [];
+        
+        let synced = true;
+        if (dayAtts.length > 0 && dayAtts.some((a: any) => !a.is_synced || a.is_synced === 0)) synced = false;
+        if (taskList.some((t: any) => !t.is_synced || t.is_synced === 0)) synced = false;
+
         return {
           id: dateStr,
           date: dateStr,
-          clock_in: att?.clock_in,
-          clock_out: att?.clock_out,
-          status: att?.status || "no-attendance",
+          attendances: dayAtts, 
+          status: dayAtts.length > 0 ? dayAtts[dayAtts.length - 1].status : "no-attendance",
           accomplishments: taskList,
-          is_synced: att ? (att.is_synced ?? 0) : 0,
+          is_synced: synced ? 1 : 0,
         };
       });
 
@@ -232,7 +225,12 @@ export default function ReportsScreen() {
         const year = now.getFullYear();
         const month = now.getMonth();
         const day = now.getDate();
-        let start, end, label;
+        
+        // FIXED: Explicity typed to prevent "Object is of type 'unknown'" error
+        let start: Date;
+        let end: Date;
+        let label: string;
+        
         if (day <= 15) {
           start = new Date(year, month, 1);
           end = new Date(year, month, 15);
@@ -248,7 +246,7 @@ export default function ReportsScreen() {
       } else {
         applyFilter(currentRange, sectionsArray);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.log("Fetch Error", e);
     } finally {
       setRefreshing(false);
@@ -289,7 +287,6 @@ export default function ReportsScreen() {
       <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} />
       <FloatingAlert visible={floatingAlert.visible} message={floatingAlert.message} type={floatingAlert.type as any} onHide={() => setFloatingAlert({ ...floatingAlert, visible: false })} />
       <ModernAlert {...alertConfig} />
-      <LoadingOverlay visible={loadingAction} message="Processing..." />
 
       <ReportFilterModal visible={modalVisible} onClose={() => setModalVisible(false)} availableDates={availableDates} currentRange={currentRange} onSelect={handleRangeSelect} />
 

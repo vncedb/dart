@@ -10,7 +10,6 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Notifications from 'expo-notifications';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -29,32 +28,46 @@ import Header from '../../components/Header';
 import { useAppTheme } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { getDB } from '../../lib/db-client';
-import { clearAttendanceNotification, scheduleReminders } from '../../utils/NotificationService';
+import { checkNotificationPermissions, clearAttendanceNotification, scheduleReminders } from '../../utils/NotificationService';
 
 export default function NotificationsSettings() {
     const theme = useAppTheme();
     const { user } = useAuth();
+    
     const [systemEnabled, setSystemEnabled] = useState(true);
-    const [settings, setSettings] = useState({ pushEnabled: true, clockInReminder: true, persistentTimer: true, breakReminders: true, dailyReportReminder: true, reportGenerationAlert: true });
+    const [settings, setSettings] = useState({ 
+        pushEnabled: true, 
+        clockInReminder: true, 
+        persistentTimer: true, 
+        breakReminders: true, 
+        dailyReportReminder: true, 
+        reportGenerationAlert: true 
+    });
 
-    const checkSystemPermissions = async () => {
-        const { status } = await Notifications.getPermissionsAsync();
-        setSystemEnabled(status === 'granted');
+    const verifySystemPermissions = async () => {
+        const isGranted = await checkNotificationPermissions();
+        setSystemEnabled(isGranted);
     };
 
     useFocusEffect(useCallback(() => {
-        checkSystemPermissions();
-        const subscription = AppState.addEventListener('change', (nextAppState) => { if (nextAppState === 'active') checkSystemPermissions(); });
+        verifySystemPermissions();
+        const subscription = AppState.addEventListener('change', (nextAppState) => { 
+            if (nextAppState === 'active') verifySystemPermissions(); 
+        });
         return () => subscription.remove();
     }, []));
 
-    useEffect(() => { loadSettings(); }, []);
+    useEffect(() => { 
+        loadSettings(); 
+    }, []);
 
     const loadSettings = async () => {
         try {
             const stored = await AsyncStorage.getItem('notificationSettings');
             if (stored) setSettings(prev => ({ ...prev, ...JSON.parse(stored) }));
-        } catch (e) {}
+        } catch {
+            // Silently ignore storage fetch errors
+        }
     };
 
     const refreshReminders = async () => {
@@ -62,6 +75,7 @@ export default function NotificationsSettings() {
         try {
             const db = await getDB();
             const profile = await db.getFirstAsync('SELECT current_job_id FROM profiles WHERE id = ?', [user.id]) as any;
+            
             let startTime = null;
             if (profile?.current_job_id) {
                 const job = await db.getFirstAsync('SELECT work_schedule FROM job_positions WHERE id = ?', [profile.current_job_id]) as any;
@@ -71,16 +85,25 @@ export default function NotificationsSettings() {
                 }
             }
             await scheduleReminders(startTime);
-        } catch (e) {}
+        } catch {
+            // Silently ignore DB errors on reminder refresh
+        }
     };
 
     const toggleSwitch = async (key: keyof typeof settings) => {
         const newValue = !settings[key];
         const newSettings = { ...settings, [key]: newValue };
         setSettings(newSettings);
-        try { await AsyncStorage.setItem('notificationSettings', JSON.stringify(newSettings)); } catch (e) {}
+        
+        try { 
+            await AsyncStorage.setItem('notificationSettings', JSON.stringify(newSettings)); 
+        } catch {
+            // Silently ignore storage save errors
+        }
+        
         if (key === 'pushEnabled' && !newValue) await clearAttendanceNotification();
         else if (key === 'persistentTimer' && !newValue) await clearAttendanceNotification();
+        
         await refreshReminders();
     };
 
@@ -95,10 +118,16 @@ export default function NotificationsSettings() {
                     </View>
                     <View style={{ flex: 1 }}>
                         <Text style={{ fontSize: 16, fontFamily: 'Nunito_700Bold', color: theme.colors.text, letterSpacing: -0.2 }}>{label}</Text>
-                        {desc && <Text style={{ fontSize: 12, fontFamily: 'Nunito_500Medium', color: theme.colors.textSecondary, marginTop: 2, lineHeight: 16 }}>{desc}</Text>}
+                        {desc && <Text style={{ fontSize: 13, fontFamily: 'Nunito_500Medium', color: theme.colors.textSecondary, marginTop: 4, lineHeight: 18 }}>{desc}</Text>}
                     </View>
                 </View>
-                <Switch trackColor={{ false: theme.colors.border, true: theme.colors.success }} thumbColor={'#fff'} onValueChange={onToggle} value={value} style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }} />
+                <Switch 
+                    trackColor={{ false: theme.colors.border, true: theme.colors.success }} 
+                    thumbColor={'#fff'} 
+                    onValueChange={onToggle} 
+                    value={value} 
+                    style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }} 
+                />
             </View>
             {!isLast && <Divider />}
         </View>
@@ -107,26 +136,32 @@ export default function NotificationsSettings() {
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
             <Header title="Notifications" />
+            
             <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 100 }} showsVerticalScrollIndicator={false}>
+                
                 {!systemEnabled && (
-                    <TouchableOpacity onPress={() => Linking.openSettings()} style={[styles.warningBanner, { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }]}>
+                    <TouchableOpacity 
+                        onPress={() => Linking.openSettings()} 
+                        activeOpacity={0.8}
+                        style={[styles.warningBanner, { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }]}
+                    >
                         <HugeiconsIcon icon={AlertCircleIcon} size={24} color="#EF4444" />
-                        <View style={{ flex: 1, marginLeft: 12 }}>
-                            <Text style={{ fontSize: 14, fontFamily: 'Nunito_700Bold', color: '#EF4444' }}>System Notifications Disabled</Text>
-                            <Text style={{ fontSize: 12, fontFamily: 'Nunito_500Medium', color: '#B91C1C', marginTop: 2 }}>The app cannot send alerts. Tap to enable in Settings.</Text>
+                        <View style={{ flex: 1, marginLeft: 16 }}>
+                            <Text style={{ fontSize: 15, fontFamily: 'Nunito_700Bold', color: '#B91C1C', marginBottom: 2 }}>Notifications Disabled</Text>
+                            <Text style={{ fontSize: 13, fontFamily: 'Nunito_500Medium', color: '#DC2626', lineHeight: 18 }}>DART is not allowed to send alerts. Tap here to open device settings.</Text>
                         </View>
                         <HugeiconsIcon icon={Settings02Icon} size={20} color="#EF4444" />
                     </TouchableOpacity>
                 )}
 
-                <View style={{ marginBottom: 24 }}>
+                <View style={{ marginBottom: 28 }}>
                     <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>SYSTEM</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                         <SettingItem label="Allow Push Notifications" desc="Receive important alerts on your device lock screen." value={settings.pushEnabled} onToggle={() => toggleSwitch('pushEnabled')} icon={Notification01Icon} isLast />
                     </View>
                 </View>
 
-                <View style={{ marginBottom: 24 }}>
+                <View style={{ marginBottom: 28 }}>
                     <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>ATTENDANCE</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                         <SettingItem label="Shift Reminders" desc="Get notified 15 mins before your shift starts." value={settings.clockInReminder} onToggle={() => toggleSwitch('clockInReminder')} icon={Calendar03Icon} />
@@ -135,20 +170,21 @@ export default function NotificationsSettings() {
                     </View>
                 </View>
 
-                <View style={{ marginBottom: 24 }}>
+                <View style={{ marginBottom: 28 }}>
                     <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>REPORTS</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                         <SettingItem label="Daily Report Reminder" desc="Remind me to generate a report at the end of the day." value={settings.dailyReportReminder} onToggle={() => toggleSwitch('dailyReportReminder')} icon={File02Icon} />
                          <SettingItem label="Generation Alerts" desc="Notify when PDF/Excel reports are ready to download." value={settings.reportGenerationAlert} onToggle={() => toggleSwitch('reportGenerationAlert')} icon={Tick01Icon} isLast />
                     </View>
                 </View>
+                
             </ScrollView>
         </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    sectionTitle: { fontSize: 11, fontFamily: 'Nunito_700Bold', letterSpacing: 1, marginBottom: 12, marginLeft: 8, textTransform: 'uppercase', opacity: 0.6 },
+    sectionTitle: { fontSize: 12, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 1, marginBottom: 12, marginLeft: 8, textTransform: 'uppercase', opacity: 0.6 },
     card: { borderRadius: 24, borderWidth: 1, padding: 16, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 12, elevation: 2 },
-    warningBanner: { flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 20, borderWidth: 1, marginBottom: 24 },
+    warningBanner: { flexDirection: 'row', alignItems: 'center', padding: 18, borderRadius: 20, borderWidth: 1, marginBottom: 28 },
 });

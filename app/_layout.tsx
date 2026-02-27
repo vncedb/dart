@@ -23,6 +23,13 @@ import { SyncProvider } from "../context/SyncContext";
 import "../global.css";
 import { initDatabase } from "../lib/database";
 
+notifee.registerForegroundService((notification) => {
+    return new Promise(() => {
+        // Keeps the service alive
+        // Android will automatically stop it when we call notifee.stopForegroundService()
+    });
+});
+
 LogBox.ignoreAllLogs(true);
 
 // =====================================================================
@@ -87,6 +94,8 @@ function RootLayoutNav() {
           <Stack.Screen name="settings/privacy-policy" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/about" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/feedback" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="settings/docs/privacy-details" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="settings/docs/terms-of-service" options={{ animation: "slide_from_right" }} />
           
           <Stack.Screen name="edit-profile" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="notifications" options={{ animation: "slide_from_right" }} />

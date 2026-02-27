@@ -45,113 +45,214 @@ export default function FeedbackScreen() {
     useEffect(() => {
         const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
         const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+        
         const showSub = Keyboard.addListener(showEvent, () => setKeyboardVisible(true));
         const hideSub = Keyboard.addListener(hideEvent, () => setKeyboardVisible(false));
-        return () => { showSub.remove(); hideSub.remove(); };
+        
+        return () => { 
+            showSub.remove(); 
+            hideSub.remove(); 
+        };
     }, []);
 
     const getWordCount = (text: string) => text.trim() ? text.trim().split(/\s+/).length : 0;
     const wordCount = getWordCount(feedback);
 
     const handleFeedbackChange = (text: string) => {
-        if (getWordCount(text) <= MAX_WORDS || text.length < feedback.length) setFeedback(text);
+        if (getWordCount(text) <= MAX_WORDS || text.length < feedback.length) {
+            setFeedback(text);
+        }
     };
 
     const handleSubmit = async () => {
         if (!feedback.trim()) {
-            setAlertConfig({ visible: true, type: 'error', title: 'Missing Details', message: 'Please describe your feedback or issue before submitting.', onConfirm: () => setAlertConfig({ visible: false }) });
+            setAlertConfig({ 
+                visible: true, type: 'error', title: 'Missing Details', 
+                message: 'Please describe your feedback or issue before submitting.', 
+                onConfirm: () => setAlertConfig({ visible: false }) 
+            });
             return;
         }
+        
         Keyboard.dismiss();
         setIsSubmitting(true);
+        
         try {
-            const { error } = await supabase.functions.invoke('send-email', { body: { email: 'dart.vdb@gmail.com', type: 'FEEDBACK', data: { sender: user?.email || 'Unknown User', category: category, message: feedback, } } });
+            const { error } = await supabase.functions.invoke('send-email', { 
+                body: { 
+                    email: 'dart.vdb@gmail.com', 
+                    type: 'FEEDBACK', 
+                    data: { sender: user?.email || 'Unknown User', category: category, message: feedback } 
+                } 
+            });
             if (error) throw error;
+            
             setFeedback('');
             setCategory(CATEGORIES[0]);
-            setAlertConfig({ visible: true, type: 'success', title: 'Sent Successfully!', message: 'Your feedback was sent directly to our team. Thank you for helping improve DART.', onConfirm: () => { setAlertConfig({ visible: false }); router.back(); } });
+            setAlertConfig({ 
+                visible: true, type: 'success', title: 'Sent Successfully!', 
+                message: 'Your feedback was sent directly to our team. Thank you for helping improve DART.', 
+                onConfirm: () => { setAlertConfig({ visible: false }); router.back(); } 
+            });
         } catch (error) {
             try {
                 await supabase.from('app_feedback').insert({ user_id: user?.id, email: user?.email, message: `[${category}] ${feedback}` });
                 setFeedback('');
                 setCategory(CATEGORIES[0]);
-                setAlertConfig({ visible: true, type: 'success', title: 'Feedback Saved!', message: 'Your feedback has been securely logged.', onConfirm: () => { setAlertConfig({ visible: false }); router.back(); } });
+                setAlertConfig({ 
+                    visible: true, type: 'success', title: 'Feedback Saved!', 
+                    message: 'Your feedback has been securely logged.', 
+                    onConfirm: () => { setAlertConfig({ visible: false }); router.back(); } 
+                });
             } catch {
-                setAlertConfig({ visible: true, type: 'error', title: 'Submission Failed', message: 'Could not send feedback. Please verify your internet connection.', onConfirm: () => setAlertConfig({ visible: false }) });
+                setAlertConfig({ 
+                    visible: true, type: 'error', title: 'Submission Failed', 
+                    message: 'Could not send feedback. Please verify your internet connection.', 
+                    onConfirm: () => setAlertConfig({ visible: false }) 
+                });
             }
-        } finally { setIsSubmitting(false); }
+        } finally { 
+            setIsSubmitting(false); 
+        }
     };
 
     return (
-        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
-                <ModernAlert {...alertConfig} />
-                <LoadingOverlay visible={isSubmitting} message="Submitting..." />
-                <Header title="Report / Feedback" />
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
+            <ModernAlert {...alertConfig} />
+            <LoadingOverlay visible={isSubmitting} message="Submitting..." />
+            
+            <Header title="Report / Feedback" />
 
-                <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-                    <ScrollView ref={scrollViewRef} contentContainerStyle={[styles.scrollContent, { paddingBottom: isKeyboardVisible ? 20 : 120 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                        
-                        <View style={styles.headerArea}>
-                            <View style={[styles.iconBox, { backgroundColor: theme.colors.primary + '15' }]}>
-                                <HugeiconsIcon icon={ChatFeedback01Icon} size={32} color={theme.colors.primary} />
+            {/* KeyboardAvoidingView setup properly with behavior and offset */}
+            <KeyboardAvoidingView 
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+                style={{ flex: 1 }}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
+            >
+                <ScrollView 
+                    ref={scrollViewRef} 
+                    contentContainerStyle={styles.scrollContent} 
+                    showsVerticalScrollIndicator={false} 
+                    keyboardShouldPersistTaps="handled"
+                >
+                    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+                        <View>
+                            
+                            <View style={styles.headerArea}>
+                                <View style={[styles.iconBox, { backgroundColor: theme.colors.primary + '15' }]}>
+                                    <HugeiconsIcon icon={ChatFeedback01Icon} size={36} color={theme.colors.primary} />
+                                </View>
+                                <Text style={[styles.title, { color: theme.colors.text }]}>Help us improve</Text>
+                                <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
+                                    {`We're constantly evolving. Let us know about any bugs or features you'd like to see in DART.`}
+                                </Text>
                             </View>
-                            <Text style={[styles.title, { color: theme.colors.text }]}>Help us improve</Text>
-                            <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>We&apos;re constantly evolving. Let us know about any bugs or features you&apos;d like to see in DART.</Text>
-                        </View>
 
-                        <View style={styles.categoryContainer}>
-                            <Text style={[styles.sectionLabel, { color: theme.colors.text }]}>Feedback Type</Text>
-                            <View style={styles.chipRow}>
-                                {CATEGORIES.map(cat => {
-                                    const isSelected = category === cat;
-                                    return (
-                                        <TouchableOpacity key={cat} activeOpacity={0.7} onPress={() => { Keyboard.dismiss(); setCategory(cat); }} style={[styles.chip, { backgroundColor: isSelected ? theme.colors.primary : 'transparent', borderColor: isSelected ? theme.colors.primary : theme.colors.border }]}>
-                                            <Text style={[styles.chipText, { color: isSelected ? '#fff' : theme.colors.text, fontFamily: isSelected ? 'Nunito_700Bold' : 'Nunito_500Medium' }]}>{cat}</Text>
-                                        </TouchableOpacity>
-                                    );
-                                })}
+                            <View style={styles.categoryContainer}>
+                                <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>Feedback Type</Text>
+                                <View style={styles.chipRow}>
+                                    {CATEGORIES.map(cat => {
+                                        const isSelected = category === cat;
+                                        return (
+                                            <TouchableOpacity 
+                                                key={cat} 
+                                                activeOpacity={0.7} 
+                                                onPress={() => { Keyboard.dismiss(); setCategory(cat); }} 
+                                                style={[
+                                                    styles.chip, 
+                                                    { 
+                                                        backgroundColor: isSelected ? theme.colors.primary : theme.colors.card, 
+                                                        borderColor: isSelected ? theme.colors.primary : theme.colors.border 
+                                                    }
+                                                ]}
+                                            >
+                                                <Text style={[
+                                                    styles.chipText, 
+                                                    { 
+                                                        color: isSelected ? '#ffffff' : theme.colors.text, 
+                                                        fontFamily: isSelected ? 'Nunito_800ExtraBold' : 'Nunito_600SemiBold' 
+                                                    }
+                                                ]}>
+                                                    {cat}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </View>
                             </View>
-                        </View>
 
-                        <Text style={[styles.sectionLabel, { color: theme.colors.text }]}>Details</Text>
-                        <View style={[styles.inputContainer, { backgroundColor: theme.colors.card, borderColor: isFocused ? theme.colors.primary : theme.colors.border, shadowOpacity: isFocused ? 0.08 : 0.02 }]}>
-                            <TextInput value={feedback} onChangeText={handleFeedbackChange} onFocus={() => { setIsFocused(true); setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 300); }} onBlur={() => setIsFocused(false)} placeholder="Describe your experience or feature idea..." placeholderTextColor={theme.colors.textSecondary} multiline style={[styles.input, { color: theme.colors.text }]} textAlignVertical="top" />
-                            <View style={styles.wordCountContainer}>
-                                <Text style={[styles.wordCountText, { color: wordCount >= MAX_WORDS ? theme.colors.danger : theme.colors.textSecondary }]}>{wordCount} / {MAX_WORDS}</Text>
+                            <View style={styles.inputSection}>
+                                <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>Details</Text>
+                                <View style={[
+                                    styles.inputContainer, 
+                                    { 
+                                        backgroundColor: theme.colors.card, 
+                                        borderColor: isFocused ? theme.colors.primary : theme.colors.border, 
+                                        shadowOpacity: isFocused ? 0.08 : 0.02 
+                                    }
+                                ]}>
+                                    <TextInput 
+                                        value={feedback} 
+                                        onChangeText={handleFeedbackChange} 
+                                        onFocus={() => { 
+                                            setIsFocused(true); 
+                                            // Scroll to end automatically when typing
+                                            setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 150); 
+                                        }} 
+                                        onBlur={() => setIsFocused(false)} 
+                                        placeholder="Describe your experience or feature idea..." 
+                                        placeholderTextColor={theme.colors.textSecondary} 
+                                        multiline 
+                                        style={[styles.input, { color: theme.colors.text }]} 
+                                        textAlignVertical="top" 
+                                    />
+                                    <View style={styles.wordCountContainer}>
+                                        <Text style={[styles.wordCountText, { color: wordCount >= MAX_WORDS ? theme.colors.danger : theme.colors.textSecondary }]}>
+                                            {wordCount} / {MAX_WORDS}
+                                        </Text>
+                                    </View>
+                                </View>
                             </View>
-                        </View>
-                        <View style={{ height: isFocused ? 200 : 20 }} />
-                        
-                    </ScrollView>
-                </KeyboardAvoidingView>
 
-                {!isKeyboardVisible && (
-                    <View style={[styles.absoluteFooter, { paddingBottom: Math.max(insets.bottom, 20) }]}>
-                        <Footer>
-                            <Button title="Submit Feedback" variant="primary" onPress={handleSubmit} icon={<HugeiconsIcon icon={SentIcon} size={20} color="#fff" />} />
-                        </Footer>
-                    </View>
-                )}
-            </SafeAreaView>
-        </TouchableWithoutFeedback>
+                            {/* Spacer to push content up when keyboard is open */}
+                            <View style={{ height: isKeyboardVisible ? 120 : 100 }} />
+
+                        </View>
+                    </TouchableWithoutFeedback>
+                </ScrollView>
+            </KeyboardAvoidingView>
+
+            {/* Custom Footer Component */}
+            {!isKeyboardVisible && (
+                <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
+                    <Footer>
+                        <Button 
+                            title="Submit Feedback" 
+                            variant="primary" 
+                            onPress={handleSubmit} 
+                            icon={<HugeiconsIcon icon={SentIcon} size={20} color="#fff" />} 
+                        />
+                    </Footer>
+                </View>
+            )}
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
     scrollContent: { padding: 24, flexGrow: 1 },
     headerArea: { alignItems: 'center', marginBottom: 36, marginTop: 12 },
-    iconBox: { width: 72, height: 72, borderRadius: 24, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
-    title: { fontSize: 24, fontFamily: 'Nunito_700Bold', marginBottom: 10, letterSpacing: -0.5, textAlign: 'center' },
-    subtitle: { fontSize: 15, fontFamily: 'Nunito_500Medium', lineHeight: 24, textAlign: 'center', paddingHorizontal: 10, opacity: 0.8 },
-    sectionLabel: { fontSize: 11, fontFamily: 'Nunito_700Bold', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1, opacity: 0.6, marginLeft: 4 },
+    iconBox: { width: 80, height: 80, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
+    title: { fontSize: 26, fontFamily: 'Nunito_800ExtraBold', marginBottom: 10, letterSpacing: -0.5, textAlign: 'center' },
+    subtitle: { fontSize: 15, fontFamily: 'Nunito_500Medium', lineHeight: 24, textAlign: 'center', paddingHorizontal: 12, opacity: 0.8 },
+    sectionLabel: { fontSize: 12, fontFamily: 'Nunito_800ExtraBold', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 1, marginLeft: 4 },
     categoryContainer: { marginBottom: 32 },
     chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-    chip: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 16, borderWidth: 1.5 },
+    chip: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 18, borderWidth: 1 },
     chipText: { fontSize: 14 },
-    inputContainer: { borderWidth: 1.5, borderRadius: 20, minHeight: 200, padding: 18, paddingBottom: 45, marginBottom: 10, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowRadius: 12, elevation: 2 },
+    inputSection: { marginBottom: 20 },
+    inputContainer: { borderWidth: 1, borderRadius: 24, minHeight: 220, padding: 20, paddingBottom: 45, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowRadius: 12, elevation: 2 },
     input: { flex: 1, fontSize: 16, fontFamily: 'Nunito_500Medium', lineHeight: 26 },
-    wordCountContainer: { position: 'absolute', bottom: 16, right: 20, backgroundColor: 'rgba(0,0,0,0.04)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+    wordCountContainer: { position: 'absolute', bottom: 16, right: 20, backgroundColor: 'rgba(0,0,0,0.04)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
     wordCountText: { fontSize: 12, fontFamily: 'Nunito_700Bold' },
-    absoluteFooter: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'transparent' }
 });

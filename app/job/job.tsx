@@ -23,7 +23,7 @@ import {
     TouchableOpacity,
     View
 } from 'react-native';
-import Animated, { FadeInDown, FadeInUp, Layout } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActionMenu from '../../components/ActionMenu';
@@ -31,8 +31,9 @@ import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import LoadingScreen from '../../components/LoadingScreen';
 import ModernAlert from '../../components/ModernAlert';
+import ScaleButton from '../../components/ScaleButton';
 import { useAppTheme } from '../../constants/theme';
-import { useAuth } from '../../context/AuthContext'; // <-- ADDED: Local Auth
+import { useAuth } from '../../context/AuthContext';
 import { useSync } from '../../context/SyncContext';
 import { deleteJobLocal, queueSyncItem } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
@@ -72,21 +73,28 @@ const OfflineIndicator = ({ isOffline, theme }: { isOffline: boolean; theme: any
 
 const EmptyState = ({ onPress, theme }: { onPress: () => void, theme: any }) => (
     <View style={styles.emptyStateContainer}>
-        <View style={[styles.emptyIconCircle, { backgroundColor: theme.colors.card }]}>
-            <HugeiconsIcon icon={Briefcase01Icon} size={40} color={theme.colors.textSecondary} />
+        <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.card }]}>
+            <HugeiconsIcon icon={Briefcase01Icon} size={48} color={theme.colors.textSecondary} />
         </View>
         <Text style={[styles.emptyStateTitle, { color: theme.colors.text }]}>No Jobs Added</Text>
         <Text style={[styles.emptyStateBody, { color: theme.colors.textSecondary }]}>
             Add a position to start tracking your work hours and earnings.
         </Text>
-        <TouchableOpacity 
-            onPress={onPress}
-            activeOpacity={0.8}
-            style={[styles.emptyStateButton, { backgroundColor: theme.colors.primary }]}
-        >
-            <HugeiconsIcon icon={PlusSignIcon} size={20} color="#FFF" />
-            <Text style={styles.emptyStateButtonText}>Add First Job</Text>
-        </TouchableOpacity>
+        
+        <View style={{ width: '100%', paddingHorizontal: 20 }}>
+            <ScaleButton onPress={onPress}>
+                <View style={[
+                    styles.emptyStateButton, 
+                    { 
+                        backgroundColor: theme.colors.primary, 
+                        shadowColor: theme.colors.primary 
+                    }
+                ]}>
+                    <HugeiconsIcon icon={PlusSignIcon} size={20} color="#ffffff" />
+                    <Text style={styles.emptyStateButtonText}>Add New Job</Text>
+                </View>
+            </ScaleButton>
+        </View>
     </View>
 );
 
@@ -99,8 +107,7 @@ const StatusPill = ({ status, theme }: { status: string, theme: any }) => (
 const ActiveJobHero = ({ item, isEditMode, onEdit, theme }: { item: JobPosition, isEditMode: boolean, onEdit: (id: string) => void, theme: any }) => {
     return (
         <Animated.View 
-            layout={Layout.springify()} 
-            entering={FadeInUp.delay(100).duration(500)}
+            entering={FadeIn.duration(400)}
             style={[styles.heroCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.primary, borderWidth: 1.5 }]}
         >
             <View style={[styles.heroTint, { backgroundColor: theme.colors.primary, opacity: 0.03 }]} />
@@ -153,8 +160,7 @@ const ActiveJobHero = ({ item, isEditMode, onEdit, theme }: { item: JobPosition,
 const InactiveJobItem = ({ item, onActivate, onEdit, onDelete, isEditMode, theme }: any) => {
     return (
         <Animated.View 
-            layout={Layout.springify()}
-            entering={FadeInDown.duration(400)}
+            entering={FadeIn.duration(400)}
             style={[styles.listCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
         >
             <View style={styles.listCardContent}>
@@ -196,7 +202,7 @@ export default function MyJobsScreen() {
     const theme = useAppTheme();
     const router = useRouter();
     const { triggerSync } = useSync();
-    const { user } = useAuth(); // <-- OFFLINE-FIRST: Local Auth
+    const { user } = useAuth();
     
     const [jobs, setJobs] = useState<JobPosition[]>([]);
     const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -227,7 +233,7 @@ export default function MyJobsScreen() {
     );
 
     const fetchJobs = useCallback(async () => {
-        if (!user) { setLoading(false); return; } // <-- Use Local Auth
+        if (!user) { setLoading(false); return; }
         try {
             const db = await getDB();
             const localJobs = await db.getAllAsync('SELECT * FROM job_positions WHERE user_id = ? ORDER BY created_at DESC', [user.id]);
@@ -272,7 +278,7 @@ export default function MyJobsScreen() {
     };
 
     const handleSetActive = async (jobId: string) => {
-        if (!user) return; // <-- Use Local Auth
+        if (!user) return;
         setLoadingMessage('Configuring Active Job...');
         setProcessing(true);
         try {
@@ -311,7 +317,7 @@ export default function MyJobsScreen() {
     };
 
     const handleDelete = async (jobId: string) => {
-        if (!user) return; // <-- Use Local Auth
+        if (!user) return;
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
         setAlertConfig({
             visible: true,
@@ -348,16 +354,18 @@ export default function MyJobsScreen() {
             <Header 
                 title="My Jobs" 
                 rightElement={
-                    <TouchableOpacity 
-                        onPress={isEditMode ? handleToggleEditMode : handleMoreOptions} 
-                        style={[styles.headerAddBtn, { backgroundColor: 'transparent' }]}
-                    >
-                        <HugeiconsIcon 
-                            icon={isEditMode ? Tick01Icon : MoreVerticalIcon} 
-                            size={24} 
-                            color={theme.colors.primary} 
-                        />
-                    </TouchableOpacity>
+                    jobs.length > 0 ? (
+                        <TouchableOpacity 
+                            onPress={isEditMode ? handleToggleEditMode : handleMoreOptions} 
+                            style={[styles.headerAddBtn, { backgroundColor: 'transparent' }]}
+                        >
+                            <HugeiconsIcon 
+                                icon={isEditMode ? Tick01Icon : MoreVerticalIcon} 
+                                size={24} 
+                                color={theme.colors.primary} 
+                            />
+                        </TouchableOpacity>
+                    ) : undefined
                 } 
             />
 
@@ -467,12 +475,26 @@ const styles = StyleSheet.create({
     activateBtnText: { fontSize: 13, fontFamily: 'Nunito_500Medium' },
     editActions: { flexDirection: 'row', gap: 8 },
     iconBtn: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-    emptyStateContainer: { alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
-    emptyIconCircle: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
-    emptyStateTitle: { fontSize: 20, fontFamily: 'Nunito_500Medium', marginBottom: 8 },
-    emptyStateBody: { fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 32, paddingHorizontal: 40 },
-    emptyStateButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 24, borderRadius: 100, gap: 8, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 4 },
-    emptyStateButtonText: { color: '#fff', fontSize: 15, fontFamily: 'Nunito_500Medium' },
+    
+    // Modern Empty State Styles
+    emptyStateContainer: { alignItems: 'center', justifyContent: 'center', paddingTop: '30%' },
+    emptyIconContainer: { width: 96, height: 96, borderRadius: 48, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
+    emptyStateTitle: { fontSize: 22, fontFamily: 'Nunito_800ExtraBold', marginBottom: 10, letterSpacing: -0.3 },
+    emptyStateBody: { fontSize: 15, textAlign: 'center', lineHeight: 24, marginBottom: 32, paddingHorizontal: 40, opacity: 0.9 },
+    emptyStateButton: { 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        paddingVertical: 16, 
+        borderRadius: 20, 
+        width: '100%', 
+        gap: 10, 
+        shadowOffset: { width: 0, height: 4 }, 
+        shadowOpacity: 0.25, 
+        shadowRadius: 12, 
+        elevation: 6 
+    },
+    emptyStateButtonText: { fontFamily: 'Nunito_700Bold', color: '#ffffff', fontSize: 16, letterSpacing: 0.3 },
     selectPrompt: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16, borderRadius: 16, marginTop: 24, gap: 8 },
     selectPromptText: { fontSize: 13, fontFamily: 'Nunito_500Medium' }
 });

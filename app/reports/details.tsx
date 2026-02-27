@@ -54,6 +54,7 @@ export default function ReportDetailsScreen() {
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
 
   const moreIconRef = useRef<View>(null);
+  const scrollViewRef = useRef<Animated.ScrollView>(null);
   const [viewerVisible, setViewerVisible] = useState(false);
   const [activeImageUri, setActiveImageUri] = useState<string | null>(null);
 
@@ -74,8 +75,9 @@ export default function ReportDetailsScreen() {
 
     try {
       const db = await getDB();
-      const attendance: any = await db.getFirstAsync(
-        "SELECT * FROM attendance WHERE user_id = ? AND date = ?",
+      // Fetch ALL attendances for this date, sorted oldest to newest
+      const attendances: any[] = await db.getAllAsync(
+        "SELECT * FROM attendance WHERE user_id = ? AND date = ? ORDER BY clock_in ASC",
         [user.id, dateStr]
       );
 
@@ -99,11 +101,9 @@ export default function ReportDetailsScreen() {
 
       setReport({
         date: dateStr,
-        clockIn: attendance?.clock_in ? format(new Date(attendance.clock_in), 'h:mm a') : "--:--",
-        clockOut: attendance?.clock_out ? format(new Date(attendance.clock_out), 'h:mm a') : "--:--",
-        status: attendance?.status || "pending",
-        attendanceId: attendance?.id,
-        accomplishments: processedTasks,
+        attendances: attendances || [],
+        status: attendances && attendances.length > 0 ? attendances[attendances.length - 1].status : "pending",
+        accomplishments: processedTasks || [],
       });
     } catch (e) {
       console.log("Error fetching details:", e);
@@ -158,14 +158,13 @@ export default function ReportDetailsScreen() {
       
       if (user && dateStr) {
         const db = await getDB();
+        if (report?.attendances?.length > 0) {
+            for (const att of report.attendances) {
+                await db.runAsync("INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)", ["attendance", att.id, "DELETE", null]);
+            }
+        }
         await db.runAsync("DELETE FROM attendance WHERE user_id = ? AND date = ?", [user.id, dateStr]);
         await db.runAsync("DELETE FROM accomplishments WHERE user_id = ? AND date = ?", [user.id, dateStr]);
-        if (report?.attendanceId) {
-          await db.runAsync(
-            "INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)",
-            ["attendance", report.attendanceId, "DELETE", null]
-          );
-        }
         triggerSync();
         router.back();
       }
@@ -179,11 +178,11 @@ export default function ReportDetailsScreen() {
   const handleShare = async () => {
     setMenuVisible(false);
     try {
-      const message = `Report ${date as string}\nTime In: ${report.clockIn}\nTime Out: ${report.clockOut}`;
+      const firstIn = report?.attendances?.[0]?.clock_in ? format(new Date(report.attendances[0].clock_in), 'h:mm a') : '--:--';
+      const lastOut = report?.attendances?.[report.attendances.length - 1]?.clock_out ? format(new Date(report.attendances[report.attendances.length - 1].clock_out), 'h:mm a') : 'In Progress';
+      const message = `Report ${date as string}\nTime In: ${firstIn}\nTime Out: ${lastOut}\nTasks Completed: ${report?.accomplishments?.length || 0}`;
       await Share.share({ message });
-    } catch {
-      // ignore
-    }
+    } catch { }
   };
 
   const handleMenuOpen = () => {
@@ -211,11 +210,7 @@ export default function ReportDetailsScreen() {
       {acc.images && acc.images.length > 0 && (
         <View style={styles.imageGrid}>
           {acc.images.map((imgUri: string, i: number) => (
-            <TouchableOpacity
-              key={i}
-              onPress={() => { setActiveImageUri(imgUri); setViewerVisible(true); }}
-              style={[styles.imageWrapper, { borderColor: theme.colors.border }]}
-            >
+            <TouchableOpacity key={i} onPress={() => { setActiveImageUri(imgUri); setViewerVisible(true); }} style={[styles.imageWrapper, { borderColor: theme.colors.border }]}>
               <Image source={{ uri: imgUri }} style={styles.taskImage} resizeMode="cover" />
             </TouchableOpacity>
           ))}
@@ -223,6 +218,9 @@ export default function ReportDetailsScreen() {
       )}
     </View>
   );
+
+  const firstSession = report?.attendances?.[0];
+  const lastSession = report?.attendances?.[report?.attendances?.length - 1];
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={["top"]}>
@@ -268,6 +266,7 @@ export default function ReportDetailsScreen() {
         </View>
       ) : (
         <Animated.ScrollView
+          ref={scrollViewRef}
           contentContainerStyle={{ padding: 24, paddingBottom: 100 }}
           onScroll={scrollHandler}
           scrollEventThrottle={16}
@@ -287,40 +286,98 @@ export default function ReportDetailsScreen() {
               </View>
           </View>
 
-          <View style={styles.timeGrid}>
-            <View style={[styles.timeCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-              <View style={styles.timeCardHeader}>
-                 <HugeiconsIcon icon={Clock01Icon} size={14} color={theme.colors.success} />
-                 <Text style={[styles.timeCardLabel, { color: theme.colors.textSecondary }]}>TIME IN</Text>
-              </View>
-              <Text style={[styles.timeCardValue, { color: theme.colors.text }]}>{report.clockIn}</Text>
-            </View>
+          {/* TOP SUMMARY */}
+          <View style={{ marginBottom: 36 }}>
+            <Text style={[styles.sectionTitle, { color: theme.colors.text, marginBottom: 16 }]}>Attendance Summary</Text>
+            
+            {report?.attendances?.length > 0 ? (
+                <>
+                    <View style={[styles.timeGrid, { marginBottom: 16 }]}>
+                        <View style={[styles.timeCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                            <View style={styles.timeCardHeader}>
+                                <HugeiconsIcon icon={Clock01Icon} size={14} color={theme.colors.success} />
+                                <Text style={[styles.timeCardLabel, { color: theme.colors.textSecondary }]}>EARLIEST IN</Text>
+                            </View>
+                            <Text style={[styles.timeCardValue, { color: theme.colors.text }]}>
+                                {firstSession?.clock_in ? format(new Date(firstSession.clock_in), 'h:mm a') : '--:--'}
+                            </Text>
+                        </View>
 
-            <View style={[styles.timeCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-              <View style={styles.timeCardHeader}>
-                 <HugeiconsIcon icon={Clock01Icon} size={14} color={theme.colors.warning} />
-                 <Text style={[styles.timeCardLabel, { color: theme.colors.textSecondary }]}>TIME OUT</Text>
-              </View>
-              <Text style={[styles.timeCardValue, { color: theme.colors.text }]}>{report.clockOut}</Text>
-            </View>
+                        <View style={[styles.timeCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                            <View style={styles.timeCardHeader}>
+                                <HugeiconsIcon icon={Clock01Icon} size={14} color={theme.colors.warning} />
+                                <Text style={[styles.timeCardLabel, { color: theme.colors.textSecondary }]}>LATEST OUT</Text>
+                            </View>
+                            <Text style={[styles.timeCardValue, { color: theme.colors.text }]}>
+                                {lastSession?.clock_out ? format(new Date(lastSession.clock_out), 'h:mm a') : '--:--'}
+                            </Text>
+                        </View>
+                    </View>
+
+                    {/* SHOW ALL SESSIONS LINK */}
+                    {report?.attendances?.length > 1 && (
+                        <TouchableOpacity 
+                            onPress={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+                            style={[styles.showAllBtn, { backgroundColor: theme.colors.primary + '10' }]}
+                        >
+                            <Text style={[styles.showAllText, { color: theme.colors.primary }]}>View all {report.attendances.length} sessions ↓</Text>
+                        </TouchableOpacity>
+                    )}
+                </>
+            ) : (
+                <View style={[styles.emptyState, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 24 }]}>
+                    <HugeiconsIcon icon={Time02Icon} size={28} color={theme.colors.icon} />
+                    <Text style={{ color: theme.colors.textSecondary, fontFamily: 'Nunito_500Medium', marginTop: 12 }}>No attendance recorded.</Text>
+                </View>
+            )}
           </View>
 
           <View style={styles.sectionHeader}>
             <HugeiconsIcon icon={Task01Icon} size={20} color={theme.colors.text} />
             <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Activity Log</Text>
             <View style={[styles.badge, { backgroundColor: theme.colors.primary + '15' }]}>
-              <Text style={[styles.badgeText, { color: theme.colors.primary }]}>{report.accomplishments.length}</Text>
+              <Text style={[styles.badgeText, { color: theme.colors.primary }]}>{report?.accomplishments?.length || 0}</Text>
             </View>
           </View>
 
-          {report.accomplishments.length === 0 ? (
-            <View style={[styles.emptyState, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+          {report?.accomplishments?.length === 0 ? (
+            <View style={[styles.emptyState, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, marginBottom: 24 }]}>
               <HugeiconsIcon icon={Time02Icon} size={32} color={theme.colors.icon} />
               <Text style={{ color: theme.colors.textSecondary, fontFamily: 'Nunito_500Medium', marginTop: 12 }}>No activity logged.</Text>
             </View>
           ) : (
-            <AnimatedList data={report.accomplishments} renderItem={renderTask} />
+            <View style={{ marginBottom: 32 }}>
+                <AnimatedList data={report?.accomplishments || []} renderItem={renderTask} />
+            </View>
           )}
+
+          {/* BOTTOM DETAILED LIST OF SESSIONS */}
+          {report?.attendances?.length > 0 && (
+            <View style={{ marginTop: 16 }}>
+                <Text style={[styles.sectionTitle, { color: theme.colors.text, marginBottom: 12 }]}>All Sessions Logged</Text>
+                <View style={[styles.sessionListContainer, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                    {report.attendances.map((session: any, index: number) => (
+                        <View key={session.id} style={[
+                            styles.sessionListItem, 
+                            index < report.attendances.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.colors.border }
+                        ]}>
+                            <View style={styles.sessionItemLeft}>
+                                <View style={[styles.sessionDot, { backgroundColor: theme.colors.primary }]} />
+                                <Text style={[styles.sessionIndexText, { color: theme.colors.textSecondary }]}>Session {index + 1}</Text>
+                            </View>
+                            <View style={styles.sessionItemRight}>
+                                <Text style={[styles.sessionTimeText, { color: theme.colors.text }]}>
+                                    {session.clock_in ? format(new Date(session.clock_in), 'h:mm a') : '--:--'}
+                                    <Text style={{ color: theme.colors.textSecondary }}>  →  </Text>
+                                    {session.clock_out ? format(new Date(session.clock_out), 'h:mm a') : 'Now'}
+                                </Text>
+                            </View>
+                        </View>
+                    ))}
+                </View>
+            </View>
+          )}
+
         </Animated.ScrollView>
       )}
     </SafeAreaView>
@@ -335,11 +392,14 @@ const styles = StyleSheet.create({
   heroDate: { fontSize: 22, fontFamily: 'Nunito_700Bold', letterSpacing: -0.5, marginBottom: 2 },
   heroDay: { fontSize: 14, fontFamily: 'Nunito_600SemiBold', textTransform: 'uppercase', letterSpacing: 1 },
   
-  timeGrid: { flexDirection: "row", gap: 12, marginBottom: 36 },
-  timeCard: { flex: 1, padding: 20, borderRadius: 24, borderWidth: 1 },
+  timeGrid: { flexDirection: "row", gap: 12 },
+  timeCard: { flex: 1, padding: 16, borderRadius: 20, borderWidth: 1 },
   timeCardHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 },
   timeCardLabel: { fontSize: 11, fontFamily: 'Nunito_700Bold', textTransform: "uppercase", letterSpacing: 0.5 },
-  timeCardValue: { fontSize: 20, fontFamily: 'Nunito_700Bold' },
+  timeCardValue: { fontSize: 18, fontFamily: 'Nunito_700Bold' },
+
+  showAllBtn: { alignSelf: 'center', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 100 },
+  showAllText: { fontSize: 13, fontFamily: 'Nunito_700Bold' },
 
   sectionHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 20 },
   sectionTitle: { fontSize: 18, fontFamily: 'Nunito_700Bold', flex: 1 },
@@ -348,24 +408,22 @@ const styles = StyleSheet.create({
   
   emptyState: { alignItems: "center", padding: 40, borderRadius: 24, borderWidth: 1, borderStyle: 'dashed' },
   
-  taskCard: { 
-    borderRadius: 20, 
-    padding: 20, 
-    borderWidth: 1, 
-    shadowColor: "#000", 
-    shadowOffset: { width: 0, height: 2 }, 
-    shadowOpacity: 0.03, 
-    shadowRadius: 8, 
-    elevation: 1,
-    marginBottom: 16 // Explicitly added gap directly to the card
-  },
+  taskCard: { borderRadius: 20, padding: 20, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.03, shadowRadius: 8, elevation: 1, marginBottom: 16 },
   taskHeader: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
   taskTime: { fontSize: 12, fontFamily: 'Nunito_700Bold' },
   taskContent: { paddingRight: 8 },
   taskTitle: { fontSize: 16, fontFamily: 'Nunito_700Bold', lineHeight: 22, marginBottom: 4 },
   taskRemarks: { fontSize: 14, fontFamily: 'Nunito_400Regular', lineHeight: 20, opacity: 0.8 },
-  
   imageGrid: { marginTop: 16, flexDirection: "row", flexWrap: "wrap", gap: 10 },
   imageWrapper: { width: "47%", aspectRatio: 4 / 3, borderRadius: 12, overflow: "hidden", borderWidth: 1 },
   taskImage: { width: "100%", height: "100%" },
+
+  // List Styles for Multiple Sessions at Bottom
+  sessionListContainer: { borderRadius: 20, borderWidth: 1, overflow: 'hidden' },
+  sessionListItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16 },
+  sessionItemLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  sessionDot: { width: 6, height: 6, borderRadius: 3 },
+  sessionIndexText: { fontSize: 13, fontFamily: 'Nunito_700Bold' },
+  sessionItemRight: {},
+  sessionTimeText: { fontSize: 14, fontFamily: 'Nunito_700Bold' },
 });

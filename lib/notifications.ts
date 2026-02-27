@@ -1,15 +1,13 @@
+import notifee, { AndroidImportance } from '@notifee/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
 
 type NotificationType = 'checkInOut' | 'reportGen' | 'cutoff' | 'general';
 
 export async function sendLocalNotification(title: string, body: string, type: NotificationType = 'general', data: any = {}) {
   try {
-    // 1. Get User Preferences from CORRECT storage key
+    // 1. Get User Preferences from storage
     const jsonSettings = await AsyncStorage.getItem('notificationSettings');
     const settings = jsonSettings ? JSON.parse(jsonSettings) : {
-        // Defaults if not set
         pushEnabled: true,
         clockInReminder: true,
         breakReminders: true,
@@ -20,6 +18,7 @@ export async function sendLocalNotification(title: string, body: string, type: N
     // Global Kill Switch
     if (settings.pushEnabled === false) return;
 
+    // Check specific toggles
     let shouldSend = true;
     switch (type) {
         case 'checkInOut': shouldSend = settings.clockInReminder; break;
@@ -33,21 +32,23 @@ export async function sendLocalNotification(title: string, body: string, type: N
         return;
     }
 
-    // 2. Schedule
-    await Notifications.scheduleNotificationAsync({
-      content: {
+    // 2. Display Notification using Notifee
+    await notifee.displayNotification({
         title,
         body,
-        data, 
-        sound: true,
-        // Attach to the 'default' channel (High Importance)
-        ...(Platform.OS === 'android' ? { channelId: 'default' } : {}),
-      },
-      trigger: null, // Immediate
+        data,
+        android: {
+            channelId: 'standard_alerts', // Matches the channel created in NotificationService.ts
+            smallIcon: 'ic_timer_small',
+            importance: AndroidImportance.HIGH,
+            pressAction: {
+                id: 'default', // Ensures tapping the notification opens the app
+            },
+        },
     });
 
   } catch (error) {
-    console.error('Failed to send local notification:', error);
+    console.error('Failed to send local notification via Notifee:', error);
   }
 }
 
@@ -61,11 +62,10 @@ export async function scheduleReportNotification(reportTitle: string) {
 }
 
 // Deprecated: active job notification is now handled by utils/NotificationService.ts
-// Keeping empty stub to prevent import errors if used elsewhere
 export async function sendActiveJobNotification(jobTitle: string, clockInTime: string) {
-    // Replaced by dynamic timer
+    // Replaced by dynamic native timer
 }
 
 export async function cancelActiveJobNotification() {
-    // Replaced by dynamic timer
+    // Replaced by dynamic native timer
 }

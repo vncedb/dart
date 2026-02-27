@@ -115,7 +115,7 @@ export default function SettingsScreen() {
                 setLoadingMessage("Signing out...");
                 await signOut();
                 setIsLoading(false);
-                router.replace('/'); // <-- FIXED: Added explicit redirect to index/auth
+                router.replace('/'); 
             },
             onCancel: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
         });
@@ -190,7 +190,8 @@ export default function SettingsScreen() {
                 <View style={{ marginBottom: 32 }}>
                     <Text style={styles.sectionTitle}>SUPPORT</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
-                        <ModernSettingsItem icon={InformationCircleIcon} label="Privacy Policy" onPress={() => router.push('/settings/privacy-policy')} theme={theme} />
+                        {/* CHANGED LABEL TO "Legal & Privacy" */}
+                        <ModernSettingsItem icon={InformationCircleIcon} label="Legal & Privacy" onPress={() => router.push('/settings/privacy-policy')} theme={theme} />
                         <ModernSettingsItem icon={Mail01Icon} label="Contact Support" onPress={handleContactSupport} theme={theme} />
                         <ModernSettingsItem icon={PencilEdit02Icon} label="Report or Feedback" onPress={() => router.push('/settings/feedback')} theme={theme} />
                         <ModernSettingsItem icon={InformationCircleIcon} label="About" onPress={() => router.push('/settings/about')} isLast theme={theme} />
