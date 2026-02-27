@@ -111,7 +111,11 @@ export default function SettingsScreen() {
             confirmType: 'destructive',
             onConfirm: async () => {
                 setAlertConfig((prev: any) => ({ ...prev, visible: false }));
+                setIsLoading(true);
+                setLoadingMessage("Signing out...");
                 await signOut();
+                setIsLoading(false);
+                router.replace('/'); // <-- FIXED: Added explicit redirect to index/auth
             },
             onCancel: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
         });

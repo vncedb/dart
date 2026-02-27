@@ -1,8 +1,9 @@
-const { withDangerousMod } = require('@expo/config-plugins');
+const { withDangerousMod, withProjectBuildGradle } = require('@expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
-const withNotificationIcons = (config) => {
+// 1. Copies the custom Notification Icons
+const withIcons = (config) => {
   return withDangerousMod(config, [
     'android',
     async (config) => {
@@ -10,46 +11,63 @@ const withNotificationIcons = (config) => {
       const platformRoot = config.modRequest.platformProjectRoot;
       const androidResDir = path.join(platformRoot, 'app/src/main/res/drawable');
 
-      console.log(`\n🔔 [Notification Icons] Syncing resources...`);
+      console.log(`\n🔔 [Notification Setup] Syncing resources & Gradle...`);
 
       if (!fs.existsSync(androidResDir)) {
         fs.mkdirSync(androidResDir, { recursive: true });
       }
 
-      // 1. Copy ONLY Timer Icon (Others are deleted)
       const iconSourceDir = path.join(projectRoot, 'assets/icons/notification');
-      const actionIcons = [
-        { src: 'timer.png', dest: 'timer.png' }
+      const iconsToCopy = [
+        'ic_timer_large.png',
+        'ic_timer_small.png',
+        'ic_pause.png',
+        'ic_resume.png',
+        'ic_timeout.png'
       ];
 
-      // 2. Copy Main Notification Icon
-      const mainIconSourceDir = path.join(projectRoot, 'assets/images/icon');
-      const mainIcons = [
-        { src: 'notification-icon.png', dest: 'notification_icon.png' }
-      ];
+      iconsToCopy.forEach((fileName) => {
+        const sourceFile = path.join(iconSourceDir, fileName);
+        const destFile = path.join(androidResDir, fileName);
 
-      // Helper function to copy
-      const copyIcons = (list, sourcePath) => {
-        list.forEach(({ src, dest }) => {
-          const sourceFile = path.join(sourcePath, src);
-          const destFile = path.join(androidResDir, dest);
-
-          if (fs.existsSync(sourceFile)) {
-            fs.copyFileSync(sourceFile, destFile);
-            console.log(`   ✅ Copied: ${dest}`);
-          } else {
-            // Log but don't crash if optional
-            console.log(`   ⚠️ Skipped (Source missing): ${src}`);
-          }
-        });
-      };
-
-      copyIcons(actionIcons, iconSourceDir);
-      copyIcons(mainIcons, mainIconSourceDir);
+        if (fs.existsSync(sourceFile)) {
+          fs.copyFileSync(sourceFile, destFile);
+          console.log(`   ✅ Copied Icon: ${fileName}`);
+        } else {
+          console.log(`   ⚠️ Skipped (Source missing): ${fileName}`);
+        }
+      });
 
       return config;
     },
   ]);
 };
 
-module.exports = withNotificationIcons;
+// 2. Injects the Notifee local Maven repository into Android's build.gradle
+const withNotifeeMaven = (config) => {
+  return withProjectBuildGradle(config, async (config) => {
+    if (config.modResults.language === 'groovy') {
+      let buildGradle = config.modResults.contents;
+      const notifeeMaven = `maven { url "$rootDir/../node_modules/@notifee/react-native/android/libs" }`;
+
+      // Check if it's already injected to prevent duplicates
+      if (!buildGradle.includes('@notifee/react-native/android/libs')) {
+        // Inject it right under 'allprojects { repositories {'
+        buildGradle = buildGradle.replace(
+          /allprojects\s*\{\s*repositories\s*\{/,
+          `allprojects {\n    repositories {\n        ${notifeeMaven}`
+        );
+        config.modResults.contents = buildGradle;
+        console.log(`   ✅ Injected Notifee Maven URL into build.gradle`);
+      }
+    }
+    return config;
+  });
+};
+
+// Export the combined plugin
+module.exports = (config) => {
+  config = withIcons(config);
+  config = withNotifeeMaven(config);
+  return config;
+};

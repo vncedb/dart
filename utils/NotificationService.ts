@@ -1,283 +1,103 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { differenceInSeconds } from 'date-fns';
-import * as Notifications from 'expo-notifications';
+import notifee, { AndroidImportance } from '@notifee/react-native';
 import { Platform } from 'react-native';
 
-// --- 1. Handler Configuration ---
-Notifications.setNotificationHandler({
-  handleNotification: async (notification) => {
-    // Check if the notification belongs to the currently logged-in user
-    const data = notification.request.content.data || {};
-    const activeUserId = await AsyncStorage.getItem('active_user_id');
-    
-    // If there is a mismatched user, strictly silence and hide the notification
-    if (data.userId && activeUserId && data.userId !== activeUserId) {
-         return {
-            shouldShowBanner: false,
-            shouldShowList: false,
-            shouldPlaySound: false,
-            shouldSetBadge: false,
-        };
-    }
+export const initNotificationSystem = async () => {
+    await notifee.requestPermission();
 
-    const settings = await getNotificationSettings();
-    if (!settings.pushEnabled) {
-        return {
-            shouldShowBanner: false,
-            shouldShowList: false,
-            shouldPlaySound: false,
-            shouldSetBadge: false,
-        };
-    }
+    if (Platform.OS === 'android') {
+        await notifee.createChannel({
+            id: 'attendance_timer',
+            name: 'Active Shift Timer',
+            importance: AndroidImportance.HIGH,
+            vibration: false, // Prevents buzzing every second
+        });
 
-    const isStatusChange = data.type === 'status_change';
-    const isGeneralAlert = data.type === 'general_alert';
-
-    // Timer updates remain completely silent in the background
-    if (!isStatusChange && !isGeneralAlert) {
-        return {
-            shouldShowBanner: false,
-            shouldShowList: true, // Keep it visible in the drawer
-            shouldPlaySound: false,
-            shouldSetBadge: false,
-        };
-    }
-
-    // Prominent alerts for Reminders & explicit Status Changes
-    return {
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: true,
-      shouldSetBadge: true,
-    };
-  },
-});
-
-// --- 2. Initialization & Category Setup ---
-export async function initNotificationSystem() {
-  const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  let finalStatus = existingStatus;
-  
-  if (existingStatus !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
-  
-  if (finalStatus !== 'granted') return false;
-
-  if (Platform.OS === 'android') {
-    await setupChannels();
-  }
-
-  // --- NEW: Register Interactive Buttons ---
-  await setupCategories();
-
-  return true;
-}
-
-// THIS CREATES THE BIG BUTTONS ON THE NOTIFICATION
-async function setupCategories() {
-    // 1. Standard Active Mode (Shows: Pause & Time Out)
-    await Notifications.setNotificationCategoryAsync('active_session', [
-        { 
-            identifier: 'action_break_start', 
-            buttonTitle: '⏸ PAUSE (BREAK)', 
-            options: { opensAppToForeground: false } 
-        },
-        { 
-            identifier: 'action_checkout', 
-            buttonTitle: '⏹ TIME OUT', 
-            options: { opensAppToForeground: true, isDestructive: true } 
-        }
-    ]);
-
-    // 2. Break Mode (Shows: Resume & Time Out)
-    await Notifications.setNotificationCategoryAsync('break_session', [
-        { 
-            identifier: 'action_break_end', 
-            buttonTitle: '▶️ RESUME', 
-            options: { opensAppToForeground: false } 
-        },
-        { 
-            identifier: 'action_checkout', 
-            buttonTitle: '⏹ TIME OUT', 
-            options: { opensAppToForeground: true, isDestructive: true } 
-        }
-    ]);
-}
-
-export async function setActiveUserForNotifications(userId: string) {
-    await AsyncStorage.setItem('active_user_id', userId);
-}
-
-export async function clearAllUserNotifications() {
-    await AsyncStorage.removeItem('active_user_id');
-    await Notifications.cancelAllScheduledNotificationsAsync();
-    await Notifications.dismissAllNotificationsAsync();
-}
-
-async function setupChannels() {
-    await Notifications.setNotificationChannelAsync('attendance_persistent', {
-      name: 'Attendance Status',
-      importance: Notifications.AndroidImportance.LOW, // Low importance keeps it securely pinned without popping up every minute
-      vibrationPattern: [0], 
-      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-      showBadge: false,
-      sound: null,
-    });
-
-    await Notifications.setNotificationChannelAsync('attendance_alerts', {
-        name: 'Reminders & Alerts',
-        importance: Notifications.AndroidImportance.HIGH,
-        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
-        showBadge: true,
-        sound: 'default',
-    });
-}
-
-// --- 3. Persistent Timer Notification ---
-export async function updateAttendanceNotification(
-    startTime: string | Date, 
-    isOvertime: boolean = false, 
-    isOnBreak: boolean = false, 
-    isStatusChange: boolean = false 
-) {
-  const settings = await getNotificationSettings();
-  const activeUserId = await AsyncStorage.getItem('active_user_id');
-  
-  if (!settings.pushEnabled || !settings.persistentTimer) {
-      await clearAttendanceNotification();
-      return;
-  }
-
-  const now = new Date();
-  const start = new Date(startTime);
-  
-  // Calculate Hours and Minutes
-  const diffSecs = differenceInSeconds(now, start);
-  const h = Math.floor(diffSecs / 3600);
-  const m = Math.floor((diffSecs % 3600) / 60);
-  
-  // Format to look like a digital timer (e.g. ⏱ 02:45 Elapsed)
-  const timeString = `⏱ ${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')} `;
-  
-  let statusText = '🟢 Active Duty';
-  let color = '#10b981'; 
-  let categoryId = 'active_session'; // Default to Pause/TimeOut buttons
-
-  if (isOnBreak) {
-      statusText = '⏸ Paused - On Break'; 
-      color = '#F59E0B'; 
-      categoryId = 'break_session'; // Switches to Resume/TimeOut buttons
-  } else if (isOvertime) {
-      statusText = '⚠️ Overtime Session';
-      color = '#EF4444'; 
-      categoryId = 'active_session'; 
-  }
-
-  const priority = isStatusChange 
-    ? Notifications.AndroidNotificationPriority.HIGH 
-    : Notifications.AndroidNotificationPriority.LOW;
-
-  try {
-      await Notifications.scheduleNotificationAsync({
-        content: {
-          title: timeString,
-          body: statusText,
-          sticky: true,
-          autoDismiss: false,
-          categoryIdentifier: categoryId, // INJECTS THE ACTION BUTTONS
-          data: { type: isStatusChange ? 'status_change' : 'timer_tick', userId: activeUserId }, 
-          color: color, 
-          priority: priority,
-          vibrate: isStatusChange ? [0, 250, 250] : undefined, // Vibrate only when explicitly checking in/out
-          // @ts-ignore
-          icon: 'notification_icon', 
-          channelId: 'attendance_persistent',
-        } as any, 
-        trigger: null,
-        identifier: 'attendance_persistent',
-      });
-  } catch (e) {
-      console.warn("Failed to update notification:", e);
-  }
-}
-
-export async function clearAttendanceNotification() {
-  try {
-      await Notifications.dismissNotificationAsync('attendance_persistent');
-  } catch (e) {}
-}
-
-// --- 4. Reminders (Shift & Reports) ---
-export async function scheduleReminders(shiftStart: string | null) {
-    const settings = await getNotificationSettings();
-    const activeUserId = await AsyncStorage.getItem('active_user_id');
-    
-    await Notifications.cancelScheduledNotificationAsync('shift_reminder');
-    await Notifications.cancelScheduledNotificationAsync('daily_report_reminder');
-
-    if (!settings.pushEnabled) return;
-
-    if (settings.clockInReminder && shiftStart) {
-        const [h, m] = shiftStart.split(':').map(Number);
-        const shiftDate = new Date();
-        shiftDate.setHours(h, m, 0, 0);
-
-        if (shiftDate < new Date()) {
-            shiftDate.setDate(shiftDate.getDate() + 1);
-        }
-
-        const reminderTime = new Date(shiftDate.getTime() - 15 * 60000);
-
-        await Notifications.scheduleNotificationAsync({
-            identifier: 'shift_reminder',
-            content: {
-                title: 'Shift Starting Soon ⏳',
-                body: `You have a shift starting at ${shiftStart}.`,
-                data: { type: 'general_alert', userId: activeUserId },
-                sound: true,
-                channelId: 'attendance_alerts'
-            } as any,
-            trigger: reminderTime as any,
+        await notifee.createChannel({
+            id: 'standard_alerts',
+            name: 'System Alerts',
+            importance: AndroidImportance.HIGH,
         });
     }
+};
 
-    if (settings.dailyReportReminder) {
-        const reportTime = new Date();
-        reportTime.setHours(17, 0, 0, 0); 
-        
-        if (reportTime < new Date()) {
-            reportTime.setDate(reportTime.getDate() + 1);
-        }
-
-        await Notifications.scheduleNotificationAsync({
-            identifier: 'daily_report_reminder',
-            content: {
-                title: 'End of Day Report 📊',
-                body: "Don't forget to generate your daily report.",
-                data: { type: 'general_alert', userId: activeUserId },
-                sound: true,
-                channelId: 'attendance_alerts'
-            } as any,
-            trigger: reportTime as any,
-        });
-    }
-}
-
-// --- 5. Settings Helper ---
-export async function getNotificationSettings() {
-    try {
-        const stored = await AsyncStorage.getItem('notificationSettings');
-        if (stored) return JSON.parse(stored);
-    } catch (e) {}
+/**
+ * Starts or updates the Native Timer Notification
+ */
+export const updateAttendanceNotification = async (
+    clockInTimestamp: string,
+    isOvertime: boolean,
+    isBreakMode: boolean,
+    accumulatedBreakMs: number = 0
+) => {
+    const startTimeMs = new Date(clockInTimestamp).getTime();
     
-    return { 
-        pushEnabled: true,
-        clockInReminder: true,
-        persistentTimer: true, 
-        breakReminders: true,
-        dailyReportReminder: true,
-        reportGenerationAlert: true
-    };
-}
+    // Exact chronometer start time offsetting breaks
+    const chronometerStartTime = startTimeMs + accumulatedBreakMs;
+
+    await notifee.displayNotification({
+        id: 'attendance_persistent',
+        title: isBreakMode ? '☕ You are on Break' : isOvertime ? '🔥 Overtime Active' : '💼 Shift in Progress',
+        body: isBreakMode ? 'Your shift timer is currently paused.' : 'Tap to view your session details.',
+        android: {
+            channelId: 'attendance_timer',
+            
+            // Assigning the copied drawable images
+            smallIcon: 'ic_timer_small', 
+            largeIcon: 'ic_timer_large', 
+            
+            // This tints the small icon and the action icons automatically
+            color: isBreakMode ? '#F59E0B' : '#3B82F6', 
+            
+            ongoing: true,
+            autoCancel: false,
+            asForegroundService: true, 
+
+            // NATIVE CHRONOMETER (100% accurate, no battery drain)
+            showChronometer: !isBreakMode, 
+            chronometerDirection: 'up',
+            timestamp: chronometerStartTime, 
+
+            // Interactive Buttons with Custom Icons
+            actions: isBreakMode ? [
+                {
+                    title: 'Resume Work',
+                    icon: 'ic_resume',
+                    pressAction: { id: 'action_resume' },
+                }
+            ] : [
+                {
+                    title: 'Take Break',
+                    icon: 'ic_pause',
+                    pressAction: { id: 'action_break' },
+                },
+                {
+                    title: 'Time Out',
+                    icon: 'ic_timeout',
+                    pressAction: { id: 'action_checkout' },
+                }
+            ]
+        },
+        ios: {
+            interruptionLevel: 'critical',
+        }
+    });
+};
+
+export const clearAttendanceNotification = async () => {
+    if (Platform.OS === 'android') {
+        await notifee.stopForegroundService();
+    }
+    await notifee.cancelNotification('attendance_persistent');
+};
+
+export const showStandardNotification = async (title: string, body: string) => {
+    await notifee.displayNotification({
+        title,
+        body,
+        android: {
+            channelId: 'standard_alerts',
+            smallIcon: 'ic_timer_small',
+            pressAction: { id: 'default' },
+        },
+    });
+};

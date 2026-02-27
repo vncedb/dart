@@ -1,4 +1,3 @@
-// vncedb/dart/dart-dfc370a1cb531fb84d58dfcbf96afcbce8542d4e/app/auth.tsx
 import {
     ArrowLeft02Icon,
     ArrowRight01Icon,
@@ -130,17 +129,14 @@ export default function AuthScreen() {
           const userId = user.id;
           const db = await getDB();
 
-          // 1. Force check for local profile
           const localProfile: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [userId]);
           
-          // If we have a local profile, we trust it (it's the source of truth for offline)
           if (localProfile) {
               const isOnboarded = Boolean(localProfile.is_onboarded);
               await AsyncStorage.setItem('isOnboarded', isOnboarded ? 'true' : 'false');
               return isOnboarded;
           }
 
-          // 2. If no local profile, check Supabase 
           const { data: remoteProfile, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
           
           if (remoteProfile && !error) {
@@ -150,7 +146,6 @@ export default function AuthScreen() {
               return isOnboarded;
           }
 
-          // 3. NEW USER (or Re-Registering User)
           const meta = user.user_metadata || {};
           console.log("Processing New User Metadata:", JSON.stringify(meta));
 
@@ -177,10 +172,8 @@ export default function AuthScreen() {
               updated_at: new Date().toISOString()
           };
 
-          // A. Save Locally Immediately
           await saveProfileLocal(newProfile);
 
-          // B. Queue Sync to Server 
           const remotePayload = { ...newProfile, is_onboarded: false };
           await queueSyncItem('profiles', userId, 'UPSERT', remotePayload);
 
@@ -194,14 +187,23 @@ export default function AuthScreen() {
   };
 
   const onLoginSuccess = (isUserOnboarded: boolean) => {
+      setLoading(true); 
       setSuccessMode(true); 
+      
       setTimeout(() => {
-          if (isUserOnboarded) {
-              // Direct replace to home prevents the loading spinner loop on App Index
-              router.replace('/(tabs)/home'); 
-          } else {
-              router.replace({ pathname: '/onboarding', params: { welcome: 'true' } });
-          }
+          // 1. Hide the modals to trigger the fade animation
+          setLoading(false);
+          setGoogleLoading(false);
+          
+          // 2. WAIT 500ms to guarantee the Modal fade out is 100% finished before routing
+          setTimeout(() => {
+              if (isUserOnboarded) {
+                  router.replace('/(tabs)/home'); 
+              } else {
+                  router.replace({ pathname: '/onboarding', params: { welcome: 'true' } });
+              }
+          }, 500); // <-- THIS PREVENTS THE GHOST MODAL
+          
       }, 800);
   };
 
@@ -255,7 +257,7 @@ export default function AuthScreen() {
             } else {
                 if (session && user) {
                      await checkAppRegistration(user);
-                     setLoading(false);
+                     // REMOVED setLoading(false) from here to prevent the state race condition
                      onLoginSuccess(false); 
                 } else {
                     setLoading(false); 
@@ -272,7 +274,7 @@ export default function AuthScreen() {
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     try {
-      const redirectTo = makeRedirectUri({ scheme: 'dartapp', path: 'auth/callback' });
+      const redirectTo = makeRedirectUri({ path: 'auth/callback' }); 
       const { data, error } = await supabase.auth.signInWithOAuth({ 
           provider: 'google', 
           options: { 
@@ -341,7 +343,12 @@ export default function AuthScreen() {
                     supabase.functions.invoke('send-email', { body: { email: session.user.email, type: 'WELCOME' } });
                     await checkAppRegistration(session.user);
                     setShowOtp(false);
-                    onLoginSuccess(false); 
+                    
+                    // Small delay to let OTP modal close before starting Login Success
+                    setTimeout(() => {
+                        onLoginSuccess(false); 
+                    }, 300);
+                    
                     return true;
                 }
                 setShowOtp(false);

@@ -98,7 +98,6 @@ const NotificationRow = ({
         const scale = dragX.interpolate({ inputRange: [0, 40, 80], outputRange: [0, 0.8, 1], extrapolate: 'clamp' });
         return (
             <TouchableOpacity activeOpacity={0.8} onPress={handleMarkAsReadLocal} style={[styles.gmailActionLeft, { backgroundColor: theme.colors.success }]}>
-                {/* MUST BE RNAnimated.View to prevent Invariant Violation crash */}
                 <RNAnimated.View style={{ transform: [{ scale }] }}>
                     <HugeiconsIcon icon={CheckmarkBadge01Icon} size={26} color="#FFF" />
                 </RNAnimated.View>
@@ -110,7 +109,6 @@ const NotificationRow = ({
         const scale = dragX.interpolate({ inputRange: [-80, -40, 0], outputRange: [1, 0.8, 0], extrapolate: 'clamp' });
         return (
             <TouchableOpacity activeOpacity={0.8} onPress={handleDeleteLocal} style={[styles.gmailActionRight, { backgroundColor: theme.colors.danger }]}>
-                {/* MUST BE RNAnimated.View to prevent Invariant Violation crash */}
                 <RNAnimated.View style={{ transform: [{ scale }] }}>
                     <HugeiconsIcon icon={Delete02Icon} size={26} color="#FFF" />
                 </RNAnimated.View>
@@ -194,7 +192,6 @@ export default function NotificationsScreen() {
     const [selectedItem, setSelectedItem] = useState<NotificationItem | null>(null);
     const lastSelectedItem = useRef<NotificationItem | null>(null);
 
-    // Menu States (Exactly like reports/details.tsx)
     const [menuVisible, setMenuVisible] = useState(false);
     const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
     const moreIconRef = useRef<View>(null);
@@ -276,17 +273,20 @@ export default function NotificationsScreen() {
         }
     };
 
-    useEffect(() => {
-        const onBackPress = () => {
-            if (selectedItem) {
-                handleCloseDetail();
-                return true;
-            }
-            return false;
-        };
-        const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
-        return () => subscription.remove();
-    }, [selectedItem, handleCloseDetail]);
+    // <-- FIXED: WRAPPED IN USEFOCUSEFFECT TO PREVENT CLOSING THE APP OUTSIDE THIS SCREEN
+    useFocusEffect(
+        useCallback(() => {
+            const onBackPress = () => {
+                if (selectedItem) {
+                    handleCloseDetail();
+                    return true;
+                }
+                return false;
+            };
+            const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+            return () => subscription.remove();
+        }, [selectedItem, handleCloseDetail])
+    );
 
     const animatedBodyWrapperStyle = useAnimatedStyle(() => ({ transform: [{ translateX: bodyTranslateX.value }] }));
     const currentItem = selectedItem || lastSelectedItem.current;
@@ -370,7 +370,6 @@ export default function NotificationsScreen() {
                                 <>
                                     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailScrollContent}>
                                         
-                                        {/* Matches the Hero Layout of Reports Details perfectly */}
                                         <View style={styles.heroSection}>
                                             <View style={[styles.heroIconBox, { backgroundColor: getIconTheme(currentItem, theme).bg }]}>
                                                 <HugeiconsIcon icon={getIconTheme(currentItem, theme).icon} size={28} color={getIconTheme(currentItem, theme).color} />
@@ -392,7 +391,6 @@ export default function NotificationsScreen() {
                                         </View>
                                     </ScrollView>
 
-                                    {/* Footer Button if Action Exists */}
                                     {(currentItem.type === 'report_ready' || currentItem.title?.toLowerCase().includes("report's ready")) && (
                                         <Footer>
                                             <TouchableOpacity

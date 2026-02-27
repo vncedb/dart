@@ -23,6 +23,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import PrivacyModal from '../components/PrivacyModal';
 import { useAppTheme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
+import { queueSyncItem } from '../lib/database'; // <-- Added to queue the name update
+import { getDB } from '../lib/db-client';
+import { supabase } from '../lib/supabase';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -31,7 +34,6 @@ const SLIDES = [
         id: '1',
         title: 'Track Your Work',
         description: 'Effortlessly log your daily attendance and activities. Keep a precise record of your productivity.',
-        // Assuming the file is located at assets/onboarding/track.png based on your path
         image: require('../assets/onboarding/track.png'),
     },
     {
@@ -104,11 +106,51 @@ export default function OnboardingScreen() {
     };
 
     const handlePrivacyAgreed = async () => {
-        // Privacy Modal handles the async update if integrated, 
-        // but here we ensure consistency with your previous flow
         setPrivacyVisible(false);
         if (completeOnboarding) await completeOnboarding();
-        router.replace('/(tabs)/home');
+
+        try {
+            const db = await getDB();
+            const { data: { session } } = await supabase.auth.getSession();
+            
+            if (session?.user) {
+                // Check local database for profile completeness
+                const profile: any = await db.getFirstAsync(
+                    'SELECT first_name, last_name FROM profiles WHERE id = ?', 
+                    [session.user.id]
+                );
+                
+                // Auto-generate name if missing
+                if (!profile?.first_name) {
+                    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                    let randomSuffix = '';
+                    for (let i = 0; i < 4; i++) {
+                        randomSuffix += chars.charAt(Math.floor(Math.random() * chars.length));
+                    }
+                    
+                    const generatedName = `User${randomSuffix}`;
+
+                    // Update local database instantly
+                    await db.runAsync(
+                        'UPDATE profiles SET first_name = ?, full_name = ? WHERE id = ?', 
+                        [generatedName, generatedName, session.user.id]
+                    );
+
+                    // Queue for server sync
+                    await queueSyncItem('profiles', session.user.id, 'UPDATE', {
+                        first_name: generatedName,
+                        full_name: generatedName
+                    });
+                }
+            }
+        } catch (e) {
+            console.log("Error checking missing data during onboarding:", e);
+        }
+
+        // Give the database a brief millisecond to settle, then route to home
+        setTimeout(() => {
+             router.replace('/(tabs)/home');
+        }, 100);
     };
 
     return (
@@ -142,7 +184,6 @@ export default function OnboardingScreen() {
                             <Image source={item.image} style={styles.slideImage} resizeMode="contain" />
                         </View>
                         <View style={styles.slideTextContainer}>
-                            {/* Icons removed as requested */}
                             <Text style={[styles.slideTitle, { color: theme.colors.text }]}>{item.title}</Text>
                             <Text style={[styles.slideDesc, { color: theme.colors.textSecondary }]}>{item.description}</Text>
                         </View>

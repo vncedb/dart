@@ -186,18 +186,6 @@ export default function AccountSecurityScreen() {
         if (error) throw error;
     };
 
-    const handleConfirmDelete = async () => {
-        setDeleteModalVisible(false);
-        setLoading(true);
-        setLoadingMsg("Sending Verification Code...");
-        try {
-            await sendDeleteOtp();
-            setOtpVisible(true);
-        } catch (error: any) {
-            setAlertConfig({ visible: true, type: 'error', title: 'Error', message: error.message || "Failed to send code.", onConfirm: () => setAlertConfig((p:any) => ({...p, visible: false})) });
-        } finally { setLoading(false); }
-    };
-
     const handleVerifyOtp = async (inputCode: string) => {
         if (inputCode !== generatedCode) return false;
         setOtpVisible(false);
@@ -207,15 +195,23 @@ export default function AccountSecurityScreen() {
         try {
             const userId = user?.id;
             if (!userId) throw new Error("User ID missing.");
+            
             const db = await getDB();
+            
+            // CLEAR ALL USER DATA LOCALLY
             await db.runAsync('DELETE FROM attendance WHERE user_id = ?', [userId]);
             await db.runAsync('DELETE FROM accomplishments WHERE user_id = ?', [userId]);
             await db.runAsync('DELETE FROM saved_reports WHERE user_id = ?', [userId]);
             await db.runAsync('DELETE FROM job_positions WHERE user_id = ?', [userId]);
             await db.runAsync('DELETE FROM profiles WHERE id = ?', [userId]);
+            await db.runAsync('DELETE FROM notifications WHERE user_id = ?', [userId]); // <-- ADDED THIS: Wipes local notifications
             await db.runAsync('DELETE FROM sync_queue', []);
+            
             await AsyncStorage.removeItem('isOnboarded');
+            
+            // Delete from Supabase
             await supabase.functions.invoke('delete-user');
+            
             setLoading(false);
             setAlertConfig({
                 visible: true, type: 'success', title: 'Account Deleted', message: 'Your account has been permanently removed.', confirmText: 'Done',
@@ -223,7 +219,6 @@ export default function AccountSecurityScreen() {
             });
             return true;
         } catch {
-            // Ignored unused error variable
             setLoading(false);
             setAlertConfig({ 
                 visible: true, type: 'error', title: 'Deletion Incomplete', message: 'Local data cleared, but server error occurred. You will be signed out.', 

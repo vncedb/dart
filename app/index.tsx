@@ -1,8 +1,8 @@
 import { ArrowRight01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import { useRouter } from 'expo-router';
+import { useRootNavigationState, useRouter } from 'expo-router'; // <-- Added Root Nav State
 import { useColorScheme } from 'nativewind';
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react'; // <-- Added useRef
 import {
     BackHandler,
     Image,
@@ -20,16 +20,26 @@ export default function Index() {
   const { colorScheme } = useColorScheme();
   const isDark = colorScheme === 'dark';
   const { user, isLoading, isOnboarded } = useAuth();
+  
+  const rootNavigationState = useRootNavigationState();
+  const hasRouted = useRef(false); // <-- NEW: Prevents background routing race conditions
 
   useEffect(() => {
-    if (!isLoading && user) {
-        if (isOnboarded) {
-             router.replace('/(tabs)/home');
-        } else {
-             router.replace('/onboarding');
+    // Wait for Expo Router to be fully mounted
+    if (!rootNavigationState?.key) return;
+
+    if (!isLoading && !hasRouted.current) {
+        if (user) {
+            if (isOnboarded) {
+                 router.replace('/(tabs)/home');
+            } else {
+                 router.replace('/onboarding');
+            }
         }
+        // Mark as routed so it NEVER auto-routes from the background again
+        hasRouted.current = true;
     }
-  }, [user, isLoading, isOnboarded]);
+  }, [user, isLoading, isOnboarded, rootNavigationState?.key]);
 
   useEffect(() => {
     const backAction = () => { BackHandler.exitApp(); return true; };
