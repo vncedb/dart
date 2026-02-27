@@ -39,7 +39,7 @@ import { supabase } from '../lib/supabase';
 // CONFIGURE GOOGLE SIGN IN (Replace with your Google Cloud Web Client ID)
 // =========================================================================
 GoogleSignin.configure({
-    webClientId: '668715947282-3aj7sab049eice766d098fvkot1jerg5.apps.googleusercontent.com',
+    webClientId: '668715947282-h8h20h74tdtmj47efrkj9m7vjp8o39du.apps.googleusercontent.com',
     scopes: ['profile', 'email'],
 });
 
