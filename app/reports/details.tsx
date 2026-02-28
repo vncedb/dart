@@ -163,6 +163,11 @@ export default function ReportDetailsScreen() {
                 await db.runAsync("INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)", ["attendance", att.id, "DELETE", null]);
             }
         }
+        if (report?.accomplishments?.length > 0) {
+            for (const acc of report.accomplishments) {
+                await db.runAsync("INSERT INTO sync_queue (table_name, row_id, action, data) VALUES (?, ?, ?, ?)", ["accomplishments", acc.id, "DELETE", JSON.stringify({ image_url: acc.image_url })]);
+            }
+        }
         await db.runAsync("DELETE FROM attendance WHERE user_id = ? AND date = ?", [user.id, dateStr]);
         await db.runAsync("DELETE FROM accomplishments WHERE user_id = ? AND date = ?", [user.id, dateStr]);
         triggerSync();

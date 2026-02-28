@@ -30,7 +30,7 @@ notifee.registerForegroundService((notification) => {
     });
 });
 
-LogBox.ignoreAllLogs(true);
+if (__DEV__) LogBox.ignoreAllLogs(true);
 
 // =====================================================================
 // 🔴 NOTIFEE BACKGROUND EVENT LISTENER 
@@ -49,7 +49,7 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
 SplashScreen.preventAutoHideAsync();
 
 function RootLayoutNav() {
-  const { session, loading } = useAuth();
+  const { session, isLoading: loading } = useAuth();
   const [isBiometricLocked, setIsBiometricLocked] = useState(false);
   const user = session?.user;
 
@@ -107,6 +107,7 @@ function RootLayoutNav() {
           <Stack.Screen name="reports/generate" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="reports/preview" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="reports/details" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="reports/edit" options={{ animation: "slide_from_right" }} />
         </Stack>
 
         {isBiometricLocked && user && (

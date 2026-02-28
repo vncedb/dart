@@ -1,4 +1,5 @@
 import { endOfWeek, format, getWeek, startOfWeek, subDays } from 'date-fns';
+import * as FileSystem from 'expo-file-system';
 import { generateUUID, getUnreadReportsCount, queueSyncItem, saveReportLocal } from '../lib/database';
 import { getDB } from '../lib/db-client';
 import { scheduleReportNotification } from '../lib/notifications';
@@ -11,7 +12,7 @@ export const ReportService = {
     if (!profile?.current_job_id) return null;
     
     const job: any = await db.getFirstAsync('SELECT * FROM job_positions WHERE id = ?', [profile.current_job_id]);
-    // Merge profile info for report generation context
+    if (!job) return null;
     return { ...job, userName: profile.full_name, userTitle: profile.title };
   },
 
@@ -37,14 +38,16 @@ export const ReportService = {
 
   deleteReportDay: async (userId: string, jobId: string, date: string) => {
     const db = await getDB();
-    const att: any = await db.getFirstAsync('SELECT id FROM attendance WHERE user_id = ? AND job_id = ? AND date = ?', [userId, jobId, date]);
-    const tasks: any[] = await db.getAllAsync('SELECT id, image_url FROM accomplishments WHERE user_id = ? AND job_id = ? AND date = ?', [userId, jobId, date]);
+    await db.withTransactionAsync(async () => {
+      const att: any = await db.getFirstAsync('SELECT id FROM attendance WHERE user_id = ? AND job_id = ? AND date = ?', [userId, jobId, date]);
+      const tasks: any[] = await db.getAllAsync('SELECT id, image_url FROM accomplishments WHERE user_id = ? AND job_id = ? AND date = ?', [userId, jobId, date]);
 
-    if (att) await queueSyncItem('attendance', att.id, 'DELETE');
-    for (const t of tasks) await queueSyncItem('accomplishments', t.id, 'DELETE', { image_url: t.image_url }); 
+      if (att) await queueSyncItem('attendance', att.id, 'DELETE');
+      for (const t of tasks) await queueSyncItem('accomplishments', t.id, 'DELETE', { image_url: t.image_url }); 
 
-    await db.runAsync('DELETE FROM attendance WHERE user_id = ? AND job_id = ? AND date = ?', [userId, jobId, date]);
-    await db.runAsync('DELETE FROM accomplishments WHERE user_id = ? AND job_id = ? AND date = ?', [userId, jobId, date]);
+      await db.runAsync('DELETE FROM attendance WHERE user_id = ? AND job_id = ? AND date = ?', [userId, jobId, date]);
+      await db.runAsync('DELETE FROM accomplishments WHERE user_id = ? AND job_id = ? AND date = ?', [userId, jobId, date]);
+    });
   },
 
   getUnreadCount: async (userId: string) => {
@@ -142,21 +145,21 @@ export const ReportService = {
         
         if ((!attendance || attendance.length === 0) && (!tasks || tasks.length === 0)) return; // Empty period
 
-        // Prep data for generator
-        const groupedData = ReportService.groupReportsByPayout([...attendance, ...tasks].map((i:any) => ({...i, date: i.date})), payoutType);
-        // Flatten grouped data for the specific range
+        const groupedData = ReportService.groupReportsByPayout(attendance.map((i:any) => ({...i, date: i.date})), payoutType);
         const flatData = Object.values(groupedData).flatMap((g: any) => g.data).map((item: any) => {
-             // Reconstruct summary format expected by generator
-             const dailyTasks = tasks.filter((t:any) => t.date === item.date).map((t:any) => ({
-                 description: t.description,
-                 remarks: t.remarks,
-                 images: t.image_url ? JSON.parse(t.image_url) : []
-             }));
+             const dailyTasks = tasks.filter((t:any) => t.date === item.date).map((t:any) => {
+                 let images: string[] = [];
+                 if (t.image_url) {
+                     try { images = JSON.parse(t.image_url); } catch { images = [t.image_url]; }
+                     if (!Array.isArray(images)) images = [t.image_url];
+                 }
+                 return { description: t.description, remarks: t.remarks, images };
+             });
              return {
                  date: format(new Date(item.date), 'MMM d, yyyy\nEEEE'),
                  clockIn: item.clock_in ? format(new Date(`1970-01-01T${item.clock_in}`), 'h:mm a') : '--:--',
                  clockOut: item.clock_out ? format(new Date(`1970-01-01T${item.clock_out}`), 'h:mm a') : '--:--',
-                 duration: '--', // Calculate if needed
+                 duration: '--',
                  summary: dailyTasks
              };
         });
@@ -173,9 +176,12 @@ export const ReportService = {
             style: 'minimal' // Clean style for auto-reports
         });
 
-        // 4. Save to DB
         const reportId = generateUUID();
-        const fileInfo = await fetch(uri).then(r => r.blob()); // Mock size fetch
+        let fileSize = 0;
+        try {
+            const fileInfo = await FileSystem.getInfoAsync(uri);
+            if (fileInfo.exists && 'size' in fileInfo) fileSize = fileInfo.size;
+        } catch { /* size is non-critical */ }
         
         const newReport = {
             id: reportId,
@@ -183,7 +189,7 @@ export const ReportService = {
             title: `Auto: ${targetPeriod.label}`,
             file_path: uri,
             file_type: 'application/pdf',
-            file_size: fileInfo.size || 0,
+            file_size: fileSize,
             is_read: false, // UNREAD
             period_key: targetPeriod.key,
             created_at: new Date().toISOString()
@@ -226,7 +232,7 @@ export const ReportService = {
             dateRange = { start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd') };
             if (date.getMonth() === today.getMonth() && date.getFullYear() === today.getFullYear()) isCurrent = true;
         } else {
-            const month = date.toLocaleString('default', { month: 'long' });
+            const month = format(date, 'MMMM');
             const year = date.getFullYear();
             const monthNum = date.getMonth() + 1;
             const monthStr = monthNum < 10 ? `0${monthNum}` : monthNum;

@@ -163,10 +163,12 @@ export const initDatabase = async () => {
 
 // --- UTILS ---
 export const generateUUID = () => {
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
-    let r = (Math.random() * 16) | 0, v = c == "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+  const bytes = new Uint8Array(16);
+  for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
 };
 
 // --- SYNC ENGINE QUEUE ---
@@ -178,7 +180,9 @@ export const queueSyncItem = async (tableName: string, rowId: string, action: st
     if (["attendance", "accomplishments", "saved_reports", "notifications", "profiles", "job_positions"].includes(tableName)) {
       try {
         await db.runAsync(`UPDATE ${tableName} SET is_synced = 0 WHERE id = ?`, [rowId]);
-      } catch (e) { /* Ignore if table doesn't have is_synced */ }
+      } catch (e: any) {
+        if (!e.message?.includes('no such column')) console.warn(`[Sync Queue] Unexpected error marking ${tableName} dirty:`, e);
+      }
     }
     // Queue the payload for the background sync engine
     await db.runAsync(
@@ -192,7 +196,7 @@ export const queueSyncItem = async (tableName: string, rowId: string, action: st
 
 export const getPendingSyncCount = async () => {
   const db = await getDB();
-  const res: any = await db.getFirstAsync('SELECT COUNT(*) as count FROM sync_queue WHERE status = "PENDING"');
+  const res: any = await db.getFirstAsync("SELECT COUNT(*) as count FROM sync_queue WHERE status = 'PENDING'");
   return res?.count || 0;
 };
 
@@ -266,6 +270,13 @@ export const saveReportLocal = async (report: any) => {
   await queueSyncItem("saved_reports", report.id, "UPSERT", report);
 };
 
+export const markReportReadLocal = async (id: string) => {
+  const db = await getDB();
+  const now = new Date().toISOString();
+  await db.runAsync("UPDATE saved_reports SET is_read = 1, is_synced = 0, updated_at = ? WHERE id = ?", [now, id]);
+  await queueSyncItem("saved_reports", id, "UPDATE", { is_read: true, updated_at: now });
+};
+
 export const deleteReportLocal = async (id: string) => {
   const db = await getDB();
   await db.runAsync("DELETE FROM saved_reports WHERE id = ?", [id]);
@@ -311,6 +322,12 @@ export const getNotificationsLocal = async (userId: string) => {
   }
 };
 
+export const deleteNotificationLocal = async (id: string) => {
+  const db = await getDB();
+  await db.runAsync("DELETE FROM notifications WHERE id = ?", [id]);
+  await queueSyncItem("notifications", id, "DELETE");
+};
+
 export const markNotificationReadLocal = async (id: string) => {
   const db = await getDB();
   const now = new Date().toISOString();
@@ -321,11 +338,13 @@ export const markNotificationReadLocal = async (id: string) => {
 export const markAllNotificationsReadLocal = async (userId: string) => {
   const db = await getDB();
   const now = new Date().toISOString();
-  const unread: any[] = await db.getAllAsync(`SELECT id FROM notifications WHERE user_id = ? AND is_read = 0`, [userId]);
-  await db.runAsync(`UPDATE notifications SET is_read = 1, is_synced = 0, updated_at = ? WHERE user_id = ? AND is_read = 0`, [now, userId]);
-  for (const item of unread) {
-    await queueSyncItem('notifications', item.id, 'UPDATE', { is_read: true, updated_at: now });
-  }
+  await db.withTransactionAsync(async () => {
+    const unread: any[] = await db.getAllAsync(`SELECT id FROM notifications WHERE user_id = ? AND is_read = 0`, [userId]);
+    await db.runAsync(`UPDATE notifications SET is_read = 1, is_synced = 0, updated_at = ? WHERE user_id = ? AND is_read = 0`, [now, userId]);
+    for (const item of unread) {
+      await queueSyncItem('notifications', item.id, 'UPDATE', { is_read: true, updated_at: now });
+    }
+  });
 };
 
 // --- UNREAD COUNTS ---

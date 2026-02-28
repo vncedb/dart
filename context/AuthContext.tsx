@@ -83,11 +83,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       await AsyncStorage.multiRemove(keys);
       // Notice we DO NOT remove DEVICE_ONBOARDED_KEY so it remains true for the device
 
-      const settings = await AsyncStorage.getItem(APP_SETTINGS_KEY);
-      if (settings) {
-          const parsed = JSON.parse(settings);
-          parsed.biometricEnabled = false; 
-          await AsyncStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(parsed));
+      try {
+        const settings = await AsyncStorage.getItem(APP_SETTINGS_KEY);
+        if (settings) {
+            const parsed = JSON.parse(settings);
+            parsed.biometricEnabled = false; 
+            await AsyncStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(parsed));
+        }
+      } catch (settingsErr) {
+        console.warn('Failed to update app settings during sign out:', settingsErr);
       }
 
       await supabase.auth.signOut();
@@ -97,33 +101,42 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setSession(null);
       setUser(null);
       
-      // If device is onboarded, keep it true so it doesn't trigger onboarding unecessarily on next login
-      const status = await checkOnboardingStatus();
-      setIsOnboarded(status);
+      try {
+        const status = await checkOnboardingStatus();
+        setIsOnboarded(status);
+      } catch {
+        // Preserve current onboarding state on failure
+      }
       
       setIsLoading(false);
     }
   }, [checkOnboardingStatus]);
 
   useEffect(() => {
+    let listenerTookOver = false;
+
     const initAuth = async () => {
       try {
         const { data: { session: currentSession } } = await supabase.auth.getSession();
+        if (listenerTookOver) return;
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
 
         const status = await checkOnboardingStatus();
+        if (listenerTookOver) return;
         setIsOnboarded(status);
       } catch (error) {
         console.error('Auth Init Error:', error);
       } finally {
-        setIsLoading(false); 
+        if (!listenerTookOver) setIsLoading(false);
       }
     };
 
     initAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
+      listenerTookOver = true;
+
       if (event === 'SIGNED_IN' && newSession?.user) {
          setIsLoading(true);
          try {
@@ -136,8 +149,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setSession(newSession);
       setUser(newSession?.user ?? null);
       
-      const status = await checkOnboardingStatus();
-      setIsOnboarded(status);
+      try {
+        const status = await checkOnboardingStatus();
+        setIsOnboarded(status);
+      } catch { /* preserve current state */ }
       
       setIsLoading(false); 
     });

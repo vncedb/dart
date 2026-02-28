@@ -1,16 +1,13 @@
 import { Platform } from 'react-native';
 import Purchases, { CustomerInfo, LOG_LEVEL, PurchasesPackage } from 'react-native-purchases';
 
-// Your API Key
-const API_KEY = 'test_WVcuFqayebdWuLFtFlTLJZnkdKn'; // Ensure this matches your RevenueCat Dashboard
+const ANDROID_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY || 'test_WVcuFqayebdWuLFtFlTLJZnkdKn';
+const IOS_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY || 'test_WVcuFqayebdWuLFtFlTLJZnkdKn';
 
 export const initRevenueCat = async () => {
-  Purchases.setLogLevel(LOG_LEVEL.DEBUG);
-  if (Platform.OS === 'android') {
-    await Purchases.configure({ apiKey: API_KEY });
-  } else {
-    await Purchases.configure({ apiKey: API_KEY });
-  }
+  Purchases.setLogLevel(__DEV__ ? LOG_LEVEL.DEBUG : LOG_LEVEL.INFO);
+  const apiKey = Platform.OS === 'ios' ? IOS_API_KEY : ANDROID_API_KEY;
+  await Purchases.configure({ apiKey });
 };
 
 // Fetch available offerings (products)
@@ -39,14 +36,16 @@ export const purchasePackage = async (rcPackage: PurchasesPackage): Promise<Cust
   }
 };
 
-// Check if user is currently subscribed (entitlement active)
+let lastKnownProStatus: boolean = false;
+
 export const checkSubscriptionStatus = async (): Promise<boolean> => {
   try {
     const customerInfo = await Purchases.getCustomerInfo();
-    // Replace 'pro' with your actual Entitlement Identifier from RevenueCat dashboard
-    return customerInfo.entitlements.active['pro'] !== undefined;
+    lastKnownProStatus = customerInfo.entitlements.active['pro'] !== undefined;
+    return lastKnownProStatus;
   } catch (e) {
-    return false;
+    console.warn('[RevenueCat] Failed to check subscription, using cached status:', e);
+    return lastKnownProStatus;
   }
 };
 

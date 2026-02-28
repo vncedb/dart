@@ -45,7 +45,11 @@ const convertImageToBase64 = async (uri: string): Promise<string> => {
     }
 };
 
-// HELPER FUNCTIONS
+const escapeHtml = (str: string): string => {
+    if (!str) return '';
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+};
+
 const getTaskTextHtml = (tasks: any[]) => {
     if (!tasks || tasks.length === 0) return '<span style="color:#bdc3c7; font-style:italic;">No entries</span>';
     return `
@@ -53,8 +57,8 @@ const getTaskTextHtml = (tasks: any[]) => {
             ${tasks.map((t: any) => `
                 <li>
                     <div class="task-content">
-                        <span class="task-desc" style="font-weight:600">${t.description}</span>
-                        ${t.remarks ? `<div class="task-rem">${t.remarks}</div>` : ''}
+                        <span class="task-desc" style="font-weight:600">${escapeHtml(t.description)}</span>
+                        ${t.remarks ? `<div class="task-rem">${escapeHtml(t.remarks)}</div>` : ''}
                     </div>
                 </li>
             `).join('')}
@@ -90,8 +94,8 @@ const getDocumentationHtml = (reportData: any[]) => {
                 ${tasksWithImages.map(item => `
                     <div class="doc-card">
                         <div class="doc-meta">
-                            <span class="doc-date">${item.date}</span>
-                            <span class="doc-desc">${item.desc}</span>
+                            <span class="doc-date">${escapeHtml(item.date)}</span>
+                            <span class="doc-desc">${escapeHtml(item.desc)}</span>
                         </div>
                         <div class="img-container">
                             ${item.imgs.map((img: string) => `
@@ -125,7 +129,7 @@ export const generateReport = async ({
             return { ...task, images: processedImages.filter(Boolean) };
         }));
         
-        const displayDate = day.date.replace('\n', '<br/><span style="font-size: 8px; font-weight: 500; color: #666; text-transform: uppercase;">');
+        const displayDate = day.date.replace(/\n/g, '<br/><span style="font-size: 8px; font-weight: 500; color: #666; text-transform: uppercase;">');
         const finalDate = displayDate.includes('<br/>') ? displayDate + '</span>' : displayDate;
 
         return { ...day, summary: processedTasks, date: finalDate };
@@ -173,7 +177,7 @@ export const generateReport = async ({
     const t = configs[style];
 
     // Dimensions
-    const sizeMap: any = {
+    const sizeMap: Record<string, { w: number; h: number }> = {
         'Letter': { w: 612, h: 792 },
         'A4': { w: 595, h: 842 },
         'Legal': { w: 612, h: 1008 }
@@ -316,7 +320,7 @@ export const generateReport = async ({
     <body>
         <div class="header">
             <div class="title-block">
-                <h1>${reportTitle}</h1>
+                <h1>${escapeHtml(reportTitle)}</h1>
                 <p>Employee Activity Record</p>
             </div>
             <div class="date-block">
@@ -326,11 +330,11 @@ export const generateReport = async ({
         </div>
 
         <div class="meta">
-            <div class="meta-item"><label>Employee Name</label><span>${userName}</span></div>
-            <div class="meta-item"><label>Job Position</label><span>${userTitle}</span></div>
-            ${company ? `<div class="meta-item"><label>Organization</label><span>${company}</span></div>` : ''}
-            ${department ? `<div class="meta-item"><label>Department</label><span>${department}</span></div>` : ''}
-            <div class="meta-item"><label>Report Period</label><span>${period}</span></div>
+            <div class="meta-item"><label>Employee Name</label><span>${escapeHtml(userName)}</span></div>
+            <div class="meta-item"><label>Job Position</label><span>${escapeHtml(userTitle)}</span></div>
+            ${company ? `<div class="meta-item"><label>Organization</label><span>${escapeHtml(company)}</span></div>` : ''}
+            ${department ? `<div class="meta-item"><label>Department</label><span>${escapeHtml(department)}</span></div>` : ''}
+            <div class="meta-item"><label>Report Period</label><span>${escapeHtml(period)}</span></div>
         </div>
 
         <table>
@@ -361,7 +365,7 @@ export const generateReport = async ({
                             </td>` : ''}
                         ${columns?.duration ? `<td class="center-align">${item.duration}</td>` : ''}
                         <td>${getTaskTextHtml(item.summary)}</td>
-                        ${columns?.remarks ? `<td><span style="font-size:10px; color:${t.secondary}">${item.remarks || '-'}</span></td>` : ''}
+                        ${columns?.remarks ? `<td><span style="font-size:10px; color:${t.secondary}">${escapeHtml(item.remarks) || '-'}</span></td>` : ''}
                     </tr>
                 `).join('')}
             </tbody>

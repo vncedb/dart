@@ -204,7 +204,8 @@ export default function AccountSecurityScreen() {
             await db.runAsync('DELETE FROM saved_reports WHERE user_id = ?', [userId]);
             await db.runAsync('DELETE FROM job_positions WHERE user_id = ?', [userId]);
             await db.runAsync('DELETE FROM profiles WHERE id = ?', [userId]);
-            await db.runAsync('DELETE FROM notifications WHERE user_id = ?', [userId]); // <-- ADDED THIS: Wipes local notifications
+            await db.runAsync('DELETE FROM notifications WHERE user_id = ?', [userId]);
+            // Safe to clear all: single-user device, all user data already deleted above
             await db.runAsync('DELETE FROM sync_queue', []);
             
             await AsyncStorage.removeItem('isOnboarded');

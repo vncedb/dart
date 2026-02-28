@@ -106,6 +106,7 @@ export default function AuthScreen() {
       if (!/[A-Z]/.test(pass)) return "Must contain at least one uppercase letter.";
       if (!/[a-z]/.test(pass)) return "Must contain at least one lowercase letter.";
       if (!/[0-9]/.test(pass)) return "Must contain at least one number.";
+      if (!/[!@#$%^&*(),.?":{}|<>]/.test(pass)) return "Must contain at least one special character.";
       return null;
   };
 

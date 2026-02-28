@@ -31,9 +31,8 @@ import ActionMenu from '../components/ActionMenu';
 import Footer from '../components/Footer';
 import Header from '../components/Header';
 import { useAppTheme } from '../constants/theme';
-import { getNotificationsLocal, markAllNotificationsReadLocal } from '../lib/database';
-import { getDB } from '../lib/db-client';
-import { supabase } from '../lib/supabase';
+import { useAuth } from '../context/AuthContext';
+import { deleteNotificationLocal, getNotificationsLocal, markAllNotificationsReadLocal, markNotificationReadLocal } from '../lib/database';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -184,6 +183,7 @@ const NotificationRow = ({
 export default function NotificationsScreen() {
     const theme = useAppTheme();
     const router = useRouter();
+    const { user } = useAuth();
 
     const [notifications, setNotifications] = useState<NotificationItem[]>([]);
     const bodyTranslateX = useSharedValue(0);
@@ -200,9 +200,8 @@ export default function NotificationsScreen() {
 
     const loadData = async () => {
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session?.user) return;
-            const data = await getNotificationsLocal(session.user.id);
+            if (!user) return;
+            const data = await getNotificationsLocal(user.id);
             setNotifications(data);
         } catch (e) {
             console.log('Err loading notifs', e);
@@ -224,8 +223,7 @@ export default function NotificationsScreen() {
 
     const handleMarkAsRead = async (id: string) => {
         try {
-            const db = await getDB();
-            await db.runAsync('UPDATE notifications SET is_read = 1 WHERE id = ?', [id]);
+            await markNotificationReadLocal(id);
             setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
         } catch (error) {
             console.log("Error marking as read", error);
@@ -234,8 +232,7 @@ export default function NotificationsScreen() {
 
     const handleDeleteNotification = async (id: string) => {
         try {
-            const db = await getDB();
-            await db.runAsync('DELETE FROM notifications WHERE id = ?', [id]);
+            await deleteNotificationLocal(id);
             setNotifications(prev => prev.filter(n => n.id !== id));
         } catch (error) {
             console.log("Error deleting notification", error);
@@ -245,9 +242,8 @@ export default function NotificationsScreen() {
     const handleMarkAllRead = async () => {
         setMenuVisible(false);
         try {
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session?.user) return;
-            await markAllNotificationsReadLocal(session.user.id);
+            if (!user) return;
+            await markAllNotificationsReadLocal(user.id);
             setNotifications(prev => prev.map(n => ({ ...n, read: true })));
         } catch (e) {
             console.log('Err marking all read', e);

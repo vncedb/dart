@@ -32,15 +32,16 @@ import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
 import TimePicker from '../../components/TimePicker';
 import { useAppTheme } from '../../constants/theme';
+import { useAuth } from '../../context/AuthContext';
 import { useSync } from '../../context/SyncContext';
-import { queueSyncItem } from '../../lib/database'; // Import queue tool
+import { queueSyncItem } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
-import { supabase } from '../../lib/supabase';
 
 export default function EditReportScreen() {
     const router = useRouter();
     const navigation = useNavigation();
     const theme = useAppTheme();
+    const { user } = useAuth();
     const { triggerSync } = useSync();
     const { date } = useLocalSearchParams();
     
@@ -93,7 +94,6 @@ export default function EditReportScreen() {
     }, [navigation, loading, isDirty]);
 
     const fetchData = useCallback(async () => {
-        const { data: { user } } = await supabase.auth.getUser();
         if (!user || !date) return;
 
         try {

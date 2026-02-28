@@ -85,14 +85,12 @@ export const exportToExcel = async ({
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(sheetData);
 
-  ws["!cols"] = [
-    { wch: 15 }, // Date
-    { wch: 10 }, // In
-    { wch: 10 }, // Out
-    { wch: 12 }, // Duration
-    { wch: 50 }, // Activities
-    { wch: 25 }, // Remarks
-  ];
+  const colWidths: { wch: number }[] = [{ wch: 15 }];
+  if (columns?.time) { colWidths.push({ wch: 10 }, { wch: 10 }); }
+  if (columns?.duration) { colWidths.push({ wch: 12 }); }
+  colWidths.push({ wch: 50 });
+  if (columns?.remarks) { colWidths.push({ wch: 25 }); }
+  ws["!cols"] = colWidths;
 
   XLSX.utils.book_append_sheet(wb, ws, "Report");
 

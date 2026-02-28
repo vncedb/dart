@@ -45,16 +45,16 @@ import InputModal from "../../components/InputModal";
 import LoadingOverlay from "../../components/LoadingOverlay";
 import ModernAlert from "../../components/ModernAlert";
 import { useAppTheme } from "../../constants/theme";
+import { useAuth } from "../../context/AuthContext";
 import { useSync } from "../../context/SyncContext";
 import {
   deleteReportLocal,
-  markReportRead,
+  markReportReadLocal,
   queueSyncItem,
   renameReportLocal,
   saveReportLocal,
 } from "../../lib/database";
 import { getDB } from "../../lib/db-client";
-import { supabase } from "../../lib/supabase";
 
 // Enable LayoutAnimation on Android
 if (
@@ -68,6 +68,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 export default function SavedReportsScreen() {
   const theme = useAppTheme();
+  const { user } = useAuth();
   const { triggerSync } = useSync();
 
   const [reports, setReports] = useState<any[]>([]);
@@ -107,9 +108,6 @@ export default function SavedReportsScreen() {
 
   const fetchReports = useCallback(async () => {
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
       if (!user) return;
       const db = await getDB();
       const data = await db.getAllAsync(
@@ -371,7 +369,7 @@ export default function SavedReportsScreen() {
 
     try {
       if (!item.is_read) {
-        await markReportRead(item.id);
+        await markReportReadLocal(item.id);
         const updateRead = (r: any) =>
           r.id === item.id ? { ...r, is_read: 1 } : r;
         setReports((prev) => prev.map(updateRead));

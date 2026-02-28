@@ -27,8 +27,8 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   
-  // Use a ref to prevent overlapping sync operations
   const isSyncing = useRef(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -45,45 +45,48 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
 
   const triggerSync = useCallback(async (): Promise<boolean> => {
     if (!user || isSyncing.current) return false;
-    
-    // Quick connection check
+    isSyncing.current = true;
+
     const state = await NetInfo.fetch();
-    if (!state.isConnected) return false; 
+    if (!state.isConnected) { isSyncing.current = false; return false; }
+
+    if (resetTimerRef.current) { clearTimeout(resetTimerRef.current); resetTimerRef.current = null; }
 
     try {
-      isSyncing.current = true;
       setSyncStatus('syncing');
       
-      // 1. PUSH local changes to Cloud
       await syncPush();
       
-      // 2. PULL new data from Cloud
       const pullResult = await syncPull(user.id);
       
-      // Update UI timestamp if successful
       if (pullResult.success) {
         const db = await getDB();
         const res: any = await db.getFirstAsync('SELECT value FROM app_settings WHERE key = ?', ['last_synced_at']);
         if (res?.value) setLastSyncedAt(res.value);
         
         setSyncStatus('success');
+        resetTimerRef.current = setTimeout(() => setSyncStatus('idle'), 3000);
+        return true;
       } else {
         setSyncStatus('error');
+        resetTimerRef.current = setTimeout(() => setSyncStatus('idle'), 3000);
+        return false;
       }
-
-      // Reset UI state after 3 seconds
-      setTimeout(() => setSyncStatus('idle'), 3000); 
-      return true;
 
     } catch (error) {
       console.error("[SyncContext] Critical Sync Error:", error);
       setSyncStatus('error');
-      setTimeout(() => setSyncStatus('idle'), 3000); 
+      resetTimerRef.current = setTimeout(() => setSyncStatus('idle'), 3000);
       return false;
     } finally {
-      isSyncing.current = false; // Always release the lock
+      isSyncing.current = false;
     }
   }, [user]);
+
+  // Clean up timeout on unmount
+  useEffect(() => {
+    return () => { if (resetTimerRef.current) clearTimeout(resetTimerRef.current); };
+  }, []);
 
   // Trigger 1: When App comes to foreground
   useEffect(() => {
@@ -93,9 +96,11 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
     return () => subscription.remove();
   }, [triggerSync]);
 
-  // Trigger 2: When network is restored
+  // Trigger 2: When network is restored (skip initial fire)
   useEffect(() => {
+    let isInitial = true;
     const unsubscribe = NetInfo.addEventListener(state => {
+      if (isInitial) { isInitial = false; return; }
       if (state.isConnected && state.isInternetReachable) {
          triggerSync();
       }

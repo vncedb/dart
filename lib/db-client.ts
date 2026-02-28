@@ -6,7 +6,13 @@ let dbPromise: Promise<SQLiteDatabase> | null = null;
 
 export const getDB = async (): Promise<SQLiteDatabase> => {
   if (dbInstance) {
-    return dbInstance;
+    try {
+      await dbInstance.getFirstAsync('SELECT 1');
+      return dbInstance;
+    } catch {
+      dbInstance = null;
+      dbPromise = null;
+    }
   }
 
   if (dbPromise) {
@@ -15,17 +21,23 @@ export const getDB = async (): Promise<SQLiteDatabase> => {
 
   dbPromise = (async () => {
     try {
-      // Use openDatabaseAsync for newer expo-sqlite versions
-      // Using 'default' directory to ensure persistence
       const db = await SQLite.openDatabaseAsync('dart_local.db');
       dbInstance = db;
       return db;
     } catch (error) {
       console.error("Critical DB Init Error:", error);
-      dbPromise = null; // Reset promise to allow retry
+      dbPromise = null;
       throw error;
     }
   })();
 
   return dbPromise;
+};
+
+export const closeDB = async () => {
+  if (dbInstance) {
+    try { await dbInstance.closeAsync(); } catch { /* already closed */ }
+  }
+  dbInstance = null;
+  dbPromise = null;
 };
