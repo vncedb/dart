@@ -1,5 +1,7 @@
 import {
   ArrowRight01Icon,
+  Briefcase02Icon,
+  Building04Icon,
   Calendar03Icon,
   CheckListIcon,
   Clock01Icon,
@@ -12,6 +14,7 @@ import {
   SignatureIcon,
   Tick01Icon,
   Timer01Icon,
+  UserCircleIcon,
   UserGroupIcon,
   Xls01Icon,
 } from "@hugeicons/core-free-icons";
@@ -63,12 +66,8 @@ export default function GenerateReportScreen() {
 
   // --- Config State ---
   const [formatType, setFormatType] = useState<"pdf" | "xlsx">("pdf");
-  const [paperSize, setPaperSize] = useState<"Letter" | "A4" | "Legal">(
-    "Letter",
-  );
-  const [reportStyle, setReportStyle] = useState<
-    "corporate" | "creative" | "minimal"
-  >("corporate");
+  const [paperSize, setPaperSize] = useState<"Letter" | "A4" | "Legal">("Letter");
+  const [reportStyle, setReportStyle] = useState<"corporate" | "creative" | "minimal">("corporate");
   const [dateFormat, setDateFormat] = useState("MM/dd/yyyy");
   const [timeFormat, setTimeFormat] = useState("exact_hm");
 
@@ -105,20 +104,9 @@ export default function GenerateReportScreen() {
   useEffect(() => {
     const unsubscribe = navigation.addListener("beforeRemove", (e) => {
       const currentSettings = JSON.stringify({
-        formatType,
-        paperSize,
-        reportStyle,
-        dateFormat,
-        timeFormat,
-        includeDocs,
-        includeDay,
-        includeDept,
-        columns,
-        signature,
-        customName,
-        customTitle,
-        companyName,
-        department,
+        formatType, paperSize, reportStyle, dateFormat, timeFormat,
+        includeDocs, includeDay, includeDept, columns, signature,
+        customName, customTitle, companyName, department,
       });
 
       if (loading || currentSettings === initialSettings) {
@@ -130,8 +118,7 @@ export default function GenerateReportScreen() {
         visible: true,
         type: "warning",
         title: "Unsaved Changes",
-        message:
-          "You have modified the report settings. Do you want to leave without generating?",
+        message: "You have modified the report settings. Do you want to leave without generating?",
         confirmText: "Leave",
         cancelText: "Stay",
         onConfirm: () => {
@@ -143,23 +130,9 @@ export default function GenerateReportScreen() {
     });
     return unsubscribe;
   }, [
-    navigation,
-    loading,
-    initialSettings,
-    formatType,
-    paperSize,
-    reportStyle,
-    dateFormat,
-    timeFormat,
-    includeDocs,
-    includeDay,
-    includeDept,
-    columns,
-    signature,
-    customName,
-    customTitle,
-    companyName,
-    department,
+    navigation, loading, initialSettings, formatType, paperSize, reportStyle,
+    dateFormat, timeFormat, includeDocs, includeDay, includeDept, columns,
+    signature, customName, customTitle, companyName, department,
   ]);
 
   // --- INITIALIZATION ---
@@ -169,9 +142,7 @@ export default function GenerateReportScreen() {
     const init = async () => {
       setLoading(true);
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+        const { data: { session } } = await supabase.auth.getSession();
         if (!session?.user) {
           if (isMounted) setLoading(false);
           return;
@@ -190,15 +161,13 @@ export default function GenerateReportScreen() {
         const profile: any = profileRes;
         const job: any = jobRes;
 
-        // 1. Set Meta from Profile/Job
+        // 1. Set Meta automatically (Prioritize Job Form Data over Profile)
         let currentName = profile?.full_name || "";
-        let currentTitle = profile?.title || job?.title || "";
-        // Changed: Added check for profile company first
-        let currentCompany =
-          profile?.company || job?.company_name || job?.organization || "";
+        let currentTitle = job?.title || profile?.title || "";
+        let currentCompany = job?.company || profile?.company || "";
         let currentDept = job?.department || "";
 
-        // 2. Load Saved Settings
+        // 2. Load Saved Settings (Optional Overrides)
         if (settingsRes) {
           const loaded = JSON.parse(settingsRes);
           if (loaded.formatType) setFormatType(loaded.formatType);
@@ -206,18 +175,17 @@ export default function GenerateReportScreen() {
           if (loaded.reportStyle) setReportStyle(loaded.reportStyle);
           if (loaded.dateFormat) setDateFormat(loaded.dateFormat);
           if (loaded.timeFormat) setTimeFormat(loaded.timeFormat);
-          if (loaded.includeDocs !== undefined)
-            setIncludeDocs(loaded.includeDocs);
+          if (loaded.includeDocs !== undefined) setIncludeDocs(loaded.includeDocs);
           if (loaded.includeDay !== undefined) setIncludeDay(loaded.includeDay);
-          if (loaded.includeDept !== undefined)
-            setIncludeDept(loaded.includeDept);
+          if (loaded.includeDept !== undefined) setIncludeDept(loaded.includeDept);
           if (loaded.columns) setColumns(loaded.columns);
           if (loaded.signature) setSignature(loaded.signature);
 
+          // Only override auto-fetched meta if the user explicitly saved a custom one
           if (loaded.customName) currentName = loaded.customName;
           if (loaded.customTitle) currentTitle = loaded.customTitle;
-          // Allow overwrite from saved settings
           if (loaded.companyName) currentCompany = loaded.companyName;
+          if (loaded.department) currentDept = loaded.department;
         }
 
         setCustomName(currentName);
@@ -228,38 +196,17 @@ export default function GenerateReportScreen() {
         // 3. Snapshot for "Unsaved Changes" check
         setInitialSettings(
           JSON.stringify({
-            formatType: settingsRes
-              ? JSON.parse(settingsRes).formatType
-              : "pdf",
-            paperSize: settingsRes
-              ? JSON.parse(settingsRes).paperSize
-              : "Letter",
-            reportStyle: settingsRes
-              ? JSON.parse(settingsRes).reportStyle
-              : "corporate",
-            dateFormat: settingsRes
-              ? JSON.parse(settingsRes).dateFormat
-              : "MM/dd/yyyy",
-            timeFormat: settingsRes
-              ? JSON.parse(settingsRes).timeFormat
-              : "exact_hm",
-            includeDocs: settingsRes
-              ? JSON.parse(settingsRes).includeDocs
-              : true,
-            includeDay: settingsRes
-              ? JSON.parse(settingsRes).includeDay
-              : false,
-            includeDept: settingsRes
-              ? JSON.parse(settingsRes).includeDept
-              : true,
+            formatType: settingsRes ? JSON.parse(settingsRes).formatType : "pdf",
+            paperSize: settingsRes ? JSON.parse(settingsRes).paperSize : "Letter",
+            reportStyle: settingsRes ? JSON.parse(settingsRes).reportStyle : "corporate",
+            dateFormat: settingsRes ? JSON.parse(settingsRes).dateFormat : "MM/dd/yyyy",
+            timeFormat: settingsRes ? JSON.parse(settingsRes).timeFormat : "exact_hm",
+            includeDocs: settingsRes ? JSON.parse(settingsRes).includeDocs : true,
+            includeDay: settingsRes ? JSON.parse(settingsRes).includeDay : false,
+            includeDept: settingsRes ? JSON.parse(settingsRes).includeDept : true,
             columns: settingsRes
               ? JSON.parse(settingsRes).columns
-              : {
-                  time: true,
-                  duration: true,
-                  activities: true,
-                  remarks: false,
-                },
+              : { time: true, duration: true, activities: true, remarks: false },
             signature: settingsRes ? JSON.parse(settingsRes).signature : null,
             customName: currentName,
             customTitle: currentTitle,
@@ -276,18 +223,10 @@ export default function GenerateReportScreen() {
           setPeriodLabel(
             `${format(new Date(startDate as string), "MMM d")} - ${format(new Date(endDate as string), "MMM d, yyyy")}`,
           );
-          items = await ReportService.getReportRange(
-            userId,
-            job?.id,
-            startDate as string,
-            endDate as string,
-          );
+          items = await ReportService.getReportRange(userId, job?.id, startDate as string, endDate as string);
         } else if (date) {
           setPeriodLabel(format(new Date(date as string), "MMMM d, yyyy"));
-          const res = await ReportService.getDailyReport(
-            userId,
-            date as string,
-          );
+          const res = await ReportService.getDailyReport(userId, date as string);
           items = {
             attendance: res.attendance ? [res.attendance] : [],
             tasks: res.tasks,
@@ -324,27 +263,14 @@ export default function GenerateReportScreen() {
     };
 
     init();
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, [params.startDate, params.endDate, params.date]);
 
   const hasSettingsChanged = () => {
     const current = JSON.stringify({
-      formatType,
-      paperSize,
-      reportStyle,
-      dateFormat,
-      timeFormat,
-      includeDocs,
-      includeDay,
-      includeDept,
-      columns,
-      signature,
-      customName,
-      customTitle,
-      companyName,
-      department,
+      formatType, paperSize, reportStyle, dateFormat, timeFormat,
+      includeDocs, includeDay, includeDept, columns, signature,
+      customName, customTitle, companyName, department,
     });
     return current !== initialSettings;
   };
@@ -352,11 +278,8 @@ export default function GenerateReportScreen() {
   const handleProceed = async () => {
     if (reportCount === 0) {
       setAlertConfig({
-        visible: true,
-        type: "warning",
-        title: "No Data",
-        message: "There is no data to generate for this period.",
-        confirmText: "OK",
+        visible: true, type: "warning", title: "No Data",
+        message: "There is no data to generate for this period.", confirmText: "OK",
         onConfirm: () => setAlertConfig({ visible: false }),
       });
       return;
@@ -365,26 +288,12 @@ export default function GenerateReportScreen() {
     if (shouldSaveSettings && hasSettingsChanged()) {
       try {
         const settingsToSave = {
-          formatType,
-          paperSize,
-          reportStyle,
-          dateFormat,
-          timeFormat,
-          includeDocs,
-          includeDay,
-          includeDept,
-          columns,
-          signature,
-          customName,
-          customTitle,
-          companyName,
+          formatType, paperSize, reportStyle, dateFormat, timeFormat,
+          includeDocs, includeDay, includeDept, columns, signature,
+          customName, customTitle, companyName, department,
         };
-        await AsyncStorage.setItem(
-          SETTINGS_KEY,
-          JSON.stringify(settingsToSave),
-        );
-        // Update initial settings so we don't prompt on exit
-        setInitialSettings(JSON.stringify({ ...settingsToSave, department }));
+        await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsToSave));
+        setInitialSettings(JSON.stringify(settingsToSave));
       } catch (e) {
         console.log("Failed to save settings");
       }
@@ -397,20 +306,13 @@ export default function GenerateReportScreen() {
         endDate: params.endDate,
         date: params.date,
         config: JSON.stringify({
-          format: formatType,
-          paperSize,
-          style: reportStyle,
-          includeDocs,
-          includeDay,
-          includeDept,
-          dateFormat,
-          timeFormat,
-          columns,
+          format: formatType, paperSize, style: reportStyle, includeDocs, includeDay,
+          includeDept, dateFormat, timeFormat, columns,
           meta: {
             name: customName,
             title: customTitle,
-            company: companyName, // Passed from editable state
-            department: department, // Passed from editable state
+            company: companyName,
+            department: department,
             period: periodLabel,
             signature,
           },
@@ -421,16 +323,7 @@ export default function GenerateReportScreen() {
 
   if (loading)
     return (
-      <View
-        style={[
-          styles.container,
-          {
-            backgroundColor: theme.colors.background,
-            justifyContent: "center",
-            alignItems: "center",
-          },
-        ]}
-      >
+      <View style={[styles.container, { backgroundColor: theme.colors.background, justifyContent: "center", alignItems: "center" }]}>
         <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
@@ -438,142 +331,51 @@ export default function GenerateReportScreen() {
   const pdfColor = "#D91519";
   const excelColor = "#74E16C";
 
+  const renderInputRow = (label: string, icon: any, value: string, setValue: (val: string) => void, placeholder: string) => (
+    <View style={styles.inputGroup}>
+      <Text style={[styles.inputLabel, { color: theme.colors.textSecondary }]}>{label}</Text>
+      <View style={[styles.inputWrapper, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+        <HugeiconsIcon icon={icon} size={20} color={theme.colors.textSecondary} />
+        <TextInput
+          value={value}
+          onChangeText={setValue}
+          placeholder={placeholder}
+          placeholderTextColor={theme.colors.textSecondary}
+          style={[styles.inputElement, { color: theme.colors.text }]}
+        />
+      </View>
+    </View>
+  );
+
   return (
-    <SafeAreaView
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
-      edges={["top", "bottom"]}
-    >
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={["top", "bottom"]}>
       <Header title="Report Settings" />
       <ModernAlert {...alertConfig} />
-      <SignatureModal
-        visible={sigModalVisible}
-        onClose={() => setSigModalVisible(false)}
-        onOK={setSignature}
-        existingSignature={signature}
-      />
-      <ImageViewer
-        visible={viewerVisible}
-        imageUri={activeImage}
-        onClose={() => setViewerVisible(false)}
-      />
+      <SignatureModal visible={sigModalVisible} onClose={() => setSigModalVisible(false)} onOK={setSignature} existingSignature={signature} />
+      <ImageViewer visible={viewerVisible} imageUri={activeImage} onClose={() => setViewerVisible(false)} />
 
       <View style={{ flex: 1 }}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={{ flex: 1 }}
-        >
-          <ScrollView
-            contentContainerStyle={styles.content}
-            showsVerticalScrollIndicator={false}
-          >
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+            
             {/* 0. REPORT SUMMARY */}
             <View style={styles.section}>
-              <Text
-                style={[
-                  styles.sectionTitle,
-                  { color: theme.colors.textSecondary },
-                ]}
-              >
-                REPORT SUMMARY
-              </Text>
-              <View
-                style={[
-                  styles.card,
-                  {
-                    backgroundColor: theme.colors.card,
-                    borderColor: theme.colors.border,
-                    padding: 16,
-                  },
-                ]}
-              >
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    gap: 12,
-                  }}
-                >
-                  <View
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: 20,
-                      backgroundColor: theme.colors.primary + "15",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <HugeiconsIcon
-                      icon={Calendar03Icon}
-                      size={20}
-                      color={theme.colors.primary}
-                    />
+              <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>REPORT SUMMARY</Text>
+              <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                  <View style={[styles.iconBox, { backgroundColor: theme.colors.primary + "15" }]}>
+                    <HugeiconsIcon icon={Calendar03Icon} size={20} color={theme.colors.primary} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text
-                      style={{
-                        fontSize: 11,
-                        color: theme.colors.textSecondary,
-                        fontWeight: "700",
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      Selected Period
-                    </Text>
-                    <Text
-                      style={{
-                        fontSize: 15,
-                        color: theme.colors.text,
-                        fontWeight: "700",
-                        marginTop: 2,
-                      }}
-                    >
-                      {periodLabel || "Loading..."}
-                    </Text>
+                    <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontWeight: "700", textTransform: "uppercase" }}>Selected Period</Text>
+                    <Text style={{ fontSize: 16, color: theme.colors.text, fontWeight: "800", marginTop: 2 }}>{periodLabel || "Loading..."}</Text>
                   </View>
                 </View>
-                <View
-                  style={[
-                    styles.divider,
-                    {
-                      backgroundColor: theme.colors.border,
-                      marginVertical: 12,
-                    },
-                  ]}
-                />
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 13,
-                      color: theme.colors.textSecondary,
-                      fontWeight: "600",
-                    }}
-                  >
-                    Total Reports
-                  </Text>
-                  <View
-                    style={{
-                      paddingHorizontal: 10,
-                      paddingVertical: 4,
-                      backgroundColor: theme.colors.success + "15",
-                      borderRadius: 8,
-                    }}
-                  >
-                    <Text
-                      style={{
-                        fontSize: 13,
-                        color: theme.colors.success,
-                        fontWeight: "700",
-                      }}
-                    >
-                      {reportCount} {reportCount === 1 ? "Day" : "Days"}
-                    </Text>
+                <View style={[styles.divider, { backgroundColor: theme.colors.border, marginVertical: 14 }]} />
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <Text style={{ fontSize: 14, color: theme.colors.textSecondary, fontWeight: "600" }}>Total Included Reports</Text>
+                  <View style={[styles.badge, { backgroundColor: theme.colors.success + "15" }]}>
+                    <Text style={{ fontSize: 13, color: theme.colors.success, fontWeight: "800" }}>{reportCount} {reportCount === 1 ? "Day" : "Days"}</Text>
                   </View>
                 </View>
               </View>
@@ -581,331 +383,70 @@ export default function GenerateReportScreen() {
 
             {/* 1. FILE FORMAT */}
             <View style={styles.section}>
-              <Text
-                style={[
-                  styles.sectionTitle,
-                  { color: theme.colors.textSecondary },
-                ]}
-              >
-                FILE FORMAT
-              </Text>
+              <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>FILE FORMAT</Text>
               <View style={styles.row}>
                 <TouchableOpacity
+                  activeOpacity={0.8}
                   onPress={() => setFormatType("pdf")}
-                  style={[
-                    styles.optionCard,
-                    formatType === "pdf" && {
-                      borderColor: pdfColor,
-                      backgroundColor: pdfColor + "10",
-                    },
-                    { backgroundColor: theme.colors.card },
-                  ]}
+                  style={[styles.optionCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }, formatType === "pdf" && { borderColor: pdfColor, backgroundColor: pdfColor + "10" }]}
                 >
-                  <HugeiconsIcon
-                    icon={Pdf01Icon}
-                    size={32}
-                    color={
-                      formatType === "pdf"
-                        ? pdfColor
-                        : theme.colors.textSecondary
-                    }
-                  />
-                  <Text
-                    style={[styles.optionText, { color: theme.colors.text }]}
-                  >
-                    Adobe PDF
-                  </Text>
+                  <HugeiconsIcon icon={Pdf01Icon} size={32} color={formatType === "pdf" ? pdfColor : theme.colors.textSecondary} />
+                  <Text style={[styles.optionText, { color: formatType === "pdf" ? pdfColor : theme.colors.text }]}>Adobe PDF</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
+                  activeOpacity={0.8}
                   onPress={() => setFormatType("xlsx")}
-                  style={[
-                    styles.optionCard,
-                    formatType === "xlsx" && {
-                      borderColor: excelColor,
-                      backgroundColor: excelColor + "10",
-                    },
-                    { backgroundColor: theme.colors.card },
-                  ]}
+                  style={[styles.optionCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }, formatType === "xlsx" && { borderColor: excelColor, backgroundColor: excelColor + "10" }]}
                 >
-                  <HugeiconsIcon
-                    icon={Xls01Icon}
-                    size={32}
-                    color={
-                      formatType === "xlsx"
-                        ? excelColor
-                        : theme.colors.textSecondary
-                    }
-                  />
-                  <Text
-                    style={[styles.optionText, { color: theme.colors.text }]}
-                  >
-                    Microsoft Excel
-                  </Text>
+                  <HugeiconsIcon icon={Xls01Icon} size={32} color={formatType === "xlsx" ? excelColor : theme.colors.textSecondary} />
+                  <Text style={[styles.optionText, { color: formatType === "xlsx" ? excelColor : theme.colors.text }]}>Microsoft Excel</Text>
                 </TouchableOpacity>
               </View>
             </View>
 
             {/* 2. CONFIGURATION */}
             <View style={styles.section}>
-              <Text
-                style={[
-                  styles.sectionTitle,
-                  { color: theme.colors.textSecondary },
-                ]}
-              >
-                CONFIGURATION
-              </Text>
-              <View
-                style={[
-                  styles.card,
-                  {
-                    backgroundColor: theme.colors.card,
-                    borderColor: theme.colors.border,
-                    padding: 16,
-                  },
-                ]}
-              >
+              <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>CONFIGURATION</Text>
+              <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
                 <SelectDropdown
-                  label="Visual Style"
-                  value={reportStyle}
-                  onChange={setReportStyle}
+                  label="Visual Style" value={reportStyle} onChange={setReportStyle}
                   options={[
-                    {
-                      label: "Corporate Blue",
-                      value: "corporate",
-                      icon: (
-                        <View
-                          style={{
-                            width: 16,
-                            height: 16,
-                            borderRadius: 8,
-                            backgroundColor: "#1e293b",
-                          }}
-                        />
-                      ),
-                    },
-                    {
-                      label: "Creative Indigo",
-                      value: "creative",
-                      icon: (
-                        <View
-                          style={{
-                            width: 16,
-                            height: 16,
-                            borderRadius: 8,
-                            backgroundColor: "#4f46e5",
-                          }}
-                        />
-                      ),
-                    },
-                    {
-                      label: "Minimal Monochrome",
-                      value: "minimal",
-                      icon: (
-                        <View
-                          style={{
-                            width: 16,
-                            height: 16,
-                            borderRadius: 8,
-                            backgroundColor: "#000",
-                            borderWidth: 1,
-                            borderColor: "#ccc",
-                          }}
-                        />
-                      ),
-                    },
+                    { label: "Corporate Blue", value: "corporate", icon: <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: "#1e293b" }} /> },
+                    { label: "Creative Indigo", value: "creative", icon: <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: "#4f46e5" }} /> },
+                    { label: "Minimal Monochrome", value: "minimal", icon: <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: "#000", borderWidth: 1, borderColor: "#ccc" }} /> },
                   ]}
                 />
 
                 {formatType === "pdf" && (
                   <SelectDropdown
-                    label="Paper Format"
-                    value={paperSize}
-                    onChange={setPaperSize}
+                    label="Paper Format" value={paperSize} onChange={setPaperSize}
                     options={[
-                      {
-                        label: 'Letter (8.5" x 11")',
-                        value: "Letter",
-                        icon: (
-                          <HugeiconsIcon
-                            icon={PrinterIcon}
-                            size={18}
-                            color={theme.colors.text}
-                          />
-                        ),
-                      },
-                      {
-                        label: "A4 (210mm x 297mm)",
-                        value: "A4",
-                        icon: (
-                          <HugeiconsIcon
-                            icon={PrinterIcon}
-                            size={18}
-                            color={theme.colors.text}
-                          />
-                        ),
-                      },
-                      {
-                        label: 'Legal (8.5" x 14")',
-                        value: "Legal",
-                        icon: (
-                          <HugeiconsIcon
-                            icon={PrinterIcon}
-                            size={18}
-                            color={theme.colors.text}
-                          />
-                        ),
-                      },
+                      { label: 'Letter (8.5" x 11")', value: "Letter", icon: <HugeiconsIcon icon={PrinterIcon} size={18} color={theme.colors.text} /> },
+                      { label: "A4 (210mm x 297mm)", value: "A4", icon: <HugeiconsIcon icon={PrinterIcon} size={18} color={theme.colors.text} /> },
+                      { label: 'Legal (8.5" x 14")', value: "Legal", icon: <HugeiconsIcon icon={PrinterIcon} size={18} color={theme.colors.text} /> },
                     ]}
                   />
                 )}
 
                 <SelectDropdown
-                  label="Date Format"
-                  value={dateFormat}
-                  onChange={setDateFormat}
+                  label="Date Format" value={dateFormat} onChange={setDateFormat}
                   options={[
-                    {
-                      label: `MM/DD/YYYY (${format(today, "MM/dd/yyyy")})`,
-                      value: "MM/dd/yyyy",
-                      icon: (
-                        <HugeiconsIcon
-                          icon={Calendar03Icon}
-                          size={18}
-                          color={theme.colors.text}
-                        />
-                      ),
-                    },
-                    {
-                      label: `DD/MM/YYYY (${format(today, "dd/MM/yyyy")})`,
-                      value: "dd/MM/yyyy",
-                      icon: (
-                        <HugeiconsIcon
-                          icon={Calendar03Icon}
-                          size={18}
-                          color={theme.colors.text}
-                        />
-                      ),
-                    },
-                    {
-                      label: `YYYY/MM/DD (${format(today, "yyyy/MM/dd")})`,
-                      value: "yyyy/MM/dd",
-                      icon: (
-                        <HugeiconsIcon
-                          icon={Calendar03Icon}
-                          size={18}
-                          color={theme.colors.text}
-                        />
-                      ),
-                    },
-                    {
-                      label: `Month Day, Year (${format(today, "MMMM d, yyyy")})`,
-                      value: "MMMM d, yyyy",
-                      icon: (
-                        <HugeiconsIcon
-                          icon={Calendar03Icon}
-                          size={18}
-                          color={theme.colors.text}
-                        />
-                      ),
-                    },
-                    {
-                      label: `Mon Day, Year (${format(today, "MMM d, yyyy")})`,
-                      value: "MMM d, yyyy",
-                      icon: (
-                        <HugeiconsIcon
-                          icon={Calendar03Icon}
-                          size={18}
-                          color={theme.colors.text}
-                        />
-                      ),
-                    },
-                    {
-                      label: `Day Month Year (${format(today, "d MMMM yyyy")})`,
-                      value: "d MMMM yyyy",
-                      icon: (
-                        <HugeiconsIcon
-                          icon={Calendar03Icon}
-                          size={18}
-                          color={theme.colors.text}
-                        />
-                      ),
-                    },
-                    {
-                      label: `DD Month YYYY (${format(today, "d MMM yyyy")})`,
-                      value: "d MMM yyyy",
-                      icon: (
-                        <HugeiconsIcon
-                          icon={Calendar03Icon}
-                          size={18}
-                          color={theme.colors.text}
-                        />
-                      ),
-                    },
+                    { label: `MM/DD/YYYY (${format(today, "MM/dd/yyyy")})`, value: "MM/dd/yyyy", icon: <HugeiconsIcon icon={Calendar03Icon} size={18} color={theme.colors.text} /> },
+                    { label: `DD/MM/YYYY (${format(today, "dd/MM/yyyy")})`, value: "dd/MM/yyyy", icon: <HugeiconsIcon icon={Calendar03Icon} size={18} color={theme.colors.text} /> },
+                    { label: `YYYY/MM/DD (${format(today, "yyyy/MM/dd")})`, value: "yyyy/MM/dd", icon: <HugeiconsIcon icon={Calendar03Icon} size={18} color={theme.colors.text} /> },
+                    { label: `Month Day, Year (${format(today, "MMMM d, yyyy")})`, value: "MMMM d, yyyy", icon: <HugeiconsIcon icon={Calendar03Icon} size={18} color={theme.colors.text} /> },
                   ]}
                 />
 
                 <SelectDropdown
-                  label="Time & Duration"
-                  value={timeFormat}
-                  onChange={setTimeFormat}
+                  label="Time & Duration" value={timeFormat} onChange={setTimeFormat}
                   options={[
-                    {
-                      label: "Exact Duration (8h 12m)",
-                      value: "exact_hm",
-                      icon: (
-                        <HugeiconsIcon
-                          icon={Clock01Icon}
-                          size={18}
-                          color={theme.colors.text}
-                        />
-                      ),
-                    },
-                    {
-                      label: "Decimal Hours (8.20h)",
-                      value: "decimal",
-                      icon: (
-                        <HugeiconsIcon
-                          icon={Clock01Icon}
-                          size={18}
-                          color={theme.colors.text}
-                        />
-                      ),
-                    },
-                    {
-                      label: "Round to 15 Minutes",
-                      value: "round_15",
-                      icon: (
-                        <HugeiconsIcon
-                          icon={Clock01Icon}
-                          size={18}
-                          color={theme.colors.text}
-                        />
-                      ),
-                    },
-                    {
-                      label: "Round to 30 Minutes",
-                      value: "round_30",
-                      icon: (
-                        <HugeiconsIcon
-                          icon={Clock01Icon}
-                          size={18}
-                          color={theme.colors.text}
-                        />
-                      ),
-                    },
-                    {
-                      label: "Hourly Rounding",
-                      value: "round_60",
-                      icon: (
-                        <HugeiconsIcon
-                          icon={Clock01Icon}
-                          size={18}
-                          color={theme.colors.text}
-                        />
-                      ),
-                    },
+                    { label: "Exact Duration (8h 12m)", value: "exact_hm", icon: <HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.text} /> },
+                    { label: "Decimal Hours (8.20h)", value: "decimal", icon: <HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.text} /> },
+                    { label: "Round to 15 Minutes", value: "round_15", icon: <HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.text} /> },
+                    { label: "Round to 30 Minutes", value: "round_30", icon: <HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.text} /> },
+                    { label: "Hourly Rounding", value: "round_60", icon: <HugeiconsIcon icon={Clock01Icon} size={18} color={theme.colors.text} /> },
                   ]}
                 />
               </View>
@@ -913,564 +454,124 @@ export default function GenerateReportScreen() {
 
             {/* 3. REPORT CONTENT */}
             <View style={styles.section}>
-              <Text
-                style={[
-                  styles.sectionTitle,
-                  { color: theme.colors.textSecondary },
-                ]}
-              >
-                REPORT CONTENT
-              </Text>
-              <View
-                style={[
-                  styles.card,
-                  {
-                    backgroundColor: theme.colors.card,
-                    borderColor: theme.colors.border,
-                  },
-                ]}
-              >
-                <View
-                  style={[
-                    styles.checkRow,
-                    {
-                      borderBottomWidth: 1,
-                      borderBottomColor: theme.colors.border,
-                    },
-                  ]}
-                >
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <HugeiconsIcon
-                      icon={Calendar03Icon}
-                      size={18}
-                      color={theme.colors.textSecondary}
+              <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>REPORT CONTENT</Text>
+              <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                
+                {[
+                  { label: "Day", icon: Calendar03Icon, value: includeDay, setValue: setIncludeDay },
+                  { label: "Time Record", icon: Clock01Icon, value: columns.time, setValue: (v: boolean) => setColumns(prev => ({ ...prev, time: v })) },
+                  { label: "Duration", icon: Timer01Icon, value: columns.duration, setValue: (v: boolean) => setColumns(prev => ({ ...prev, duration: v })) },
+                  { label: "Activities", icon: CheckListIcon, value: columns.activities, setValue: (v: boolean) => setColumns(prev => ({ ...prev, activities: v })) },
+                  { label: "Remarks", icon: Note02Icon, value: columns.remarks, setValue: (v: boolean) => setColumns(prev => ({ ...prev, remarks: v })) },
+                  { label: "Department", icon: UserGroupIcon, value: includeDept, setValue: setIncludeDept },
+                ].map((item, index, array) => (
+                  <View key={item.label} style={[styles.checkRow, index !== array.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.colors.border }]}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                      <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.colors.border }}>
+                        <HugeiconsIcon icon={item.icon} size={16} color={theme.colors.textSecondary} />
+                      </View>
+                      <Text style={[styles.checkLabel, { color: theme.colors.text }]}>{item.label}</Text>
+                    </View>
+                    <Switch
+                      value={item.value} onValueChange={item.setValue}
+                      trackColor={{ false: theme.colors.toggleOff, true: theme.colors.toggleOn }} thumbColor={theme.colors.toggleThumb}
                     />
-                    <Text
-                      style={[styles.checkLabel, { color: theme.colors.text }]}
-                    >
-                      Day
-                    </Text>
                   </View>
-                  <Switch
-                    value={includeDay}
-                    onValueChange={setIncludeDay}
-                    trackColor={{
-                      false: theme.colors.toggleOff,
-                      true: theme.colors.toggleOn,
-                    }}
-                    thumbColor={theme.colors.toggleThumb}
-                  />
-                </View>
-
-                <View
-                  style={[
-                    styles.checkRow,
-                    {
-                      borderBottomWidth: 1,
-                      borderBottomColor: theme.colors.border,
-                    },
-                  ]}
-                >
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <HugeiconsIcon
-                      icon={Clock01Icon}
-                      size={18}
-                      color={theme.colors.textSecondary}
-                    />
-                    <Text
-                      style={[styles.checkLabel, { color: theme.colors.text }]}
-                    >
-                      Time Record
-                    </Text>
-                  </View>
-                  <Switch
-                    value={columns.time}
-                    onValueChange={(v) =>
-                      setColumns((prev) => ({ ...prev, time: v }))
-                    }
-                    trackColor={{
-                      false: theme.colors.toggleOff,
-                      true: theme.colors.toggleOn,
-                    }}
-                    thumbColor={theme.colors.toggleThumb}
-                  />
-                </View>
-
-                <View
-                  style={[
-                    styles.checkRow,
-                    {
-                      borderBottomWidth: 1,
-                      borderBottomColor: theme.colors.border,
-                    },
-                  ]}
-                >
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <HugeiconsIcon
-                      icon={Timer01Icon}
-                      size={18}
-                      color={theme.colors.textSecondary}
-                    />
-                    <Text
-                      style={[styles.checkLabel, { color: theme.colors.text }]}
-                    >
-                      Duration
-                    </Text>
-                  </View>
-                  <Switch
-                    value={columns.duration}
-                    onValueChange={(v) =>
-                      setColumns((prev) => ({ ...prev, duration: v }))
-                    }
-                    trackColor={{
-                      false: theme.colors.toggleOff,
-                      true: theme.colors.toggleOn,
-                    }}
-                    thumbColor={theme.colors.toggleThumb}
-                  />
-                </View>
-
-                <View
-                  style={[
-                    styles.checkRow,
-                    {
-                      borderBottomWidth: 1,
-                      borderBottomColor: theme.colors.border,
-                    },
-                  ]}
-                >
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <HugeiconsIcon
-                      icon={CheckListIcon}
-                      size={18}
-                      color={theme.colors.textSecondary}
-                    />
-                    <Text
-                      style={[styles.checkLabel, { color: theme.colors.text }]}
-                    >
-                      Activities
-                    </Text>
-                  </View>
-                  <Switch
-                    value={columns.activities}
-                    onValueChange={(v) =>
-                      setColumns((prev) => ({ ...prev, activities: v }))
-                    }
-                    trackColor={{
-                      false: theme.colors.toggleOff,
-                      true: theme.colors.toggleOn,
-                    }}
-                    thumbColor={theme.colors.toggleThumb}
-                  />
-                </View>
-
-                <View
-                  style={[
-                    styles.checkRow,
-                    {
-                      borderBottomWidth: 1,
-                      borderBottomColor: theme.colors.border,
-                    },
-                  ]}
-                >
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <HugeiconsIcon
-                      icon={Note02Icon}
-                      size={18}
-                      color={theme.colors.textSecondary}
-                    />
-                    <Text
-                      style={[styles.checkLabel, { color: theme.colors.text }]}
-                    >
-                      Remarks
-                    </Text>
-                  </View>
-                  <Switch
-                    value={columns.remarks}
-                    onValueChange={(v) =>
-                      setColumns((prev) => ({ ...prev, remarks: v }))
-                    }
-                    trackColor={{
-                      false: theme.colors.toggleOff,
-                      true: theme.colors.toggleOn,
-                    }}
-                    thumbColor={theme.colors.toggleThumb}
-                  />
-                </View>
-
-                {/* Department Toggle */}
-                <View
-                  style={[
-                    styles.checkRow,
-                    formatType === "pdf"
-                      ? {
-                          borderBottomWidth: 1,
-                          borderBottomColor: theme.colors.border,
-                        }
-                      : {},
-                  ]}
-                >
-                  <View
-                    style={{
-                      flexDirection: "row",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <HugeiconsIcon
-                      icon={UserGroupIcon}
-                      size={18}
-                      color={theme.colors.textSecondary}
-                    />
-                    <Text
-                      style={[styles.checkLabel, { color: theme.colors.text }]}
-                    >
-                      Department
-                    </Text>
-                  </View>
-                  <Switch
-                    value={includeDept}
-                    onValueChange={setIncludeDept}
-                    trackColor={{
-                      false: theme.colors.toggleOff,
-                      true: theme.colors.toggleOn,
-                    }}
-                    thumbColor={theme.colors.toggleThumb}
-                  />
-                </View>
+                ))}
 
                 {/* Documentation Toggle - Only for PDF */}
                 {formatType === "pdf" && (
-                  <View style={styles.checkRow}>
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        gap: 10,
-                      }}
-                    >
-                      <HugeiconsIcon
-                        icon={Image01Icon}
-                        size={18}
-                        color={theme.colors.textSecondary}
-                      />
-                      <View>
-                        <Text
-                          style={[
-                            styles.checkLabel,
-                            { color: theme.colors.text },
-                          ]}
-                        >
-                          Documentation
-                        </Text>
-                        {previewImages.length > 0 && (
-                          <Text
-                            style={[
-                              styles.checkSub,
-                              { color: theme.colors.textSecondary },
-                            ]}
-                          >
-                            {previewImages.length} images found
-                          </Text>
-                        )}
+                  <>
+                    <View style={[styles.checkRow, { borderTopWidth: 1, borderTopColor: theme.colors.border }]}>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                         <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.colors.border }}>
+                            <HugeiconsIcon icon={Image01Icon} size={16} color={theme.colors.textSecondary} />
+                         </View>
+                        <View>
+                          <Text style={[styles.checkLabel, { color: theme.colors.text }]}>Documentation</Text>
+                          {previewImages.length > 0 && (
+                            <Text style={[styles.checkSub, { color: theme.colors.textSecondary }]}>
+                              {previewImages.length} images found
+                            </Text>
+                          )}
+                        </View>
                       </View>
+                      <Switch
+                        value={includeDocs} onValueChange={setIncludeDocs}
+                        trackColor={{ false: theme.colors.toggleOff, true: theme.colors.toggleOn }} thumbColor={theme.colors.toggleThumb}
+                      />
                     </View>
-                    <Switch
-                      value={includeDocs}
-                      onValueChange={setIncludeDocs}
-                      trackColor={{
-                        false: theme.colors.toggleOff,
-                        true: theme.colors.toggleOn,
-                      }}
-                      thumbColor={theme.colors.toggleThumb}
-                    />
-                  </View>
+                    {includeDocs && previewImages.length > 0 && (
+                      <View style={{ padding: 16, paddingTop: 0 }}>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                          {previewImages.map((uri, i) => (
+                            <TouchableOpacity key={i} onPress={() => { setActiveImage(uri); setViewerVisible(true); }}>
+                              <Image source={{ uri }} style={{ width: 64, height: 64, borderRadius: 8, backgroundColor: theme.colors.border }} resizeMode="cover" />
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    )}
+                  </>
                 )}
-
-                {formatType === "pdf" &&
-                  includeDocs &&
-                  previewImages.length > 0 && (
-                    <View style={{ padding: 16, paddingTop: 0 }}>
-                      <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        contentContainerStyle={{ gap: 8 }}
-                      >
-                        {previewImages.map((uri, i) => (
-                          <TouchableOpacity
-                            key={i}
-                            onPress={() => {
-                              setActiveImage(uri);
-                              setViewerVisible(true);
-                            }}
-                          >
-                            <Image
-                              source={{ uri }}
-                              style={{
-                                width: 60,
-                                height: 60,
-                                borderRadius: 8,
-                                backgroundColor: theme.colors.border,
-                              }}
-                              resizeMode="cover"
-                            />
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
               </View>
             </View>
 
-            {/* 4. AUTHORIZATION & DETAILS - Now Shown for BOTH formats */}
+            {/* 4. AUTHORIZATION & DETAILS */}
             <View style={styles.section}>
-              <Text
-                style={[
-                  styles.sectionTitle,
-                  { color: theme.colors.textSecondary },
-                ]}
-              >
-                REPORT DETAILS & AUTHORIZATION
-              </Text>
-              <View
-                style={[
-                  styles.card,
-                  {
-                    backgroundColor: theme.colors.card,
-                    borderColor: theme.colors.border,
-                    padding: 20,
-                    gap: 16,
-                  },
-                ]}
-              >
-                {/* Organization & Department Inputs */}
-                <View>
-                  <Text
-                    style={[
-                      styles.inputLabel,
-                      { color: theme.colors.textSecondary },
-                    ]}
-                  >
-                    Organization Name
-                  </Text>
-                  <TextInput
-                    value={companyName}
-                    onChangeText={setCompanyName}
-                    placeholder="Company/Organization"
-                    placeholderTextColor={theme.colors.textSecondary}
-                    style={[
-                      styles.input,
-                      {
-                        color: theme.colors.text,
-                        borderColor: theme.colors.border,
-                        backgroundColor: theme.colors.background,
-                      },
-                    ]}
-                  />
-                </View>
+              <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>DETAILS & AUTHORIZATION</Text>
+              <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 20 }]}>
+                
+                <Text style={[styles.subSectionTitle, { color: theme.colors.text }]}>Company Information</Text>
+                {renderInputRow("Organization Name", Building04Icon, companyName, setCompanyName, "Company/Organization")}
+                {renderInputRow("Department", UserGroupIcon, department, setDepartment, "Department Name")}
 
-                <View>
-                  <Text
-                    style={[
-                      styles.inputLabel,
-                      { color: theme.colors.textSecondary },
-                    ]}
-                  >
-                    Department
-                  </Text>
-                  <TextInput
-                    value={department}
-                    onChangeText={setDepartment}
-                    placeholder="Department Name"
-                    placeholderTextColor={theme.colors.textSecondary}
-                    style={[
-                      styles.input,
-                      {
-                        color: theme.colors.text,
-                        borderColor: theme.colors.border,
-                        backgroundColor: theme.colors.background,
-                      },
-                    ]}
-                  />
-                </View>
+                <View style={[styles.divider, { backgroundColor: theme.colors.border, marginVertical: 24 }]} />
 
-                <View
-                  style={[
-                    styles.divider,
-                    { backgroundColor: theme.colors.border },
-                  ]}
-                />
-
-                <View>
-                  <Text
-                    style={[
-                      styles.inputLabel,
-                      { color: theme.colors.textSecondary },
-                    ]}
-                  >
-                    Printed Name
-                  </Text>
-                  <TextInput
-                    value={customName}
-                    onChangeText={setCustomName}
-                    placeholder="Enter your Name"
-                    placeholderTextColor={theme.colors.textSecondary}
-                    style={[
-                      styles.input,
-                      {
-                        color: theme.colors.text,
-                        borderColor: theme.colors.border,
-                        backgroundColor: theme.colors.background,
-                      },
-                    ]}
-                  />
-                </View>
-
-                <View>
-                  <Text
-                    style={[
-                      styles.inputLabel,
-                      { color: theme.colors.textSecondary },
-                    ]}
-                  >
-                    Job Title
-                  </Text>
-                  <TextInput
-                    value={customTitle}
-                    onChangeText={setCustomTitle}
-                    placeholder="Enter your Position"
-                    placeholderTextColor={theme.colors.textSecondary}
-                    style={[
-                      styles.input,
-                      {
-                        color: theme.colors.text,
-                        borderColor: theme.colors.border,
-                        backgroundColor: theme.colors.background,
-                      },
-                    ]}
-                  />
-                </View>
+                <Text style={[styles.subSectionTitle, { color: theme.colors.text }]}>Signee Information</Text>
+                {renderInputRow("Printed Name", UserCircleIcon, customName, setCustomName, "Enter your Name")}
+                {renderInputRow("Job Title", Briefcase02Icon, customTitle, setCustomTitle, "Enter your Position")}
 
                 {/* Signature is only for PDF */}
                 {formatType === "pdf" && (
-                  <>
-                    <View
-                      style={[
-                        styles.divider,
-                        { backgroundColor: theme.colors.border },
-                      ]}
-                    />
-
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.inputLabel,
-                          {
-                            color: theme.colors.textSecondary,
-                            marginBottom: 0,
-                          },
-                        ]}
-                      >
-                        Digital Signature
-                      </Text>
+                  <View style={{ marginTop: 16 }}>
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                      <Text style={[styles.inputLabel, { color: theme.colors.textSecondary, marginBottom: 0 }]}>Digital Signature</Text>
                       {signature && (
                         <View style={{ flexDirection: "row", gap: 12 }}>
-                          <TouchableOpacity
-                            onPress={() => setSigModalVisible(true)}
-                          >
-                            <HugeiconsIcon
-                              icon={PencilEdit02Icon}
-                              size={20}
-                              color={theme.colors.primary}
-                            />
+                          <TouchableOpacity onPress={() => setSigModalVisible(true)}>
+                            <HugeiconsIcon icon={PencilEdit02Icon} size={20} color={theme.colors.primary} />
                           </TouchableOpacity>
                           <TouchableOpacity onPress={() => setSignature(null)}>
-                            <HugeiconsIcon
-                              icon={Delete02Icon}
-                              size={20}
-                              color={theme.colors.danger}
-                            />
+                            <HugeiconsIcon icon={Delete02Icon} size={20} color={theme.colors.danger} />
                           </TouchableOpacity>
                         </View>
                       )}
                     </View>
 
                     <TouchableOpacity
+                      activeOpacity={0.8}
                       onPress={() => setSigModalVisible(true)}
                       style={[
                         styles.sigBtn,
-                        {
-                          borderColor: theme.colors.border,
-                          backgroundColor: theme.colors.background,
-                        },
-                        signature
-                          ? { borderStyle: "solid" }
-                          : { borderStyle: "dashed" },
+                        { borderColor: theme.colors.border, backgroundColor: theme.colors.background },
+                        signature ? { borderStyle: "solid" } : { borderStyle: "dashed" },
                       ]}
                     >
                       {signature ? (
                         <View style={styles.sigPreviewContainer}>
-                          <Image
-                            source={{ uri: signature }}
-                            style={styles.sigImage}
-                            resizeMode="contain"
-                          />
+                          <Image source={{ uri: signature }} style={styles.sigImage} resizeMode="contain" />
                         </View>
                       ) : (
-                        <View style={{ alignItems: "center", gap: 6 }}>
-                          <HugeiconsIcon
-                            icon={SignatureIcon}
-                            size={24}
-                            color={theme.colors.primary}
-                          />
-                          <Text
-                            style={{
-                              color: theme.colors.primary,
-                              fontWeight: "600",
-                            }}
-                          >
-                            Tap to Sign
-                          </Text>
+                        <View style={{ alignItems: "center", gap: 8 }}>
+                          <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.primary + '15', alignItems: 'center', justifyContent: 'center' }}>
+                            <HugeiconsIcon icon={SignatureIcon} size={22} color={theme.colors.primary} />
+                          </View>
+                          <Text style={{ color: theme.colors.textSecondary, fontWeight: "600", fontSize: 13 }}>Tap here to draw signature</Text>
                         </View>
                       )}
                     </TouchableOpacity>
-                  </>
+                  </View>
                 )}
               </View>
             </View>
@@ -1482,39 +583,14 @@ export default function GenerateReportScreen() {
                 onPress={() => setShouldSaveSettings(!shouldSaveSettings)}
                 style={[
                   styles.saveSettingsRow,
-                  shouldSaveSettings
-                    ? {
-                        backgroundColor: theme.colors.primary + "10",
-                        borderColor: theme.colors.primary,
-                      }
-                    : { borderColor: theme.colors.border },
+                  { backgroundColor: theme.colors.card, borderColor: theme.colors.border },
+                  shouldSaveSettings && { backgroundColor: theme.colors.primary + "10", borderColor: theme.colors.primary }
                 ]}
               >
-                <View
-                  style={[
-                    styles.checkbox,
-                    shouldSaveSettings
-                      ? {
-                          backgroundColor: theme.colors.primary,
-                          borderColor: theme.colors.primary,
-                        }
-                      : { borderColor: theme.colors.textSecondary },
-                  ]}
-                >
-                  {shouldSaveSettings && (
-                    <HugeiconsIcon icon={Tick01Icon} size={14} color="#fff" />
-                  )}
+                <View style={[styles.checkbox, shouldSaveSettings ? { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary } : { borderColor: theme.colors.textSecondary }]}>
+                  {shouldSaveSettings && <HugeiconsIcon icon={Tick01Icon} size={14} color="#fff" />}
                 </View>
-                <Text
-                  style={[
-                    styles.saveSettingsText,
-                    {
-                      color: shouldSaveSettings
-                        ? theme.colors.primary
-                        : theme.colors.textSecondary,
-                    },
-                  ]}
-                >
+                <Text style={[styles.saveSettingsText, { color: shouldSaveSettings ? theme.colors.primary : theme.colors.text }]}>
                   Save current settings as default
                 </Text>
               </TouchableOpacity>
@@ -1524,14 +600,7 @@ export default function GenerateReportScreen() {
       </View>
 
       <Footer>
-        <Button
-          title="Generate Report"
-          onPress={handleProceed}
-          variant="primary"
-          icon={
-            <HugeiconsIcon icon={ArrowRight01Icon} size={20} color="#fff" />
-          }
-        />
+        <Button title="Generate Report" onPress={handleProceed} variant="primary" icon={<HugeiconsIcon icon={ArrowRight01Icon} size={20} color="#fff" />} />
       </Footer>
     </SafeAreaView>
   );
@@ -1540,85 +609,32 @@ export default function GenerateReportScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { padding: 20, paddingBottom: 40 },
-  section: { marginBottom: 30 },
-  sectionTitle: {
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1,
-    marginBottom: 12,
-    marginLeft: 4,
-    opacity: 0.7,
-  },
+  section: { marginBottom: 32 },
+  sectionTitle: { fontSize: 11, fontWeight: "800", letterSpacing: 1.2, marginBottom: 12, marginLeft: 4, opacity: 0.6 },
+  subSectionTitle: { fontSize: 15, fontWeight: "800", marginBottom: 16, letterSpacing: -0.3 },
   row: { flexDirection: "row", gap: 12 },
-  optionCard: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 20,
-    borderRadius: 16,
-    borderWidth: 2,
-    borderColor: "transparent",
-    gap: 10,
-  },
-  optionText: { fontWeight: "700", fontSize: 14 },
-  card: { borderRadius: 16, borderWidth: 1, overflow: "hidden" },
-  checkRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: 16,
-    paddingVertical: 18,
-  },
-  checkLabel: { fontSize: 15, fontWeight: "600" },
-  checkSub: { fontSize: 12, marginTop: 4, opacity: 0.8 },
+  optionCard: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20, borderRadius: 16, borderWidth: 1.5, gap: 12 },
+  optionText: { fontWeight: "800", fontSize: 15 },
+  card: { borderRadius: 20, borderWidth: 1, overflow: "hidden" },
+  iconBox: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  checkRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16, paddingVertical: 14 },
+  checkLabel: { fontSize: 15, fontWeight: "700" },
+  checkSub: { fontSize: 12, marginTop: 4, opacity: 0.6, fontWeight: '500' },
   divider: { height: 1, width: "100%", opacity: 0.5 },
-  inputLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    marginBottom: 6,
-    textTransform: "uppercase",
-  },
-  input: {
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 12,
-    fontSize: 15,
-    height: 50,
-  },
-  sigBtn: {
-    height: 100,
-    borderRadius: 12,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  sigPreviewContainer: {
-    width: "100%",
-    height: "100%",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  sigImage: { width: "60%", height: "80%" },
+  
+  // Custom Input Styles
+  inputGroup: { marginBottom: 16 },
+  inputLabel: { fontSize: 11, fontWeight: "800", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 },
+  inputWrapper: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, height: 52 },
+  inputElement: { flex: 1, fontSize: 15, fontWeight: '600', marginLeft: 10, height: '100%' },
+  
+  sigBtn: { height: 120, borderRadius: 16, borderWidth: 1.5, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  sigPreviewContainer: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center", padding: 10 },
+  sigImage: { width: "70%", height: "90%" },
 
-  // Save Settings Checklist Style
-  saveSettingsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 20,
-    gap: 12,
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 6,
-    borderWidth: 2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  saveSettingsText: { fontWeight: "600", fontSize: 14 },
+  // Save Settings
+  saveSettingsRow: { flexDirection: "row", alignItems: "center", padding: 18, borderRadius: 16, borderWidth: 1, marginBottom: 20, gap: 14 },
+  checkbox: { width: 24, height: 24, borderRadius: 8, borderWidth: 2, alignItems: "center", justifyContent: "center" },
+  saveSettingsText: { fontWeight: "700", fontSize: 15 },
 });

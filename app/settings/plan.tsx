@@ -12,7 +12,7 @@ import { useRouter } from 'expo-router';
 import { useColorScheme } from 'nativewind';
 import React, { useEffect, useState } from 'react';
 import { Dimensions, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Animated, { FadeInDown, FadeInUp, Layout, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { FadeInDown, FadeInUp, Layout, useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
@@ -38,6 +38,8 @@ const FREE_FEATURES = [
     "Community Support"
 ];
 
+const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+
 export default function PlanScreen() {
     const router = useRouter();
     const theme = useAppTheme();
@@ -50,8 +52,14 @@ export default function PlanScreen() {
     const [selectedPlan, setSelectedPlan] = useState<'monthly' | 'yearly'>('monthly');
     const [alertConfig, setAlertConfig] = useState({ visible: false, message: "", type: "info" });
 
+    // Dynamic color based on plan selection
+    const activeColor = selectedPlan === 'monthly' ? '#8B5CF6' : '#EC4899';
+
     const yearlyOpacity = useSharedValue(0);
     const monthlyOpacity = useSharedValue(1);
+    
+    // Animation for CTA button
+    const buttonScale = useSharedValue(1);
 
     useEffect(() => {
         if (selectedPlan === 'yearly') {
@@ -63,8 +71,21 @@ export default function PlanScreen() {
         }
     }, [selectedPlan, monthlyOpacity, yearlyOpacity]);
 
+    useEffect(() => {
+        // Infinite pulse animation for the subscribe button
+        buttonScale.value = withRepeat(
+            withSequence(
+                withTiming(1.03, { duration: 800 }),
+                withTiming(1, { duration: 800 })
+            ),
+            -1, // Infinite repeat
+            true // Reverse
+        );
+    }, []);
+
     const animatedYearlyBg = useAnimatedStyle(() => ({ opacity: yearlyOpacity.value }));
     const animatedMonthlyBg = useAnimatedStyle(() => ({ opacity: monthlyOpacity.value }));
+    const animatedButtonStyle = useAnimatedStyle(() => ({ transform: [{ scale: buttonScale.value }] }));
 
     const handleUpgrade = () => {
         setAlertConfig({ visible: true, message: "Coming soon! Premium subscriptions are on the way.", type: "info" });
@@ -171,8 +192,8 @@ export default function PlanScreen() {
                                 </View>
                                 
                                 <View style={styles.priceRow}>
-                                    <Text style={[styles.priceOriginal, { color: theme.colors.textSecondary }]}>₱60</Text>
                                     <Text style={[styles.priceLarge, { color: theme.colors.text }]}>₱50</Text>
+                                    <Text style={[styles.priceOriginal, { color: theme.colors.textSecondary }]}>₱60</Text>
                                     <Text style={[styles.priceSuffix, { color: theme.colors.textSecondary }]}> / month</Text>
                                 </View>
                                 
@@ -219,8 +240,8 @@ export default function PlanScreen() {
                                 </View>
                                 
                                 <View style={styles.priceRow}>
-                                    <Text style={[styles.priceOriginal, { color: theme.colors.textSecondary }]}>₱720</Text>
                                     <Text style={[styles.priceLarge, { color: theme.colors.text }]}>₱540</Text>
+                                    <Text style={[styles.priceOriginal, { color: theme.colors.textSecondary }]}>₱720</Text>
                                     <Text style={[styles.priceSuffix, { color: theme.colors.textSecondary }]}> / year</Text>
                                 </View>
                                 
@@ -236,18 +257,35 @@ export default function PlanScreen() {
                         </Animated.View>
                     </View>
 
+                    {/* Separator */}
+                    <Animated.View entering={FadeInUp.duration(600).delay(250)} style={styles.separatorContainer}>
+                        <View style={[styles.separatorLine, { backgroundColor: theme.colors.border }]} />
+                        <Text style={[styles.separatorText, { color: theme.colors.textSecondary }]}>COMPARE PLANS</Text>
+                        <View style={[styles.separatorLine, { backgroundColor: theme.colors.border }]} />
+                    </Animated.View>
+
                     {/* Separate Comparison Cards */}
                     <View style={styles.comparisonContainer}>
                         {/* Pro Plan Card */}
-                        <Animated.View entering={FadeInUp.duration(600).delay(300)} style={[styles.featureCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.primary, borderWidth: 2 }]}>
+                        <Animated.View entering={FadeInUp.duration(600).delay(300)} 
+                            style={[
+                                styles.featureCard, 
+                                styles.proFeatureCardElevated,
+                                { backgroundColor: theme.colors.card, borderColor: activeColor, shadowColor: activeColor }
+                            ]}>
                             <View style={[styles.featureHeader, { borderBottomColor: theme.colors.border }]}>
-                                <Text style={[styles.featureCardTitle, { color: theme.colors.primary }]}>DART Pro</Text>
-                                <Text style={[styles.featureCardSubtitle, { color: theme.colors.textSecondary }]}>Everything you need</Text>
+                                <View style={styles.featureHeaderTopRow}>
+                                    <Text style={[styles.featureCardTitle, { color: activeColor }]}>DART Pro</Text>
+                                    <HugeiconsIcon icon={Crown02Icon} size={28} color={activeColor} />
+                                </View>
+                                <Text style={[styles.featureCardSubtitle, { color: theme.colors.textSecondary }]}>Everything you need to scale</Text>
                             </View>
                             <View style={styles.featureList}>
                                 {PRO_FEATURES.map((feat, i) => (
                                     <View key={i} style={styles.featureItem}>
-                                        <HugeiconsIcon icon={CheckmarkBadge01Icon} size={20} color={theme.colors.primary} />
+                                        <View style={[styles.featureIconContainer, { backgroundColor: activeColor + '15' }]}>
+                                            <HugeiconsIcon icon={CheckmarkBadge01Icon} size={20} color={activeColor} />
+                                        </View>
                                         <Text style={[styles.featureText, { color: theme.colors.text }]}>{feat}</Text>
                                     </View>
                                 ))}
@@ -257,8 +295,8 @@ export default function PlanScreen() {
                         {/* Free Plan Card */}
                         <Animated.View entering={FadeInUp.duration(600).delay(400)} style={[styles.featureCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border, borderWidth: 1 }]}>
                             <View style={[styles.featureHeader, { borderBottomColor: theme.colors.border }]}>
-                                <Text style={[styles.featureCardTitle, { color: theme.colors.text }]}>Free Plan</Text>
-                                <Text style={[styles.featureCardSubtitle, { color: theme.colors.textSecondary }]}>Basic features</Text>
+                                <Text style={[styles.featureCardTitle, { color: theme.colors.text, fontSize: 18 }]}>Free Plan</Text>
+                                <Text style={[styles.featureCardSubtitle, { color: theme.colors.textSecondary }]}>Basic features for starters</Text>
                             </View>
                             <View style={styles.featureList}>
                                 {FREE_FEATURES.map((feat, i) => (
@@ -289,13 +327,13 @@ export default function PlanScreen() {
 
                 {/* Flat CTA Footer */}
                 <Animated.View entering={FadeInDown.duration(500).delay(500)} style={[styles.footer, { backgroundColor: theme.colors.background, borderTopColor: theme.colors.border }]}>
-                    <TouchableOpacity 
-                        style={[styles.ctaButton, { backgroundColor: theme.colors.primary }]} 
+                    <AnimatedTouchableOpacity 
+                        style={[styles.ctaButton, { backgroundColor: activeColor }, animatedButtonStyle]} 
                         activeOpacity={0.85}
                         onPress={handleUpgrade}
                     >
                         <Text style={styles.ctaText}>Start 7-Day Free Trial</Text>
-                    </TouchableOpacity>
+                    </AnimatedTouchableOpacity>
                     <Text style={[styles.disclaimer, { color: theme.colors.textSecondary }]}>
                         Cancel anytime. Terms & Conditions apply.
                     </Text>
@@ -317,7 +355,7 @@ const styles = StyleSheet.create({
     heroTitle: { fontSize: 28, fontFamily: 'Nunito_900Black', marginBottom: 12, letterSpacing: -0.5 },
     heroSubtitle: { fontSize: 15, fontFamily: 'Nunito_500Medium', textAlign: 'center', lineHeight: 24, paddingHorizontal: 16 },
     
-    planContainer: { marginBottom: 32 },
+    planContainer: { marginBottom: 16 },
     planCard: { 
         padding: 24, 
         borderRadius: 24, 
@@ -337,29 +375,43 @@ const styles = StyleSheet.create({
     radioInner: { width: 12, height: 12, borderRadius: 6 },
     
     priceRow: { flexDirection: 'row', alignItems: 'baseline', marginBottom: 12 },
-    priceOriginal: { fontSize: 20, fontFamily: 'Nunito_600SemiBold', textDecorationLine: 'line-through', opacity: 0.4, marginRight: 8 },
-    priceLarge: { fontSize: 34, fontFamily: 'Nunito_900Black', letterSpacing: -1 },
+    priceLarge: { fontSize: 34, fontFamily: 'Nunito_900Black', letterSpacing: -1, marginRight: 8 },
+    priceOriginal: { fontSize: 20, fontFamily: 'Nunito_600SemiBold', textDecorationLine: 'line-through', opacity: 0.4 },
     priceSuffix: { fontSize: 16, fontFamily: 'Nunito_600SemiBold' },
     
     billingInfoBox: { gap: 4 },
     billingText: { fontSize: 13, fontFamily: 'Nunito_500Medium', letterSpacing: 0.2 },
     billingTextBold: { fontSize: 13, fontFamily: 'Nunito_700Bold', letterSpacing: 0.2 },
+
+    // Separator
+    separatorContainer: { flexDirection: 'row', alignItems: 'center', marginVertical: 32, paddingHorizontal: 16 },
+    separatorLine: { flex: 1, height: 1 },
+    separatorText: { marginHorizontal: 16, fontSize: 12, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 1.5 },
     
     // Comparison Cards
-    comparisonContainer: { gap: 16 },
+    comparisonContainer: { gap: 20 },
     featureCard: { borderRadius: 24, padding: 24 },
+    proFeatureCardElevated: {
+        borderWidth: 2,
+        elevation: 8,
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.15,
+        shadowRadius: 10,
+    },
     featureHeader: { marginBottom: 20, paddingBottom: 16, borderBottomWidth: 1 },
-    featureCardTitle: { fontSize: 22, fontFamily: 'Nunito_900Black', marginBottom: 4 },
+    featureHeaderTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
+    featureCardTitle: { fontSize: 24, fontFamily: 'Nunito_900Black' },
     featureCardSubtitle: { fontSize: 14, fontFamily: 'Nunito_500Medium' },
     featureList: { gap: 16 },
-    featureItem: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-    featureText: { fontSize: 15, fontFamily: 'Nunito_600SemiBold' },
+    featureItem: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+    featureIconContainer: { padding: 6, borderRadius: 10 },
+    featureText: { fontSize: 15, fontFamily: 'Nunito_600SemiBold', flex: 1 },
 
     cancelButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, borderRadius: 16, borderWidth: 1, gap: 8 },
     cancelText: { fontSize: 14, fontFamily: 'Nunito_700Bold' },
 
     footer: { position: 'absolute', bottom: 0, width, padding: 24, paddingTop: 16, borderTopWidth: 1 },
-    ctaButton: { width: '100%', height: 56, borderRadius: 100, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+    ctaButton: { width: '100%', height: 56, borderRadius: 100, alignItems: 'center', justifyContent: 'center', marginBottom: 12, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
     ctaText: { color: '#fff', fontSize: 16, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 0.5 },
     disclaimer: { fontSize: 12, fontFamily: 'Nunito_500Medium', textAlign: 'center', opacity: 0.6 }
 });

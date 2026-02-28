@@ -149,19 +149,19 @@ export default function DynamicHeader({
 
                         {/* Right Side: Status Badge and Sync Indicator */}
                         <View style={{ alignItems: 'flex-end', justifyContent: 'center', maxWidth: '45%', height: '100%' }}>
-                             {isLoading ? (
+                            {isLoading ? (
                                 <SkeletonBox width={60} height={26} borderRadius={13} />
-                             ) : (
-                                // Badge glides up gracefully when sync mounts because of the LinearTransition
+                            ) : (
                                 <Animated.View layout={LinearTransition.duration(300)} style={[styles.badge, { backgroundColor: theme.dark ? theme.colors.background : status.bg, borderColor: theme.colors.border }]}>
                                     <View style={[styles.dot, { backgroundColor: status.color }]} />
                                     <Text style={[styles.badgeText, { color: theme.dark ? theme.colors.text : status.color }]}>
                                         {status.label}
                                     </Text>
                                 </Animated.View>
-                             )}
-                             
-                             {!isLoading && <SyncStatusIndicator />}
+                            )}
+                            
+                            {/* Sync indicator now controls its own smooth height rendering */}
+                            {!isLoading && <SyncStatusIndicator />}
                         </View>
                     </View>
 

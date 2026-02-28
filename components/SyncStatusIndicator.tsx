@@ -1,9 +1,9 @@
 // components/SyncStatusIndicator.tsx
 import { Alert01Icon, CheckmarkCircle02Icon, CloudUploadIcon, NoInternetIcon, RefreshIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import React, { useEffect, useRef } from 'react';
-import { Animated, Easing, StyleSheet, Text } from 'react-native';
-import Reanimated, { FadeIn, FadeOut, LinearTransition } from 'react-native-reanimated';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import Reanimated, { useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { useAppTheme } from '../constants/theme';
 import { useSync } from '../context/SyncContext';
 
@@ -11,6 +11,12 @@ export default function SyncStatusIndicator() {
   const theme = useAppTheme();
   const { syncStatus, pendingCount, failedCount, conflictCount, isOffline } = useSync();
   const spinValue = useRef(new Animated.Value(0)).current;
+
+  // Track the visibility state
+  const isVisible = !(syncStatus === 'idle' && pendingCount === 0 && !isOffline && failedCount === 0 && conflictCount === 0);
+
+  // Keep content mounted even while fading out so it doesn't abruptly disappear
+  const [renderedContent, setRenderedContent] = useState<any>(null);
 
   useEffect(() => {
     if (syncStatus === 'syncing') {
@@ -24,8 +30,6 @@ export default function SyncStatusIndicator() {
   }, [syncStatus]);
 
   const spin = spinValue.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
-
-  const isVisible = !(syncStatus === 'idle' && pendingCount === 0 && !isOffline && failedCount === 0 && conflictCount === 0);
 
   const getStatusContent = () => {
     if (isOffline) {
@@ -49,39 +53,65 @@ export default function SyncStatusIndicator() {
     return null;
   };
 
-  const content = getStatusContent();
+  useEffect(() => {
+    const content = getStatusContent();
+    if (content) {
+        setRenderedContent(content);
+    }
+  }, [syncStatus, pendingCount, failedCount, conflictCount, isOffline]);
+
+  // Smoothly animate the container's physical layout to avoid overlapping
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      height: withTiming(isVisible ? 26 : 0, { duration: 300 }),
+      opacity: withTiming(isVisible ? 1 : 0, { duration: 300 }),
+      marginTop: withTiming(isVisible ? 4 : 0, { duration: 300 }),
+      borderWidth: withTiming(isVisible ? 1 : 0, { duration: 300 }),
+      paddingHorizontal: withTiming(isVisible ? 10 : 0, { duration: 300 }),
+    };
+  });
 
   return (
-    <>
-      {isVisible && content && (
-        <Reanimated.View 
-            layout={LinearTransition.duration(300)}
-            entering={FadeIn.duration(400)}
-            exiting={FadeOut.duration(400)}
-            style={[styles.container, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
-        >
-          {content.spin ? (
-              <Animated.View style={{ transform: [{ rotate: spin }] }}>
-                  <HugeiconsIcon icon={content.icon} size={12} color={content.color} />
-              </Animated.View>
-          ) : (
-              <HugeiconsIcon icon={content.icon} size={12} color={content.color} />
-          )}
-          <Text style={[styles.text, { color: content.color }]} numberOfLines={1}>{content.text}</Text>
-        </Reanimated.View>
+    <Reanimated.View 
+        style={[
+            styles.container, 
+            animatedStyle,
+            { backgroundColor: theme.colors.card, borderColor: theme.colors.border }
+        ]}
+    >
+      {renderedContent && (
+        <View style={styles.innerContent}>
+            {renderedContent.spin ? (
+                <Animated.View style={{ transform: [{ rotate: spin }] }}>
+                    <HugeiconsIcon icon={renderedContent.icon} size={12} color={renderedContent.color} />
+                </Animated.View>
+            ) : (
+                <HugeiconsIcon icon={renderedContent.icon} size={12} color={renderedContent.color} />
+            )}
+            <Text style={[styles.text, { color: renderedContent.color }]} numberOfLines={1}>
+                {renderedContent.text}
+            </Text>
+        </View>
       )}
-    </>
+    </Reanimated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    height: 26, // Force exact height to match status badge
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', 
-    paddingHorizontal: 10,
-    borderRadius: 100, borderWidth: 1, 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    borderRadius: 100, 
     alignSelf: 'flex-end', 
-    marginTop: 4, gap: 4, zIndex: 10
+    overflow: 'hidden', // Ensures content is hidden when height shrinks
+    zIndex: 10
+  },
+  innerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4
   },
   text: { fontSize: 11, fontFamily: 'Nunito_700Bold' }
 });

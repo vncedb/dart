@@ -18,6 +18,7 @@ import * as Sharing from "expo-sharing";
 import React, { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  BackHandler,
   Dimensions,
   FlatList,
   GestureResponderEvent,
@@ -137,6 +138,36 @@ export default function SavedReportsScreen() {
     useCallback(() => {
       fetchReports();
     }, [fetchReports]),
+  );
+
+  // --- HARDWARE BACK BUTTON HANDLER ---
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        if (selectionMode) {
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          setSelectionMode(false);
+          setSelectedIds(new Set());
+          return true; // Prevents default back navigation
+        }
+        if (isSearching) {
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          setIsSearching(false);
+          setSearchQuery("");
+          setFilteredReports(reports);
+          Keyboard.dismiss();
+          return true; // Prevents default back navigation
+        }
+        return false; // Allows default back navigation
+      };
+
+      const subscription = BackHandler.addEventListener(
+        "hardwareBackPress",
+        onBackPress
+      );
+
+      return () => subscription.remove();
+    }, [selectionMode, isSearching, reports])
   );
 
   const handleRefresh = () => {
