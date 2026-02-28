@@ -1,3 +1,4 @@
+// components/Header.tsx
 import {
   ArrowLeft02Icon,
   MoreVerticalCircle01Icon,
@@ -37,9 +38,7 @@ export default function Header({
   const containerRef = useRef<View>(null);
 
   const [menuVisible, setMenuVisible] = useState(false);
-  const [menuAnchor, setMenuAnchor] = useState<
-    { x: number; y: number } | undefined
-  >(undefined);
+  const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
 
   const handleBack = () => {
     if (onBack) onBack();
@@ -101,7 +100,6 @@ export default function Header({
           </Text>
         </View>
       ) : (
-        // Flex wrapper for Search Input to ensure it centers perfectly
         <View style={styles.titleWrapperFlex}>{title}</View>
       )}
 
@@ -140,7 +138,7 @@ const styles = StyleSheet.create({
   container: {
     height: 60,
     flexDirection: "row",
-    alignItems: "center", // This aligns left/right icons vertically
+    alignItems: "center", 
     justifyContent: "space-between",
     paddingHorizontal: 16,
     borderBottomWidth: 1,
@@ -148,16 +146,19 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   titleWrapperAbsolute: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 60,  // Locks the width dynamically between the action buttons
+    right: 60, // Locks the width dynamically between the action buttons
     alignItems: "center",
     justifyContent: "center",
     zIndex: -1,
-    paddingHorizontal: 60,
   },
   titleWrapperFlex: {
     flex: 1,
-    height: "100%", // Take full height of header
-    justifyContent: "center", // Vertical Center
+    height: "100%", 
+    justifyContent: "center", 
     paddingHorizontal: 8,
   },
   titleText: {
@@ -170,7 +171,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     zIndex: 20,
     minWidth: 40,
-    height: "100%", // Full height to ensure alignment
+    height: "100%", 
   },
   rightContainer: {
     flexDirection: "row",
@@ -178,7 +179,7 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     zIndex: 20,
     minWidth: 40,
-    height: "100%", // Full height to ensure alignment
+    height: "100%", 
   },
   iconButton: {
     padding: 8,

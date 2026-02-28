@@ -1,4 +1,5 @@
-import { endOfWeek, format, getWeek, startOfWeek, subDays } from 'date-fns';
+// services/ReportService.ts
+import { addDays, endOfWeek, format, getWeek, startOfWeek, subDays } from 'date-fns';
 import * as FileSystem from 'expo-file-system';
 import { generateUUID, getUnreadReportsCount, queueSyncItem, saveReportLocal } from '../lib/database';
 import { getDB } from '../lib/db-client';
@@ -61,145 +62,102 @@ export const ReportService = {
         if (!job) return;
 
         const db = await getDB();
-        const today = new Date();
         const payoutType = job.payout_type || 'Semi-Monthly';
         
-        let targetPeriod = null;
+        const lastCheckRes: any = await db.getFirstAsync("SELECT value FROM app_settings WHERE key = 'last_auto_report_check'");
+        const lastCheckDateStr = lastCheckRes?.value;
+        const startDate = lastCheckDateStr ? new Date(lastCheckDateStr) : subDays(new Date(), 30); // Max lookback 30 days
+        const today = new Date();
 
-        // 1. Determine "Last Completed Period" based on payout type
-        if (payoutType === 'Semi-Monthly') {
-            // If today > 15th, previous period was 1st-15th of this month
-            // If today is 1st-15th, previous period was 16th-End of LAST month
-            if (today.getDate() > 15) {
-                const year = today.getFullYear();
-                const month = today.getMonth(); // 0-indexed
-                const monthStr = (month + 1).toString().padStart(2, '0');
-                targetPeriod = {
-                    key: `${year}-${monthStr}-01_${year}-${monthStr}-15`,
-                    start: `${year}-${monthStr}-01`,
-                    end: `${year}-${monthStr}-15`,
-                    label: `1st Cutoff ${format(today, 'MMM yyyy')}`
-                };
-            } else {
-                // Previous Month
-                const prevDate = subDays(today, 15); // Go back safely
-                const year = prevDate.getFullYear();
-                const month = prevDate.getMonth();
-                const monthStr = (month + 1).toString().padStart(2, '0');
-                const lastDay = new Date(year, month + 1, 0).getDate();
-                targetPeriod = {
-                    key: `${year}-${monthStr}-16_${year}-${monthStr}-${lastDay}`,
-                    start: `${year}-${monthStr}-16`,
-                    end: `${year}-${monthStr}-${lastDay}`,
-                    label: `2nd Cutoff ${format(prevDate, 'MMM yyyy')}`
-                };
-            }
-        } 
-        else if (payoutType === 'Monthly') {
-            // Last completed month
-            if (today.getDate() <= 5) { // Run check in first 5 days of new month
-                const prevDate = subDays(today, 10);
-                const year = prevDate.getFullYear();
-                const month = prevDate.getMonth();
-                const monthStr = (month + 1).toString().padStart(2, '0');
-                const lastDay = new Date(year, month + 1, 0).getDate();
-                targetPeriod = {
-                    key: `${year}-${monthStr}-01_${year}-${monthStr}-${lastDay}`,
-                    start: `${year}-${monthStr}-01`,
-                    end: `${year}-${monthStr}-${lastDay}`,
-                    label: `Full Month ${format(prevDate, 'MMMM yyyy')}`
-                };
-            }
-        }
-        else if (payoutType === 'Weekly') {
-            // Previous Week (Mon-Sun)
-            const prevWeekDate = subDays(today, 7);
-            const start = startOfWeek(prevWeekDate, { weekStartsOn: 1 });
-            const end = endOfWeek(prevWeekDate, { weekStartsOn: 1 });
-            const key = `${format(start, 'yyyy-MM-dd')}_${format(end, 'yyyy-MM-dd')}`;
-            
-            // Only generate if today is Mon/Tue of the new week
-            const dayOfWeek = today.getDay(); // 0=Sun, 1=Mon
-            if (dayOfWeek === 1 || dayOfWeek === 2) {
-                targetPeriod = {
-                    key,
-                    start: format(start, 'yyyy-MM-dd'),
-                    end: format(end, 'yyyy-MM-dd'),
-                    label: `Week ${getWeek(prevWeekDate)} (${format(start, 'MMM d')} - ${format(end, 'MMM d')})`
-                };
-            }
-        }
+        let currentDate = new Date(startDate);
+        const periodsToGenerate = new Map<string, any>();
 
-        if (!targetPeriod) return;
-
-        // 2. Check if already generated
-        const existing = await db.getFirstAsync(
-            'SELECT id FROM saved_reports WHERE user_id = ? AND period_key = ?', 
-            [userId, targetPeriod.key]
-        );
-
-        if (existing) return; // Already done
-
-        // 3. Generate Report
-        const { attendance, tasks } = await ReportService.getReportRange(userId, job.id, targetPeriod.start, targetPeriod.end);
-        
-        if ((!attendance || attendance.length === 0) && (!tasks || tasks.length === 0)) return; // Empty period
-
-        const groupedData = ReportService.groupReportsByPayout(attendance.map((i:any) => ({...i, date: i.date})), payoutType);
-        const flatData = Object.values(groupedData).flatMap((g: any) => g.data).map((item: any) => {
-             const dailyTasks = tasks.filter((t:any) => t.date === item.date).map((t:any) => {
-                 let images: string[] = [];
-                 if (t.image_url) {
-                     try { images = JSON.parse(t.image_url); } catch { images = [t.image_url]; }
-                     if (!Array.isArray(images)) images = [t.image_url];
+        while (currentDate <= today) {
+             let targetPeriod = null;
+             
+             if (payoutType === 'Semi-Monthly') {
+                 if (currentDate.getDate() > 15) {
+                     const year = currentDate.getFullYear();
+                     const month = currentDate.getMonth(); 
+                     const monthStr = (month + 1).toString().padStart(2, '0');
+                     targetPeriod = { key: `${year}-${monthStr}-01_${year}-${monthStr}-15`, start: `${year}-${monthStr}-01`, end: `${year}-${monthStr}-15`, label: `1st Cutoff ${format(currentDate, 'MMM yyyy')}` };
+                 } else {
+                     const prevDate = subDays(currentDate, 15); 
+                     const year = prevDate.getFullYear();
+                     const month = prevDate.getMonth();
+                     const monthStr = (month + 1).toString().padStart(2, '0');
+                     const lastDay = new Date(year, month + 1, 0).getDate();
+                     targetPeriod = { key: `${year}-${monthStr}-16_${year}-${monthStr}-${lastDay}`, start: `${year}-${monthStr}-16`, end: `${year}-${monthStr}-${lastDay}`, label: `2nd Cutoff ${format(prevDate, 'MMM yyyy')}` };
                  }
-                 return { description: t.description, remarks: t.remarks, images };
-             });
-             return {
-                 date: format(new Date(item.date), 'MMM d, yyyy\nEEEE'),
-                 clockIn: item.clock_in ? format(new Date(`1970-01-01T${item.clock_in}`), 'h:mm a') : '--:--',
-                 clockOut: item.clock_out ? format(new Date(`1970-01-01T${item.clock_out}`), 'h:mm a') : '--:--',
-                 duration: '--',
-                 summary: dailyTasks
-             };
-        });
+             } else if (payoutType === 'Monthly') {
+                 if (currentDate.getDate() <= 5) { 
+                     const prevDate = subDays(currentDate, 10);
+                     const year = prevDate.getFullYear();
+                     const month = prevDate.getMonth();
+                     const monthStr = (month + 1).toString().padStart(2, '0');
+                     const lastDay = new Date(year, month + 1, 0).getDate();
+                     targetPeriod = { key: `${year}-${monthStr}-01_${year}-${monthStr}-${lastDay}`, start: `${year}-${monthStr}-01`, end: `${year}-${monthStr}-${lastDay}`, label: `Full Month ${format(prevDate, 'MMMM yyyy')}` };
+                 }
+             } else if (payoutType === 'Weekly') {
+                 const dayOfWeek = currentDate.getDay(); 
+                 if (dayOfWeek === 1 || dayOfWeek === 2) {
+                     const prevWeekDate = subDays(currentDate, 7);
+                     const start = startOfWeek(prevWeekDate, { weekStartsOn: 1 });
+                     const end = endOfWeek(prevWeekDate, { weekStartsOn: 1 });
+                     targetPeriod = { key: `${format(start, 'yyyy-MM-dd')}_${format(end, 'yyyy-MM-dd')}`, start: format(start, 'yyyy-MM-dd'), end: format(end, 'yyyy-MM-dd'), label: `Week ${getWeek(prevWeekDate)} (${format(start, 'MMM d')} - ${format(end, 'MMM d')})` };
+                 }
+             }
 
-        const uri = await generateReport({
-            userName: job.userName || 'Employee',
-            userTitle: job.userTitle || 'Staff',
-            company: job.company,
-            department: job.department,
-            reportTitle: `Auto-Report: ${targetPeriod.label}`,
-            period: targetPeriod.label,
-            data: flatData,
-            paperSize: 'Letter',
-            style: 'minimal' // Clean style for auto-reports
-        });
+             if (targetPeriod && !periodsToGenerate.has(targetPeriod.key)) {
+                 periodsToGenerate.set(targetPeriod.key, targetPeriod);
+             }
+             
+             currentDate = addDays(currentDate, 1);
+        }
 
-        const reportId = generateUUID();
-        let fileSize = 0;
-        try {
-            const fileInfo = await FileSystem.getInfoAsync(uri);
-            if (fileInfo.exists && 'size' in fileInfo) fileSize = fileInfo.size;
-        } catch { /* size is non-critical */ }
-        
-        const newReport = {
-            id: reportId,
-            user_id: userId,
-            title: `Auto: ${targetPeriod.label}`,
-            file_path: uri,
-            file_type: 'application/pdf',
-            file_size: fileSize,
-            is_read: false, // UNREAD
-            period_key: targetPeriod.key,
-            created_at: new Date().toISOString()
-        };
+        for (const [key, period] of periodsToGenerate.entries()) {
+            const existing = await db.getFirstAsync('SELECT id FROM saved_reports WHERE user_id = ? AND period_key = ?', [userId, period.key]);
+            if (!existing) {
+                const { attendance, tasks } = await ReportService.getReportRange(userId, job.id, period.start, period.end);
+                if ((!attendance || attendance.length === 0) && (!tasks || tasks.length === 0)) continue; 
+                
+                const groupedData = ReportService.groupReportsByPayout(attendance.map((i:any) => ({...i, date: i.date})), payoutType);
+                const flatData = Object.values(groupedData).flatMap((g: any) => g.data).map((item: any) => {
+                     const dailyTasks = tasks.filter((t:any) => t.date === item.date).map((t:any) => {
+                         let images: string[] = [];
+                         if (t.image_url) {
+                             try { images = JSON.parse(t.image_url); } catch { images = [t.image_url]; }
+                             if (!Array.isArray(images)) images = [t.image_url];
+                         }
+                         return { description: t.description, remarks: t.remarks, images };
+                     });
+                     return {
+                         date: format(new Date(item.date), 'MMM d, yyyy\nEEEE'),
+                         clockIn: item.clock_in ? format(new Date(`1970-01-01T${item.clock_in}`), 'h:mm a') : '--:--',
+                         clockOut: item.clock_out ? format(new Date(`1970-01-01T${item.clock_out}`), 'h:mm a') : '--:--',
+                         duration: '--',
+                         summary: dailyTasks
+                     };
+                });
 
-        await saveReportLocal(newReport);
-        await queueSyncItem('saved_reports', reportId, 'INSERT', newReport);
+                const uri = await generateReport({ userName: job.userName || 'Employee', userTitle: job.userTitle || 'Staff', company: job.company, department: job.department, reportTitle: `Auto-Report: ${period.label}`, period: period.label, data: flatData, paperSize: 'Letter', style: 'minimal' });
+                
+                let fileSize = 0;
+                try {
+                    const fileInfo = await FileSystem.getInfoAsync(uri);
+                    if (fileInfo.exists && 'size' in fileInfo) fileSize = fileInfo.size;
+                } catch {}
+                
+                const reportId = generateUUID();
+                const newReport = { id: reportId, user_id: userId, title: `Auto: ${period.label}`, file_path: uri, file_type: 'application/pdf', file_size: fileSize, is_read: false, period_key: period.key, created_at: new Date().toISOString() };
 
-        // 5. Notify
-        await scheduleReportNotification(newReport.title);
+                await saveReportLocal(newReport);
+                await queueSyncItem('saved_reports', reportId, 'INSERT', newReport);
+                await scheduleReportNotification(newReport.title);
+            }
+        }
+
+        await db.runAsync("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('last_auto_report_check', ?)", [today.toISOString()]);
 
     } catch (e) {
         console.error("Auto Report Gen Error:", e);
@@ -207,7 +165,6 @@ export const ReportService = {
   },
 
   groupReportsByPayout: (data: any[], payoutType: string) => {
-    // ... existing implementation ...
     const today = new Date();
     const type = payoutType || 'Semi-Monthly'; 
     

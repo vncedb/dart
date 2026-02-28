@@ -4,6 +4,7 @@ import * as Haptics from 'expo-haptics';
 import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
+    LinearTransition,
     useAnimatedStyle,
     useSharedValue,
     withSpring,
@@ -12,6 +13,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAppTheme } from '../constants/theme';
+import SyncStatusIndicator from './SyncStatusIndicator';
 
 interface DynamicHeaderProps {
     selectedDate: Date;
@@ -54,7 +56,6 @@ export default function DynamicHeader({
     
     const [currentTime, setCurrentTime] = useState(new Date());
 
-    // --- Animations ---
     const progressAnim = useSharedValue(0);
     const scaleAnim = useSharedValue(1);
 
@@ -65,7 +66,6 @@ export default function DynamicHeader({
             }
             return { label: 'Active', color: theme.colors.success, bg: '#F0FDF4' };
         }
-        // Changed from 'Offline' to 'Off-Duty'
         return { label: 'Off-Duty', color: theme.colors.textSecondary, bg: theme.colors.background };
     };
 
@@ -122,9 +122,9 @@ export default function DynamicHeader({
                         }
                     ]}
                 >
-                    {/* Header Top: Date & Status */}
                     <View style={styles.rowBetween}>
-                        <View style={{ justifyContent: 'center' }}>
+                        {/* Left Side: Date and Time */}
+                        <View style={{ justifyContent: 'center', flex: 1, paddingRight: 8 }}>
                             {isLoading ? (
                                 <SkeletonBox width={90} height={12} borderRadius={4} style={{marginBottom: 4}} />
                             ) : (
@@ -147,22 +147,25 @@ export default function DynamicHeader({
                             )}
                         </View>
 
-                        {/* Status Badge */}
-                        <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+                        {/* Right Side: Status Badge and Sync Indicator */}
+                        <View style={{ alignItems: 'flex-end', justifyContent: 'center', maxWidth: '45%', height: '100%' }}>
                              {isLoading ? (
-                                <SkeletonBox width={60} height={24} borderRadius={12} />
+                                <SkeletonBox width={60} height={26} borderRadius={13} />
                              ) : (
-                                <View style={[styles.badge, { backgroundColor: theme.dark ? theme.colors.background : status.bg, borderColor: theme.colors.border }]}>
+                                // Badge glides up gracefully when sync mounts because of the LinearTransition
+                                <Animated.View layout={LinearTransition.duration(300)} style={[styles.badge, { backgroundColor: theme.dark ? theme.colors.background : status.bg, borderColor: theme.colors.border }]}>
                                     <View style={[styles.dot, { backgroundColor: status.color }]} />
                                     <Text style={[styles.badgeText, { color: theme.dark ? theme.colors.text : status.color }]}>
                                         {status.label}
                                     </Text>
-                                </View>
+                                </Animated.View>
                              )}
+                             
+                             {!isLoading && <SyncStatusIndicator />}
                         </View>
                     </View>
 
-                    {/* Progress Bar (Bottom Line) */}
+                    {/* Progress Bar */}
                     <View style={[styles.progressTrack, { backgroundColor: theme.colors.border }]}>
                         <Animated.View style={[styles.progressFill, progressBarStyle]} />
                     </View>
@@ -174,73 +177,29 @@ export default function DynamicHeader({
 }
 
 const styles = StyleSheet.create({
-    wrapper: {
-        width: '100%',
-        paddingHorizontal: 20, 
-        zIndex: 10,
-    },
-    pressable: {
-        width: '100%',
-    },
-    container: {
-        width: '100%',
-        paddingHorizontal: 16,
-        paddingVertical: 12, 
-        borderRadius: 16,    
-        borderWidth: 1,
-    },
-    rowBetween: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
+    wrapper: { width: '100%', paddingHorizontal: 20, zIndex: 10 },
+    pressable: { width: '100%' },
+    container: { width: '100%', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 16, borderWidth: 1 },
+    rowBetween: { 
+        flexDirection: 'row', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
         marginBottom: 12,
+        height: 56 // Rigid height to stop dynamic resizing when sync indicator mounts
     },
-    dateText: {
-        fontSize: 12,
-        fontWeight: '600',
-        textTransform: 'uppercase',
-        opacity: 0.6,
-        marginBottom: 0,
-        letterSpacing: 0.5,
+    dateText: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', opacity: 0.6, marginBottom: 0, letterSpacing: 0.5 },
+    timeText: { fontSize: 24, fontWeight: '700', letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
+    ampmText: { fontSize: 14, fontWeight: '600', marginLeft: 2 },
+    badge: { 
+        height: 26, // Matched height
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        paddingHorizontal: 10, // Matched padding
+        borderRadius: 100, 
+        borderWidth: 1 
     },
-    timeText: {
-        fontSize: 24,
-        fontWeight: '700',
-        letterSpacing: -0.5,
-        fontVariant: ['tabular-nums'],
-    },
-    ampmText: {
-        fontSize: 14,
-        fontWeight: '600',
-        marginLeft: 2,
-    },
-    badge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 4,
-        paddingHorizontal: 10,
-        borderRadius: 100,
-        borderWidth: 1,
-    },
-    dot: {
-        width: 5,
-        height: 5,
-        borderRadius: 2.5,
-        marginRight: 6,
-    },
-    badgeText: {
-        fontSize: 11,
-        fontWeight: '700',
-    },
-    progressTrack: {
-        height: 3,
-        borderRadius: 1.5,
-        width: '100%',
-        overflow: 'hidden',
-        opacity: 0.5
-    },
-    progressFill: {
-        height: '100%',
-        borderRadius: 1.5,
-    },
+    dot: { width: 5, height: 5, borderRadius: 2.5, marginRight: 6 },
+    badgeText: { fontSize: 11, fontWeight: '700' }, // Matched fontSize
+    progressTrack: { height: 3, borderRadius: 1.5, width: '100%', overflow: 'hidden', opacity: 0.5 },
+    progressFill: { height: '100%', borderRadius: 1.5 }
 });

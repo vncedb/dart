@@ -1,3 +1,4 @@
+// components/DynamicBar.tsx
 import {
     AlertCircleIcon,
     CheckmarkCircle02Icon,
@@ -99,12 +100,10 @@ export default function DynamicBar({
         } else if (mode === 'quote') {
             return { 
                 key: 'quote', 
-                // FIX: Use currentQuote.icon, fallback to Sparkles if undefined
                 icon: currentQuote.icon || SparklesIcon, 
                 color: theme.colors.primary, 
                 bg: theme.colors.primaryLight, 
                 title: '', 
-                // FIX: Must pass a string to subtitle, not the object
                 subtitle: currentQuote.text,
                 borderColor: theme.colors.border 
             };
@@ -139,7 +138,10 @@ export default function DynamicBar({
     };
 
     return (
-        <View style={styles.container}>
+        <Animated.View 
+            style={styles.container} 
+            layout={LinearTransition.duration(300)}
+        >
             <TouchableOpacity 
                 activeOpacity={0.9} 
                 onPress={handlePress}
@@ -152,8 +154,7 @@ export default function DynamicBar({
                     }
                 ]}
             >
-                <Animated.View style={[styles.iconWrapper, { backgroundColor: data.bg }]} layout={LinearTransition.springify()}>
-                    {/* FIX: Ensure we use currentQuote.text for the key to avoid object-to-string conversion errors */}
+                <Animated.View style={[styles.iconWrapper, { backgroundColor: data.bg }]} layout={LinearTransition.duration(300)}>
                     <Animated.View key={data.key + (mode === 'quote' ? currentQuote.text : '')} entering={ZoomIn.duration(300)} exiting={ZoomOut.duration(300)}>
                         <HugeiconsIcon icon={data.icon as any} size={20} color={data.color} />
                     </Animated.View>
@@ -180,13 +181,13 @@ export default function DynamicBar({
                     </Animated.View>
                 </View>
             </TouchableOpacity>
-        </View>
+        </Animated.View>
     );
 }
 
 const styles = StyleSheet.create({
     container: { width: '100%', alignItems: 'center', marginBottom: 32, paddingHorizontal: 24 },
-    bar: { flexDirection: 'row', alignItems: 'center', padding: 6, paddingRight: 16, borderRadius: 24, width: '100%', maxWidth: 380, height: 64, borderWidth: 1, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 4, overflow: 'hidden' },
+    bar: { flexDirection: 'row', alignItems: 'center', padding: 6, paddingRight: 16, borderRadius: 30, width: '100%', maxWidth: 380, height: 64, borderWidth: 1, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 4, overflow: 'hidden' },
     iconWrapper: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
     textWrapper: { flex: 1, justifyContent: 'center' },
     textContainer: { justifyContent: 'center', width: '100%' },

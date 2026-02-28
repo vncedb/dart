@@ -1,3 +1,4 @@
+// app/_layout.tsx
 import {
   Nunito_400Regular,
   Nunito_500Medium,
@@ -8,7 +9,7 @@ import {
   useFonts
 } from "@expo-google-fonts/nunito";
 import notifee, { EventType } from '@notifee/react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage'; // <-- ADDED IMPORT
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DefaultTheme, ThemeProvider } from "@react-navigation/native";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
@@ -26,16 +27,11 @@ import { initDatabase } from "../lib/database";
 notifee.registerForegroundService((notification) => {
     return new Promise(() => {
         // Keeps the service alive
-        // Android will automatically stop it when we call notifee.stopForegroundService()
     });
 });
 
 if (__DEV__) LogBox.ignoreAllLogs(true);
 
-// =====================================================================
-// 🔴 NOTIFEE BACKGROUND EVENT LISTENER 
-// Handles button taps when the app is swiped away/killed
-// =====================================================================
 notifee.onBackgroundEvent(async ({ type, detail }) => {
     const { notification, pressAction } = detail;
 
@@ -53,7 +49,6 @@ function RootLayoutNav() {
   const [isBiometricLocked, setIsBiometricLocked] = useState(false);
   const user = session?.user;
 
-  // <-- FIXED: NOW CHECKS ASYNC STORAGE BEFORE LOCKING
   useEffect(() => {
     const checkBiometricSettings = async () => {
       if (!loading && user) {
@@ -97,6 +92,7 @@ function RootLayoutNav() {
           <Stack.Screen name="settings/docs/privacy-details" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/docs/terms-of-service" options={{ animation: "slide_from_right" }} />
           
+          <Stack.Screen name="search" options={{ animation: "fade_from_bottom" }} />
           <Stack.Screen name="edit-profile" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="notifications" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="job/job" options={{ animation: "slide_from_right" }} />

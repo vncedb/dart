@@ -109,6 +109,26 @@ export const initDatabase = async () => {
         created_at TEXT DEFAULT CURRENT_TIMESTAMP, 
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE VIRTUAL TABLE IF NOT EXISTS accomplishments_fts USING fts5(
+        id UNINDEXED, 
+        description, 
+        remarks, 
+        content='accomplishments', 
+        content_rowid='id'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS accomplishments_ai AFTER INSERT ON accomplishments BEGIN
+      INSERT INTO accomplishments_fts(rowid, id, description, remarks) VALUES (new.rowid, new.id, new.description, new.remarks);
+    END;
+    
+    CREATE TRIGGER IF NOT EXISTS accomplishments_ad AFTER DELETE ON accomplishments BEGIN
+      INSERT INTO accomplishments_fts(accomplishments_fts, rowid, id, description, remarks) VALUES('delete', old.rowid, old.id, old.description, old.remarks);
+    END;
+    
+    CREATE TRIGGER IF NOT EXISTS accomplishments_au AFTER UPDATE ON accomplishments BEGIN
+      INSERT INTO accomplishments_fts(accomplishments_fts, rowid, id, description, remarks) VALUES('delete', old.rowid, old.id, old.description, old.remarks);
+      INSERT INTO accomplishments_fts(rowid, id, description, remarks) VALUES (new.rowid, new.id, new.description, new.remarks);
+    END;
   `);
 
   // 2. Run Migrations (Safe column additions for existing users)
@@ -159,6 +179,11 @@ export const initDatabase = async () => {
     CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
     CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at);
   `);
+
+  // FIX: Clean up zombie items that got stuck during previous bugs
+  await database.execAsync(`
+    UPDATE sync_queue SET status = 'FAILED' WHERE retry_count >= 5 AND status = 'PENDING';
+  `);
 };
 
 // --- UTILS ---
@@ -169,6 +194,24 @@ export const generateUUID = () => {
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+};
+
+// Feature 3: Search Function
+export const searchAccomplishments = async (userId: string, query: string, limit: number = 20) => {
+  if (!query.trim()) return [];
+  const db = await getDB();
+  // Using FTS MATCH operator
+  const sql = `
+    SELECT a.*, snippet(accomplishments_fts, 1, '<b>', '</b>', '...', 64) as snippet_desc 
+    FROM accomplishments_fts fts
+    JOIN accomplishments a ON a.id = fts.id
+    WHERE accomplishments_fts MATCH ? AND a.user_id = ?
+    ORDER BY a.date DESC
+    LIMIT ?
+  `;
+  // Sanitize query for FTS MATCH
+  const sanitizedQuery = query.replace(/[^a-zA-Z0-9 ]/g, '') + '*';
+  return await db.getAllAsync(sql, [sanitizedQuery, userId, limit]);
 };
 
 // --- SYNC ENGINE QUEUE ---
@@ -196,7 +239,8 @@ export const queueSyncItem = async (tableName: string, rowId: string, action: st
 
 export const getPendingSyncCount = async () => {
   const db = await getDB();
-  const res: any = await db.getFirstAsync("SELECT COUNT(*) as count FROM sync_queue WHERE status = 'PENDING'");
+  // FIX: Only count items that haven't hit the max retry limit yet
+  const res: any = await db.getFirstAsync("SELECT COUNT(*) as count FROM sync_queue WHERE status = 'PENDING' AND retry_count < 5");
   return res?.count || 0;
 };
 

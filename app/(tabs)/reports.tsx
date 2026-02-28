@@ -1,3 +1,4 @@
+// app/(tabs)/reports.tsx
 import {
   File02Icon,
   FileVerifiedIcon,
@@ -226,7 +227,6 @@ export default function ReportsScreen() {
         const month = now.getMonth();
         const day = now.getDate();
         
-        // FIXED: Explicity typed to prevent "Object is of type 'unknown'" error
         let start: Date;
         let end: Date;
         let label: string;
@@ -282,6 +282,27 @@ export default function ReportsScreen() {
     />
   );
 
+  const getEmptyStateProps = () => {
+    if (allSections.length === 0) {
+      return {
+        title: "No Activity Yet",
+        description: "You haven't logged any hours or tasks. Add a new entry to get started."
+      };
+    }
+    if ((currentRange as any)?.type === "day") {
+      return {
+        title: "No Entries Today",
+        description: `There are no activities logged for ${currentRange?.label}. Try selecting a different date.`
+      };
+    }
+    return {
+      title: "No Reports Found",
+      description: `No data found for ${currentRange?.label}. Try adjusting your date filter.`
+    };
+  };
+
+  const emptyStateProps = getEmptyStateProps();
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={["top"]}>
       <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} />
@@ -290,7 +311,7 @@ export default function ReportsScreen() {
 
       <ReportFilterModal visible={modalVisible} onClose={() => setModalVisible(false)} availableDates={availableDates} currentRange={currentRange} onSelect={handleRangeSelect} />
 
-      <DatePicker visible={showDatePicker} onClose={() => setShowDatePicker(false)} onSelect={handleExactDateSelect} selectedDate={currentRange && currentRange.type === "day" ? new Date(currentRange.start) : new Date()} title="Select Specific Date" markedDates={markedDates} />
+      <DatePicker visible={showDatePicker} onClose={() => setShowDatePicker(false)} onSelect={handleExactDateSelect} selectedDate={currentRange && (currentRange as any).type === "day" ? new Date(currentRange.start) : new Date()} title="Select Specific Date" markedDates={markedDates} />
 
       <ActionMenu
         visible={actionMenuVisible}
@@ -298,7 +319,7 @@ export default function ReportsScreen() {
         anchor={menuAnchor}
         actions={[
           { label: "Add Entry", icon: PlusSignIcon, onPress: () => router.push("/reports/add-entry") },
-          { label: "Generate Report", icon: File02Icon, onPress: () => { setActionMenuVisible(false); if (filteredSections.length > 0) { router.push({ pathname: "/reports/generate", params: { startDate: currentRange?.start, endDate: currentRange?.end, date: currentRange && currentRange.type === "day" ? currentRange.start : undefined } }); } else { setFloatingAlert({ visible: true, message: "No data to generate", type: "error" }); } } },
+          { label: "Generate Report", icon: File02Icon, onPress: () => { setActionMenuVisible(false); if (filteredSections.length > 0) { router.push({ pathname: "/reports/generate", params: { startDate: currentRange?.start, endDate: currentRange?.end, date: currentRange && (currentRange as any).type === "day" ? currentRange.start : undefined } }); } else { setFloatingAlert({ visible: true, message: "No data to generate", type: "error" }); } } },
         ]}
       />
 
@@ -358,7 +379,7 @@ export default function ReportsScreen() {
             keyExtractor={(item) => item.id}
             renderItem={renderItem}
             renderSectionHeader={({ section }: any) => {
-              if (filteredSections.length === 1 && (currentRange?.type as any) !== "custom" && (currentRange?.type as any) !== "day") return null;
+              if (filteredSections.length === 1 && (currentRange as any)?.type !== "custom" && (currentRange as any)?.type !== "day") return null;
               return (
                 <View style={[styles.sectionHeader, { backgroundColor: theme.colors.background }]}>
                   <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>{section.title}</Text>
@@ -371,11 +392,17 @@ export default function ReportsScreen() {
             refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchReports(); }} tintColor={theme.colors.primary} />}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
-                <View style={[styles.emptyIcon, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                  <HugeiconsIcon icon={Search01Icon} size={32} color={theme.colors.textSecondary} />
-                </View>
-                <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No reports found</Text>
-                <Text style={[styles.emptySub, { color: theme.colors.textSecondary }]}>Try changing the date filter.</Text>
+                  <View style={[styles.emptyIconContainer, { backgroundColor: theme.dark ? '#1F2937' : '#F3F4F6' }]}>
+                      <HugeiconsIcon icon={Search01Icon} size={36} color={theme.colors.textSecondary} />
+                  </View>
+                  <View style={styles.emptyTextContainer}>
+                      <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>
+                          {emptyStateProps.title}
+                      </Text>
+                      <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
+                          {emptyStateProps.description}
+                      </Text>
+                  </View>
               </View>
             }
           />
@@ -392,8 +419,11 @@ const styles = StyleSheet.create({
   separator: { height: 1, marginHorizontal: 20, opacity: 0.5, marginBottom: 8 },
   sectionHeader: { paddingHorizontal: 20, paddingVertical: 12 },
   sectionTitle: { fontSize: 12, fontFamily: 'Nunito_500Medium', letterSpacing: 0.8, textTransform: "uppercase" },
-  emptyContainer: { alignItems: "center", justifyContent: "center", marginTop: 100 },
-  emptyIcon: { width: 80, height: 80, borderRadius: 40, alignItems: "center", justifyContent: "center", marginBottom: 16, borderWidth: 1 },
-  emptyTitle: { fontSize: 16, fontFamily: 'Nunito_500Medium', marginBottom: 4 },
-  emptySub: { fontSize: 14, fontFamily: 'Nunito_400Regular' },
+  
+  // Clean Empty State matching Job/job.tsx
+  emptyContainer: { alignItems: 'center', marginTop: 80, paddingHorizontal: 24 },
+  emptyIconContainer: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
+  emptyTextContainer: { alignItems: 'center', marginBottom: 8 },
+  emptyTitle: { fontFamily: 'Nunito_800ExtraBold', fontSize: 22, marginBottom: 10, textAlign: 'center', letterSpacing: -0.3 },
+  emptyDescription: { fontFamily: 'Nunito_500Medium', fontSize: 15, lineHeight: 24, textAlign: 'center', opacity: 0.9, paddingHorizontal: 8 },
 });

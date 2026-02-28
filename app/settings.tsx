@@ -1,4 +1,6 @@
+// app/settings.tsx
 import {
+    Download04Icon,
     InformationCircleIcon,
     Logout01Icon,
     Mail01Icon,
@@ -33,6 +35,7 @@ import ModernAlert from '../components/ModernAlert';
 import { ModernSettingsItem } from '../components/SettingsComponents';
 import { useAppTheme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
+import { ExportService } from '../services/ExportService';
 
 type ThemeOption = 'system' | 'light' | 'dark';
 
@@ -101,6 +104,19 @@ export default function SettingsScreen() {
         Linking.openURL('mailto:support@projectvdb.com?subject=DART Support Request');
     };
 
+    const handleExportData = async () => {
+        if (!user) return;
+        setIsLoading(true);
+        setLoadingMessage("Packaging your data...");
+        try {
+            await ExportService.exportAllData(user.id);
+        } catch (e) {
+            setAlertConfig({ visible: true, type: 'error', title: 'Export Failed', message: 'Could not export your data at this time.', confirmText: 'OK', onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) });
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     const handleSignOut = () => {
         setAlertConfig({
             visible: true,
@@ -151,6 +167,21 @@ export default function SettingsScreen() {
                     </View>
                 </View>
 
+                {/* BACKUP DATA */}
+                <View style={{ marginBottom: 24 }}>
+                    <Text style={styles.sectionTitle}>DATA MANAGEMENT</Text>
+                    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
+                        <ModernSettingsItem 
+                            icon={Download04Icon} 
+                            label="Backup Data" 
+                            subLabel="Save a local copy of your data"
+                            onPress={handleExportData} 
+                            isLast
+                            theme={theme} 
+                        />
+                    </View>
+                </View>
+
                 {/* APP SETTINGS */}
                 <View style={{ marginBottom: 24 }}>
                     <Text style={styles.sectionTitle}>APP SETTINGS</Text>
@@ -190,7 +221,6 @@ export default function SettingsScreen() {
                 <View style={{ marginBottom: 32 }}>
                     <Text style={styles.sectionTitle}>SUPPORT</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
-                        {/* CHANGED LABEL TO "Legal & Privacy" */}
                         <ModernSettingsItem icon={InformationCircleIcon} label="Legal & Privacy" onPress={() => router.push('/settings/privacy-policy')} theme={theme} />
                         <ModernSettingsItem icon={Mail01Icon} label="Contact Support" onPress={handleContactSupport} theme={theme} />
                         <ModernSettingsItem icon={PencilEdit02Icon} label="Report or Feedback" onPress={() => router.push('/settings/feedback')} theme={theme} />

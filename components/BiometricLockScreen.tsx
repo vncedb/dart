@@ -1,170 +1,246 @@
-import { FingerPrintIcon, SquareLock01Icon, SquareUnlock01Icon } from '@hugeicons/core-free-icons';
+// components/BiometricLockScreen.tsx
+import { SquareLock02Icon, SquareUnlock02Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
+import * as Haptics from 'expo-haptics';
 import * as LocalAuthentication from 'expo-local-authentication';
+import { useColorScheme } from 'nativewind';
 import React, { useEffect, useRef, useState } from 'react';
-import { AppState, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Animated, { FadeInDown, FadeInUp, useAnimatedStyle, useSharedValue, withSequence, withTiming } from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ActivityIndicator, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  SlideInDown,
+  ZoomIn,
+  interpolateColor,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withTiming
+} from 'react-native-reanimated';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import { useAppTheme } from '../constants/theme';
 
 export default function BiometricLockScreen({ onUnlock }: { onUnlock: () => void }) {
-  const theme = useAppTheme();
-  const [status, setStatus] = useState('Locked');
-  
-  // Refs to manage scanning state
-  const isScanning = useRef(false);
-  const isUnlocked = useRef(false);
-  const appState = useRef(AppState.currentState);
+    const theme = useAppTheme();
+    const insets = useSafeAreaInsets();
+    const { colorScheme } = useColorScheme();
+    const isDark = colorScheme === 'dark';
 
-  const shake = useSharedValue(0);
-
-  const authenticate = async () => {
-    // Prevent double calls
-    if (isScanning.current || isUnlocked.current) return;
+    const [isAuthenticating, setIsAuthenticating] = useState(false);
+    const [isUnlocked, setIsUnlocked] = useState(false);
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
     
-    isScanning.current = true;
+    const hasFiredInitialAuth = useRef(false);
 
-    try {
-      // Check hardware capability
-      const hasHardware = await LocalAuthentication.hasHardwareAsync();
-      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+    // Animation values
+    const shake = useSharedValue(0);
+    const errorColor = useSharedValue(0);
 
-      // [SECURITY FIX] 
-      // If hardware/enrollment is missing but the app expects a lock, 
-      // do NOT auto-unlock. Force the OS authentication prompt 
-      // which will naturally fallback to PIN/Pattern if biometrics aren't available.
-      
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: 'Unlock DART',
-        fallbackLabel: 'Use Passcode', // This triggers the device PIN fallback
-        disableDeviceFallback: false,
-        cancelLabel: 'Cancel'
-      });
-
-      if (result.success) {
-        unlockApp();
-      } else {
-        setStatus('Try Again');
-        triggerShake();
-        // Allow retry after a short delay
-        setTimeout(() => {
-            isScanning.current = false; 
-        }, 1000);
-      }
-    } catch (error) {
-      console.log("Biometric Error:", error);
-      // In a real security context, you might want to show an error message 
-      // and prevent access entirely rather than unlocking or looping.
-      setStatus('Error'); 
-      isScanning.current = false; 
-    }
-  };
-
-  const unlockApp = () => {
-      isUnlocked.current = true;
-      setStatus('Unlocked');
-      // Small delay for UI feedback
-      setTimeout(() => {
-          onUnlock();
-      }, 500);
-  };
-
-  const triggerShake = () => {
-    shake.value = withSequence(
-      withTiming(-10, { duration: 50 }),
-      withTiming(10, { duration: 50 }),
-      withTiming(-10, { duration: 50 }),
-      withTiming(10, { duration: 50 }),
-      withTiming(0, { duration: 50 })
-    );
-  };
-
-  // Initial Scan on Mount
-  useEffect(() => {
-    // Small timeout to allow the view to settle before invoking system UI
-    const timer = setTimeout(() => {
-        authenticate();
-    }, 500);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const animatedIconStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ translateX: shake.value }],
+    const triggerErrorAnim = () => {
+        // Shake sequence
+        shake.value = withSequence(
+            withTiming(-15, { duration: 50 }),
+            withTiming(15, { duration: 50 }),
+            withTiming(-15, { duration: 50 }),
+            withTiming(15, { duration: 50 }),
+            withTiming(0, { duration: 50 })
+        );
+        // Red color transition sequence (fade to red, hold, fade back to primary)
+        errorColor.value = withSequence(
+            withTiming(1, { duration: 150 }),
+            withTiming(1, { duration: 800 }),
+            withTiming(0, { duration: 400 })
+        );
     };
-  });
 
-  return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <Animated.View entering={FadeInUp.delay(200)} style={styles.content}>
-        
-        {/* Lock Icon */}
-        <Animated.View style={[styles.iconContainer, animatedIconStyle, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-          <HugeiconsIcon 
-            icon={status === 'Unlocked' ? SquareUnlock01Icon : SquareLock01Icon} 
-            size={64} 
-            color={status === 'Unlocked' ? theme.colors.success : theme.colors.primary} 
-          />
+    const animatedCircleStyle = useAnimatedStyle(() => {
+        return {
+            transform: [{ translateX: shake.value }],
+            backgroundColor: interpolateColor(
+                errorColor.value,
+                [0, 1],
+                [theme.colors.primary, theme.colors.danger]
+            )
+        };
+    });
+
+    const authenticate = async () => {
+        if (isAuthenticating || isUnlocked) return;
+        setIsAuthenticating(true);
+        setErrorMsg(null);
+
+        try {
+            const hasHardware = await LocalAuthentication.hasHardwareAsync();
+            const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+
+            if (!hasHardware || !isEnrolled) {
+                onUnlock();
+                return;
+            }
+
+            const result = await LocalAuthentication.authenticateAsync({
+                promptMessage: 'Unlock DART',
+                cancelLabel: 'Cancel',
+                disableDeviceFallback: false, 
+            });
+
+            if (result.success) {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                setIsUnlocked(true); 
+                
+                setTimeout(() => {
+                    onUnlock();
+                }, 800); 
+            } else {
+                Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+                if (result.error !== 'user_cancel') {
+                    setErrorMsg('Authentication failed. Please try again.');
+                    triggerErrorAnim();
+                }
+            }
+        } catch {
+            setErrorMsg('An error occurred. Please try again.');
+            triggerErrorAnim();
+        } finally {
+            setIsAuthenticating(false);
+        }
+    };
+
+    useEffect(() => {
+        if (!hasFiredInitialAuth.current) {
+            authenticate();
+            hasFiredInitialAuth.current = true;
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    return (
+        <Animated.View entering={FadeIn.duration(400)} style={[styles.container, { backgroundColor: theme.colors.background, paddingTop: insets.top }]}>
+            
+            <View style={[styles.glow, { backgroundColor: theme.colors.primary, opacity: isDark ? 0.15 : 0.08 }]} />
+
+            <View style={styles.content}>
+                <Animated.View entering={ZoomIn.duration(600).delay(200)} style={styles.logoContainer}>
+                    <Image 
+                        source={isDark 
+                            ? require('../assets/images/dart-logo-transparent-light.png') 
+                            : require('../assets/images/dart-logo-transparent-dark.png')
+                        } 
+                        style={styles.logo} 
+                        resizeMode="contain" 
+                    />
+                </Animated.View>
+
+                <Animated.View entering={SlideInDown.duration(500).delay(300)} style={styles.textContainer}>
+                    {/* UPDATED COPY HERE */}
+                    <Text style={[styles.title, { color: theme.colors.text }]}>DART Locked</Text>
+                    <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
+                        Identity verification is required to open the app. Please authenticate to continue.
+                    </Text>
+                </Animated.View>
+
+                <Animated.View entering={SlideInDown.duration(500).delay(400)} style={styles.actionContainer}>
+                    <TouchableOpacity 
+                        activeOpacity={0.8}
+                        onPress={authenticate}
+                        disabled={isAuthenticating || isUnlocked}
+                    >
+                        <Animated.View style={[styles.authCircle, animatedCircleStyle, { shadowColor: theme.colors.primary }]}>
+                            {isAuthenticating ? (
+                                <ActivityIndicator color="#fff" size="large" />
+                            ) : isUnlocked ? (
+                                <Animated.View key="unlock" entering={ZoomIn.duration(300).springify()} exiting={FadeOut.duration(200)}>
+                                    <HugeiconsIcon icon={SquareUnlock02Icon} size={36} color="#fff" />
+                                </Animated.View>
+                            ) : (
+                                <Animated.View key="lock" entering={FadeIn.duration(300)} exiting={FadeOut.duration(200)}>
+                                    <HugeiconsIcon icon={SquareLock02Icon} size={36} color="#fff" />
+                                </Animated.View>
+                            )}
+                        </Animated.View>
+                    </TouchableOpacity>
+
+                    {errorMsg && (
+                        <Animated.Text entering={FadeIn} style={[styles.errorText, { color: theme.colors.danger }]}>
+                            {errorMsg}
+                        </Animated.Text>
+                    )}
+                </Animated.View>
+            </View>
+
         </Animated.View>
-
-        {/* Text */}
-        <View style={styles.textContainer}>
-          <Text style={[styles.title, { color: theme.colors.text }]}>DART Locked</Text>
-          <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
-            Identity verification required
-          </Text>
-        </View>
-
-        {/* Biometric Button (Manual Retry) */}
-        <Animated.View entering={FadeInDown.delay(400)} style={{ width: '100%', alignItems: 'center' }}>
-            <TouchableOpacity 
-              onPress={() => { isScanning.current = false; authenticate(); }}
-              activeOpacity={0.7}
-              style={[styles.authButton, { backgroundColor: theme.colors.primary }]}
-            >
-              <HugeiconsIcon icon={FingerPrintIcon} size={28} color="#FFF" />
-              <Text style={styles.authButtonText}>Tap to Unlock</Text>
-            </TouchableOpacity>
-        </Animated.View>
-
-      </Animated.View>
-    </SafeAreaView>
-  );
+    );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  content: { alignItems: 'center', width: '80%', gap: 32 },
-  iconContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 5,
-  },
-  textContainer: { alignItems: 'center', gap: 8 },
-  title: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5 },
-  subtitle: { fontSize: 16, textAlign: 'center' },
-  authButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 99,
-    width: '100%',
-    justifyContent: 'center',
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  authButtonText: { color: '#FFF', fontSize: 18, fontWeight: '700' }
+    container: {
+        ...StyleSheet.absoluteFillObject,
+        zIndex: 9999,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    glow: {
+        position: 'absolute',
+        top: '25%',
+        width: 350,
+        height: 350,
+        borderRadius: 175,
+        filter: 'blur(90px)', 
+    },
+    content: {
+        width: '100%',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 32,
+        marginTop: -60,
+    },
+    logoContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: 48,
+    },
+    logo: {
+        width: 180,
+        height: 60,
+    },
+    textContainer: {
+        alignItems: 'center',
+        marginBottom: 56,
+    },
+    title: {
+        fontSize: 28,
+        fontFamily: 'Nunito_800ExtraBold',
+        marginBottom: 12,
+        letterSpacing: -0.5,
+    },
+    subtitle: {
+        fontSize: 16,
+        fontFamily: 'Nunito_500Medium',
+        textAlign: 'center',
+        lineHeight: 24,
+        paddingHorizontal: 20,
+    },
+    actionContainer: {
+        width: '100%',
+        alignItems: 'center',
+        marginTop: 20,
+    },
+    authCircle: {
+        width: 88,
+        height: 88,
+        borderRadius: 44,
+        alignItems: 'center',
+        justifyContent: 'center',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.3,
+        shadowRadius: 20,
+        elevation: 10,
+    },
+    errorText: {
+        marginTop: 24,
+        fontSize: 15,
+        fontFamily: 'Nunito_700Bold',
+        textAlign: 'center',
+    }
 });

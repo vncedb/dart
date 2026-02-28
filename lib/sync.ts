@@ -54,28 +54,25 @@ export const syncPush = async () => {
     const queueItems = await db.getAllAsync(
       'SELECT * FROM sync_queue WHERE status = "PENDING" AND retry_count < ? ORDER BY created_at ASC',
       [MAX_RETRIES]
-    );
+    ) as any[];
 
-    if (queueItems.length === 0) return { success: true, count: 0 };
+    if (queueItems.length === 0) return { success: true, count: 0, failedCount: 0 };
 
     const state = await NetInfo.fetch();
     if (!state.isConnected) return { success: false, error: "No internet connection" };
 
     let successCount = 0;
+    let failedCount = 0;
+    const batchGroups: Record<string, { tableName: string, action: string, items: any[], payloads: any[] }> = {};
 
     for (const item of queueItems) {
-      const { id, table_name, row_id, action, data } = item as any;
-      let payload: any = {};
+      const { id, table_name, row_id, action, data } = item;
+      let payload: any = data ? JSON.parse(data) : {};
 
       try {
-        payload = data ? JSON.parse(data) : {};
         if ("is_synced" in payload) delete payload.is_synced; 
+        if ("local_avatar_path" in payload) delete payload.local_avatar_path;
         
-        // FIX: Prevent 'updated_at' schema cache errors for attendance
-        if (table_name === "attendance" && "updated_at" in payload) {
-            delete payload.updated_at;
-        }
-
         // Handle File Uploads before pushing the DB row
         if (table_name === "accomplishments" && payload.image_url?.startsWith("file://") && action !== "DELETE") {
           const remoteUrl = await uploadFileToSupabase(payload.image_url, payload.user_id || "unknown", "entry-images", "entries");
@@ -85,68 +82,92 @@ export const syncPush = async () => {
           const remoteUrl = await uploadFileToSupabase(payload.file_path, payload.user_id, "reports");
           if (remoteUrl) {
             payload.remote_url = remoteUrl;
-            delete payload.file_path; 
+            payload.file_path = remoteUrl; // Preserve to avoid NOT NULL schema errors
           }
         }
         if (table_name === "profiles" && payload.local_avatar_path?.startsWith("file://") && action !== "DELETE") {
           const remoteUrl = await uploadFileToSupabase(payload.local_avatar_path, row_id || payload.id, "avatars");
           if (remoteUrl) {
             payload.avatar_url = remoteUrl;
-            try { await db.runAsync(`UPDATE profiles SET avatar_url = ? WHERE id = ?`, [remoteUrl, row_id || payload.id]); } catch(e) { console.warn('[Sync] Failed to update avatar_url:', e); }
+            try { await db.runAsync(`UPDATE profiles SET avatar_url = ? WHERE id = ?`, [remoteUrl, row_id || payload.id]); } catch(e) {}
           }
-          delete payload.local_avatar_path;
         }
+
+        // Group for batching
+        const groupKey = `${table_name}_${action}`;
+        if (!batchGroups[groupKey]) batchGroups[groupKey] = { tableName: table_name, action, items: [], payloads: [] };
+        batchGroups[groupKey].items.push(item);
+        batchGroups[groupKey].payloads.push(payload);
 
       } catch (e: any) {
         console.error(`[Sync] Pre-flight/Upload failed for queue id ${id}:`, e);
-        await db.runAsync("UPDATE sync_queue SET retry_count = retry_count + 1 WHERE id = ?", [id]);
+        await db.runAsync(`UPDATE sync_queue SET retry_count = retry_count + 1, status = CASE WHEN retry_count + 1 >= ? THEN 'FAILED' ELSE 'PENDING' END WHERE id = ?`, [MAX_RETRIES, id]);
+        failedCount++;
         continue;
       }
-
-      let error = null;
-      try {
-        if (action === "INSERT" || action === "UPSERT") {
-          const { error: err } = await supabase.from(table_name).upsert(payload);
-          error = err;
-        } else if (action === "UPDATE") {
-          const { error: err } = await supabase.from(table_name).update(payload).eq("id", row_id);
-          error = err;
-        } else if (action === "DELETE") {
-          if (table_name === 'saved_reports' && payload.remote_url) await deleteFileFromSupabase(payload.remote_url, "reports");
-          else if (table_name === 'accomplishments' && payload.image_url) {
-            const bucket = payload.image_url.includes('/entry-images/') ? 'entry-images' : 'accomplishments';
-            await deleteFileFromSupabase(payload.image_url, bucket);
-          }
-          const { error: err } = await supabase.from(table_name).delete().eq("id", row_id);
-          error = err;
-        }
-
-        if (!error || error.code === "PGRST116") {
-           await db.runAsync("DELETE FROM sync_queue WHERE id = ?", [id]);
-           
-           if (action !== 'DELETE') {
-             try { await db.runAsync(`UPDATE ${table_name} SET is_synced = 1 WHERE id = ?`, [row_id]); } catch(e) { console.warn(`[Sync] Failed to mark ${table_name} as synced:`, e); }
-           }
-           successCount++;
-        } else {
-           console.error(`[Sync] Supabase error on ${table_name}:`, error.message);
-           await db.runAsync("UPDATE sync_queue SET retry_count = retry_count + 1 WHERE id = ?", [id]);
-        }
-      } catch (e) {
-         await db.runAsync("UPDATE sync_queue SET retry_count = retry_count + 1 WHERE id = ?", [id]);
-      }
     }
-    return { success: true, count: successCount };
+
+    // Batch Execution
+    for (const key of Object.keys(batchGroups)) {
+        const { tableName, action, items, payloads } = batchGroups[key];
+        let error = null;
+
+        try {
+            if (action === "INSERT" || action === "UPSERT") {
+                const { error: err } = await supabase.from(tableName).upsert(payloads);
+                error = err;
+            } else {
+                for (let i = 0; i < items.length; i++) {
+                    const rowId = items[i].row_id;
+                    const payload = payloads[i];
+                    
+                    if (action === "UPDATE") {
+                        const { error: err } = await supabase.from(tableName).update(payload).eq("id", rowId);
+                        if (err) throw err;
+                    } else if (action === "DELETE") {
+                        if (tableName === 'saved_reports' && payload.remote_url) await deleteFileFromSupabase(payload.remote_url, "reports");
+                        else if (tableName === 'accomplishments' && payload.image_url) {
+                          const bucket = payload.image_url.includes('/entry-images/') ? 'entry-images' : 'accomplishments';
+                          await deleteFileFromSupabase(payload.image_url, bucket);
+                        }
+                        const { error: err } = await supabase.from(tableName).delete().eq("id", rowId);
+                        if (err) throw err;
+                    }
+                }
+            }
+
+            if (!error || error.code === "PGRST116") {
+                // Fixed: Sequential execution prevents array-binding bugs in SQLite
+                for (const item of items) {
+                    await db.runAsync(`DELETE FROM sync_queue WHERE id = ?`, [item.id]);
+                    if (action !== 'DELETE') {
+                        await db.runAsync(`UPDATE ${tableName} SET is_synced = 1 WHERE id = ?`, [item.row_id]);
+                    }
+                }
+                successCount += items.length;
+            } else {
+                throw error;
+            }
+        } catch (e: any) {
+            console.error(`[Sync] Supabase error on batch ${key}:`, e.message || e);
+            for (const item of items) {
+                await db.runAsync(`UPDATE sync_queue SET retry_count = retry_count + 1, status = CASE WHEN retry_count + 1 >= ? THEN 'FAILED' ELSE 'PENDING' END WHERE id = ?`, [MAX_RETRIES, item.id]);
+            }
+            failedCount += items.length;
+        }
+    }
+    return { success: true, count: successCount, failedCount };
   } catch (e) {
     return { success: false, error: e };
   }
 };
 
 // Skip overwriting rows that have unsynced local changes
-const safeUpsert = async (db: any, table: string, id: string, sql: string, params: any[]) => {
+const safeUpsert = async (db: any, table: string, id: string, sql: string, params: any[]): Promise<boolean> => {
   const local: any = await db.getFirstAsync(`SELECT is_synced FROM ${table} WHERE id = ?`, [id]);
-  if (local && local.is_synced === 0) return;
+  if (local && local.is_synced === 0) return true; // Conflict detected
   await db.runAsync(sql, params);
+  return false;
 };
 
 // Paginated fetch to avoid Supabase's default 1000-row limit
@@ -174,15 +195,17 @@ export const syncPull = async (userId: string) => {
 
     const result: any = await db.getFirstAsync("SELECT value FROM app_settings WHERE key = ?", ["last_synced_at"]);
     const lastSyncedAt = result?.value || "1970-01-01T00:00:00.000Z";
+    let conflicts = 0;
 
     const jobsData = await fetchAllRows(
       supabase.from('job_positions').select('*').eq('user_id', userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`)
     );
     for (const job of jobsData) {
-      await db.runAsync(
+      const isConflict = await safeUpsert(db, 'job_positions', job.id,
         `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, payout_type, period_target, work_schedule, break_schedule, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [job.id, job.user_id, job.title, job.company, job.department, job.employment_status, job.rate, job.rate_type, job.payout_type, job.period_target, typeof job.work_schedule === 'object' ? JSON.stringify(job.work_schedule) : job.work_schedule, typeof job.break_schedule === 'object' ? JSON.stringify(job.break_schedule) : job.break_schedule, job.created_at, job.updated_at]
       );
+      if (isConflict) conflicts++;
     }
 
     const { data: profileData } = await supabase.from('profiles').select('*').eq('id', userId).gt('updated_at', lastSyncedAt).maybeSingle();
@@ -195,48 +218,52 @@ export const syncPull = async (userId: string) => {
     }
 
     const attendanceData = await fetchAllRows(
-      supabase.from("attendance").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},clock_in.gt.${lastSyncedAt}`)
+      supabase.from("attendance").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`)
     );
     for (const row of attendanceData) {
-      await safeUpsert(db, 'attendance', row.id,
+      const isConflict = await safeUpsert(db, 'attendance', row.id,
         `INSERT OR REPLACE INTO attendance (id, user_id, job_id, date, title, clock_in, clock_out, status, remarks, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
         [row.id, row.user_id, row.job_id, row.date, row.title || null, row.clock_in, row.clock_out, row.status, row.remarks, row.updated_at || row.clock_in]
       );
+      if (isConflict) conflicts++;
     }
 
     const taskData = await fetchAllRows(
       supabase.from("accomplishments").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`)
     );
     for (const row of taskData) {
-      await safeUpsert(db, 'accomplishments', row.id,
+      const isConflict = await safeUpsert(db, 'accomplishments', row.id,
         `INSERT OR REPLACE INTO accomplishments (id, user_id, job_id, date, description, remarks, image_url, created_at, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
         [row.id, row.user_id, row.job_id, row.date, row.description || "", row.remarks || null, row.image_url || null, row.created_at, row.updated_at || row.created_at]
       );
+      if (isConflict) conflicts++;
     }
     
     const reportsData = await fetchAllRows(
       supabase.from("saved_reports").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`)
     );
     for (const row of reportsData) {
-      await safeUpsert(db, 'saved_reports', row.id,
+      const isConflict = await safeUpsert(db, 'saved_reports', row.id,
         `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, remote_url, created_at, updated_at, is_read, period_key, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
         [row.id, row.user_id, row.title || "Untitled", "", row.file_type || "pdf", row.file_size || 0, row.remote_url || null, row.created_at, row.updated_at || row.created_at, row.is_read ? 1 : 0, row.period_key || null]
       );
+      if (isConflict) conflicts++;
     }
 
     const notifData = await fetchAllRows(
       supabase.from("notifications").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`)
     );
     for (const row of notifData) {
-      await safeUpsert(db, 'notifications', row.id,
+      const isConflict = await safeUpsert(db, 'notifications', row.id,
         `INSERT OR REPLACE INTO notifications (id, user_id, title, body, type, is_read, created_at, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
         [row.id, row.user_id, row.title, row.body, row.type, row.is_read ? 1 : 0, row.created_at, row.updated_at || row.created_at]
       );
+      if (isConflict) conflicts++;
     }
 
     const newSyncTime = new Date().toISOString();
     await db.runAsync("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)", ["last_synced_at", newSyncTime]);
-    return { success: true };
+    return { success: true, conflictCount: conflicts };
   } catch (e) {
     console.error("[Sync] Pull Error:", e);
     return { success: false, error: e };

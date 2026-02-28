@@ -1,3 +1,4 @@
+// app/reports/saved-reports.tsx
 import {
   Cancel01Icon,
   Delete02Icon,
@@ -299,7 +300,6 @@ export default function SavedReportsScreen() {
     const ext = item.file_type === "pdf" ? "pdf" : "xlsx";
     const expectedPath = `${FileSystem.documentDirectory}reports/${safeFilename}.${ext}`;
 
-    // Verify existing file integrity
     if (item.file_path && item.file_path.startsWith("file://")) {
       const dbFileInfo = await FileSystem.getInfoAsync(item.file_path);
       if (dbFileInfo.exists && dbFileInfo.size > 0) return item.file_path;
@@ -317,7 +317,6 @@ export default function SavedReportsScreen() {
         }
         return expectedPath;
       } else {
-        // Corrupted 0-byte file found - remove it to force redownload
         await FileSystem.deleteAsync(expectedPath, { idempotent: true });
       }
     }
@@ -342,7 +341,6 @@ export default function SavedReportsScreen() {
       expectedPath,
     );
     
-    // Post-download size validation check
     const downloadedInfo = await FileSystem.getInfoAsync(uri);
     if (!downloadedInfo.exists || downloadedInfo.size === 0) {
         throw new Error("Downloaded file is corrupted or empty.");
@@ -391,7 +389,6 @@ export default function SavedReportsScreen() {
               type: mimeType,
             });
         } catch (e) {
-            // Secure fallback to standard UI sharing/viewing if Intent fails
             await Sharing.shareAsync(uri, { mimeType, dialogTitle: item.title });
         }
       } else {
@@ -828,26 +825,18 @@ export default function SavedReportsScreen() {
           }
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <View
-                style={[
-                  styles.emptyIcon,
-                  { backgroundColor: theme.colors.border + "30" },
-                ]}
-              >
-                <HugeiconsIcon
-                  icon={File02Icon}
-                  size={40}
-                  color={theme.colors.textSecondary}
-                />
-              </View>
-              <Text style={[styles.emptyText, { color: theme.colors.text }]}>
-                No reports found
-              </Text>
-              <Text
-                style={[styles.emptySub, { color: theme.colors.textSecondary }]}
-              >
-                Generated reports will appear here.
-              </Text>
+                <View style={[styles.emptyIconContainer, { backgroundColor: theme.dark ? '#1F2937' : '#F3F4F6' }]}>
+                    <HugeiconsIcon icon={File02Icon} size={36} color={theme.colors.textSecondary} />
+                </View>
+                
+                <View style={styles.emptyTextContainer}>
+                    <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>
+                        No Saved Reports
+                    </Text>
+                    <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
+                        Generated PDF and Excel reports will appear here for easy sharing and printing.
+                    </Text>
+                </View>
             </View>
           }
         />
@@ -904,27 +893,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 2,
   },
-  emptyContainer: {
-    alignItems: "center",
-    marginTop: 100,
-    gap: 12,
-  },
-  emptyIcon: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 16,
-    borderWidth: 1,
-  },
-  emptyText: {
-    fontSize: 18,
-    fontWeight: "700",
-  },
-  emptySub: {
-    fontSize: 14,
-  },
+  
+  // Clean Empty State
+  emptyContainer: { alignItems: 'center', marginTop: 80, paddingHorizontal: 24 },
+  emptyIconContainer: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
+  emptyTextContainer: { alignItems: 'center', marginBottom: 8 },
+  emptyTitle: { fontFamily: 'Nunito_800ExtraBold', fontSize: 22, marginBottom: 10, textAlign: 'center', letterSpacing: -0.3 },
+  emptyDescription: { fontFamily: 'Nunito_500Medium', fontSize: 15, lineHeight: 24, textAlign: 'center', opacity: 0.9, paddingHorizontal: 8 },
+
   searchHeaderContainer: {
     flex: 1,
     width: "100%",

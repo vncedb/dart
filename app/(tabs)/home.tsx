@@ -1,7 +1,9 @@
+// app/(tabs)/home.tsx
 import {
     ArrowDown01Icon,
     Notification01Icon,
-    PlusSignIcon
+    PlusSignIcon,
+    Search01Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import notifee, { EventType } from '@notifee/react-native';
@@ -233,7 +235,7 @@ export default function Home() {
     // SCROLLING REFS & STATES
     const scrollViewRef = useRef<any>(null);
     const [noJobCardY, setNoJobCardY] = useState(0);
-    const [highlightNoJob, setHighlightNoJob] = useState(0); // Trigger for animation
+    const [highlightNoJob, setHighlightNoJob] = useState(0);
 
     const scrollY = useSharedValue(0);
     const headerTranslateY = useSharedValue(0);
@@ -489,14 +491,11 @@ export default function Home() {
         } finally { setLoading(false); }
     }, [user, activeJobId, isClockedIn, latestRecord, appSettings, loadData, triggerSync, successPlayer, router, accumulatedBreakMs]);
 
-    // UPDATED CLOCK BUTTON PRESS LOGIC
     const handleClockButtonPress = () => {
         if (!jobSettings || !activeJobId) {
-            // Scroll to the NoActiveJobCard smoothly (-120px offset to show it clearly below header)
             if (scrollViewRef.current) {
                 scrollViewRef.current.scrollTo({ y: Math.max(0, noJobCardY - 120), animated: true });
             }
-            // Trigger the animation in the card
             setHighlightNoJob(prev => prev + 1);
             return;
         }
@@ -730,13 +729,14 @@ export default function Home() {
             </Animated.View>
 
             <Animated.ScrollView 
-                ref={scrollViewRef} // <-- ATTACHED REF FOR SCROLLING
+                ref={scrollViewRef}
                 onScroll={scrollHandler} 
                 scrollEventThrottle={16} 
                 showsVerticalScrollIndicator={false} 
                 contentContainerStyle={{ padding: 24, paddingTop: 120 + insets.top, paddingBottom: 140 }} 
                 refreshControl={<RefreshControl refreshing={refreshing || syncStatus === 'syncing'} onRefresh={onRefresh} progressViewOffset={insets.top + 100} tintColor={theme.colors.primary} />}
             >
+
                 {isInitialLoading ? (
                     <HomeContentSkeleton />
                 ) : (
@@ -748,7 +748,6 @@ export default function Home() {
                             </View>
                         </View>
 
-                        {/* ADDED onLayout TO TRACK CARD POSITION */}
                         <View 
                             style={{ marginBottom: 24 }} 
                             collapsable={false}
@@ -769,6 +768,9 @@ export default function Home() {
                                         {calendarLoading ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.textSecondary} />}
                                     </TouchableOpacity>
                                     <View style={styles.actionRow}>
+                                        <TouchableOpacity onPress={() => router.push('/search')} style={[styles.iconButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                                            <HugeiconsIcon icon={Search01Icon} size={18} color={theme.colors.text} />
+                                        </TouchableOpacity>
                                         <TouchableOpacity onPress={() => router.push('/notifications')} style={[styles.iconButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                                             <HugeiconsIcon icon={Notification01Icon} size={18} color={theme.colors.text} />
                                             {unreadNotifsCount > 0 && <View style={[styles.badge, { backgroundColor: theme.colors.danger, borderColor: theme.colors.card }]} />}

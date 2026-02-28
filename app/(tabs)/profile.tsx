@@ -1,4 +1,4 @@
-// filepath: vncedb/dart/dart-8346f6d6d3ba6721214d0c5b9d4684d9a2a9874e/app/(tabs)/profile.tsx
+// app/(tabs)/profile.tsx
 import {
     Briefcase01Icon,
     Camera01Icon,
@@ -6,12 +6,13 @@ import {
     Mail01Icon,
     PencilEdit02Icon,
     Settings02Icon,
+    SparklesIcon,
     UserCircleIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy'; // FIXED: Changed to legacy import
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -27,6 +28,8 @@ import {
     View
 } from 'react-native';
 import Animated, {
+    FadeIn,
+    SlideInDown,
     useAnimatedStyle,
     useSharedValue,
     withRepeat,
@@ -54,19 +57,32 @@ const shadowStyle = Platform.select({
 });
 
 const EmptyJobCard = ({ theme, hasJobs }: any) => (
-    <View style={[styles.emptyCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-        <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.primary + '10' }]}>
-            <HugeiconsIcon icon={Briefcase01Icon} size={32} color={theme.colors.primary} />
+    <Animated.View 
+        entering={FadeIn.duration(600).delay(100)} 
+        style={[
+            styles.emptyCard, 
+            { backgroundColor: theme.colors.card, borderColor: theme.colors.border }
+        ]}
+    >
+        <View style={[styles.emptyBgAccent, { backgroundColor: theme.colors.primary, opacity: 0.03 }]} />
+
+        <View style={styles.emptyContent}>
+            <Animated.View entering={SlideInDown.duration(500).delay(200)} style={[styles.emptyIconContainer, { backgroundColor: theme.dark ? '#1F2937' : '#F3F4F6' }]}>
+                <HugeiconsIcon icon={Briefcase01Icon} size={36} color={theme.colors.textSecondary} />
+            </Animated.View>
+            
+            <Animated.View entering={SlideInDown.duration(500).delay(300)} style={styles.emptyTextContainer}>
+                <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>
+                    {hasJobs ? "No Active Workspace" : "No Jobs Added"}
+                </Text>
+                <Text style={[styles.emptyDesc, { color: theme.colors.textSecondary }]}>
+                    {hasJobs 
+                        ? "You have saved jobs but none are set as active. Select an active job from the list to continue." 
+                        : "Set up your job profile to configure your work schedule, track your period targets, and calculate your logged hours."}
+                </Text>
+            </Animated.View>
         </View>
-        <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>
-            {hasJobs ? "No Active Job" : "No Jobs Added"}
-        </Text>
-        <Text style={[styles.emptyDesc, { color: theme.colors.textSecondary }]}>
-            {hasJobs 
-                ? "You have saved jobs but none are set as active." 
-                : "Set up your job profile to start tracking your attendance."}
-        </Text>
-    </View>
+    </Animated.View>
 );
 
 const DEFAULT_VISIBLE_KEYS = ['employment_status', 'shift', 'rate', 'period_target'];
@@ -171,7 +187,6 @@ export default function ProfileScreen() {
                     }
                 }
 
-                // Check and download avatar if not cached locally
                 if (tempProfile.avatar_url && !tempProfile.local_avatar_path) {
                     const state = await NetInfo.fetch();
                     if (state.isConnected) {
@@ -227,7 +242,6 @@ export default function ProfileScreen() {
             await queueSyncItem('profiles', user.id, 'UPDATE', updates);
             triggerSync();
         } catch (e) { 
-            console.log("Update Error:", e);
             setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Failed to save changes.', confirmText: 'OK', onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) });
         } finally { 
             setIsUpdating(false); 
@@ -273,7 +287,8 @@ export default function ProfileScreen() {
         return 'User';
     })();
 
-    const displayJobTitle = userJob ? userJob.title : 'No Job Selected';
+    // Defaulting to "Free Plan" for the UI. Can be made dynamic from backend later.
+    const userPlan = "Free Plan"; 
 
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
@@ -281,13 +296,7 @@ export default function ProfileScreen() {
             <ModernAlert {...alertConfig} />
             <LoadingOverlay visible={isUpdating} message={loadingMessage} />
             
-            <EditDisplayModal 
-                visible={modalVisible} 
-                onClose={() => setModalVisible(false)} 
-                selectedKeys={visibleDetailKeys} 
-                onSave={handleSaveDisplayConfig} 
-            />
-            
+            <EditDisplayModal visible={modalVisible} onClose={() => setModalVisible(false)} selectedKeys={visibleDetailKeys} onSave={handleSaveDisplayConfig} />
             <EditAvatarModal visible={avatarModalVisible} onClose={() => setAvatarModalVisible(false)} onPickImage={pickAvatar} onRemoveImage={removeAvatar} />
             
             <TabHeader 
@@ -324,10 +333,18 @@ export default function ProfileScreen() {
 
                         <View style={{ alignItems: 'center', marginTop: 16 }}>
                             <Text style={[styles.nameText, { color: theme.colors.text }]}>{displayName}</Text>
-                            <View style={[styles.badgeContainer, { backgroundColor: theme.colors.primary + '10' }]}>
-                                <Text style={[styles.badgeText, { color: theme.colors.primary }]}>{displayJobTitle}</Text>
-                            </View>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, opacity: 0.6 }}>
+                            
+                            {/* NEW: Interactive Plan Badge */}
+                            <TouchableOpacity 
+                                activeOpacity={0.7} 
+                                onPress={() => router.push('/settings/plan')}
+                                style={[styles.planBadge, { backgroundColor: theme.colors.primary + '15', borderColor: theme.colors.primary + '30' }]}
+                            >
+                                <HugeiconsIcon icon={SparklesIcon} size={14} color={theme.colors.primary} />
+                                <Text style={[styles.planBadgeText, { color: theme.colors.primary }]}>{userPlan}</Text>
+                            </TouchableOpacity>
+
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, opacity: 0.6 }}>
                                 <HugeiconsIcon icon={Mail01Icon} size={14} color={theme.colors.text} />
                                 <Text style={{ marginLeft: 6, fontSize: 13, color: theme.colors.text, fontWeight: '500' }}>{email}</Text>
                             </View>
@@ -370,7 +387,6 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
     settingsButton: { padding: 10, borderRadius: 99, borderWidth: 1 },
-    loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     scrollContent: { paddingBottom: 120 },
     
     profileSection: { alignItems: 'center', paddingVertical: 32, paddingHorizontal: 24 },
@@ -381,24 +397,27 @@ const styles = StyleSheet.create({
     
     editAvatarBtn: { 
         position: 'absolute', bottom: 0, right: 0, width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', borderWidth: 2,
-        ...Platform.select({ ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 3 }, android: { elevation: 4 } })
+        ...shadowStyle
     },
     
-    nameText: { fontSize: 24, fontFamily: 'Nunito_500Medium', textAlign: 'center', letterSpacing: -0.5 },
-    badgeContainer: { marginTop: 8, paddingHorizontal: 14, paddingVertical: 6, borderRadius: 100 },
-    badgeText: { fontSize: 12, fontFamily: 'Nunito_500Medium', textTransform: 'uppercase', letterSpacing: 0.5 },
+    nameText: { fontSize: 24, fontFamily: 'Nunito_800ExtraBold', textAlign: 'center', letterSpacing: -0.5 },
+    
+    planBadge: { marginTop: 8, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 100, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1 },
+    planBadgeText: { fontSize: 12, fontFamily: 'Nunito_700Bold', textTransform: 'uppercase', letterSpacing: 0.5 },
     
     actionButtonsRow: { flexDirection: 'row', gap: 12, marginTop: 24, width: '100%' },
     actionButtonWrapper: { flex: 1 },
     actionButton: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, borderRadius: 16, borderWidth: 1, justifyContent: 'center', ...shadowStyle },
-    actionButtonText: { marginLeft: 8, fontFamily: 'Nunito_500Medium', fontSize: 14 },
+    actionButtonText: { marginLeft: 8, fontFamily: 'Nunito_600SemiBold', fontSize: 14 },
     
     sectionContainer: { paddingHorizontal: 24, marginBottom: 20 },
-    sectionTitle: { fontSize: 11, fontFamily: 'Nunito_500Medium', letterSpacing: 1, marginBottom: 12, opacity: 0.7 },
+    sectionTitle: { fontSize: 11, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 1, marginBottom: 12, opacity: 0.7 },
     
-    // Empty Card Styles
-    emptyCard: { padding: 32, alignItems: 'center', borderRadius: 24, borderWidth: 1, borderStyle: 'dashed' },
-    emptyIconContainer: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
-    emptyTitle: { fontSize: 18, fontFamily: 'Nunito_500Medium', marginBottom: 8 },
-    emptyDesc: { textAlign: 'center', fontSize: 14, opacity: 0.7, fontFamily: 'Nunito_400Regular', paddingHorizontal: 10 },
+    emptyCard: { borderWidth: 1, borderRadius: 28, overflow: 'hidden', shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.04, shadowRadius: 16, elevation: 2, position: 'relative' },
+    emptyBgAccent: { position: 'absolute', top: -50, right: -50, width: 150, height: 150, borderRadius: 75 },
+    emptyContent: { padding: 32, alignItems: 'center' },
+    emptyIconContainer: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
+    emptyTextContainer: { alignItems: 'center', marginBottom: 8 },
+    emptyTitle: { fontFamily: 'Nunito_800ExtraBold', fontSize: 22, marginBottom: 10, textAlign: 'center', letterSpacing: -0.3 },
+    emptyDesc: { fontFamily: 'Nunito_500Medium', fontSize: 15, lineHeight: 24, textAlign: 'center', opacity: 0.9, paddingHorizontal: 8 },
 });
