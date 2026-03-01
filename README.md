@@ -89,6 +89,9 @@ dart/
 ├── package.json          # Dependencies and scripts
 ├── app.json              # Expo configuration
 └── tailwind.config.js    # NativeWind/Tailwind configuration
+```
+
+---
 
 ## 🚀 Getting Started
 
@@ -109,72 +112,82 @@ Make sure you have the following installed on your machine:
    ```bash
    git clone [https://github.com/your-username/dart.git](https://github.com/your-username/dart.git)
    cd dart
+   ```
 
 2. **Install dependencies**
-  ```bash
-  npm install
-  # or
-  yarn install
+   ```bash
+   npm install
+   # or
+   yarn install
+   ```
 
 3. **Install Expo Dev Client (if running native modules)**
-  ```bash
-  npx expo install expo-dev-client
-
+   ```bash
+   npx expo install expo-dev-client
+   ```
 
 ### Environment Variables
 
-Create a .env file in the root directory of your project and configure your Supabase and API keys. You will need to set up a project on Supabase and Google AI Studio.
-  ```Code snippet
-  # Supabase Configuration
-  EXPO_PUBLIC_SUPABASE_URL=[https://your-project-ref.supabase.co](https://your-project-ref.supabase.co)
-  EXPO_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
+Create a `.env` file in the root directory of your project and configure your Supabase and API keys. You will need to set up a project on Supabase and Google AI Studio.
 
-  # Google Generative AI Configuration
-  EXPO_PUBLIC_GEMINI_API_KEY=your-gemini-api-key
+```env
+# Supabase Configuration
+EXPO_PUBLIC_SUPABASE_URL=[https://your-project-ref.supabase.co](https://your-project-ref.supabase.co)
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 
-  # RevenueCat (For Premium Features - Optional)
-  EXPO_PUBLIC_RC_APPLE_API_KEY=your_apple_api_key
-  EXPO_PUBLIC_RC_GOOGLE_API_KEY=your_google_api_key
+# Google Generative AI Configuration
+EXPO_PUBLIC_GEMINI_API_KEY=your-gemini-api-key
 
+# RevenueCat (For Premium Features - Optional)
+EXPO_PUBLIC_RC_APPLE_API_KEY=your_apple_api_key
+EXPO_PUBLIC_RC_GOOGLE_API_KEY=your_google_api_key
+```
 
 ### Running the App
 Start the Expo development server:
-  ```bash
-  npm start
+```bash
+npm start
+```
+* Press `a` to run on an Android Emulator.
+* Press `i` to run on an iOS Simulator.
+* Press `w` to run on the Web browser.
+* Scan the QR code with the Expo Go app on your physical device to test live.
 
-- Press a to run on an Android Emulator.
-- Press i to run on an iOS Simulator.
-- Press w to run on the Web browser.
-- Scan the QR code with the Expo Go app on your physical device to test live.
-(Note: Because this project uses native modules like Notifee and Local Authentication, you may need to build a custom dev client using npx expo run:android or npx expo run:ios instead of standard Expo Go).
+*(Note: Because this project uses native modules like Notifee and Local Authentication, you may need to build a custom dev client using `npx expo run:android` or `npx expo run:ios` instead of standard Expo Go).*
 
+---
 
-### 🛠 Available Scripts
+## 🛠 Available Scripts
+
 In the project directory, you can run:
-Command                 Description
-npm start	              Starts the Expo bundler
-npm run android     	  Compiles and runs the app on an Android device/emulator
-npm run ios	            Compiles and runs the app on an iOS simulator
-npm run web	            Runs the app in a web browser
-npm run lint	          Runs ESLint to find and fix code style issues
-npm run reset-project	  Custom script to reset the Expo project cache/builds
 
+| Command | Description |
+| :--- | :--- |
+| `npm start` | Starts the Expo bundler |
+| `npm run android` | Compiles and runs the app on an Android device/emulator |
+| `npm run ios` | Compiles and runs the app on an iOS simulator |
+| `npm run web` | Runs the app in a web browser |
+| `npm run lint` | Runs ESLint to find and fix code style issues |
+| `npm run reset-project`| Custom script to reset the Expo project cache/builds |
+
+---
 
 ## 📈 Future Roadmap
-[ ] PDF Export Engine: Finalize native PDF generation for reports.
 
-[ ] Team Collaboration: Multi-user workspaces and admin management panels.
+- [ ] **PDF Export Engine:** Finalize native PDF generation for reports.
+- [ ] **Team Collaboration:** Multi-user workspaces and admin management panels.
+- [ ] **Web Companion:** Expand the Expo Web build into a fully-fledged desktop dashboard.
+- [ ] **Advanced AI Summarization:** Use Gemini to automatically draft weekly performance reviews based on daily logs.
+- [ ] **Automated Testing:** Implement Jest and Detox for unit and end-to-end testing.
 
-[ ] Web Companion: Expand the Expo Web build into a fully-fledged desktop dashboard.
-
-[ ] Advanced AI Summarization: Use Gemini to automatically draft weekly performance reviews based on daily logs.
-
-[ ] Automated Testing: Implement Jest and Detox for unit and end-to-end testing.
+---
 
 ## 👨‍💻 Author
-Vince Balbin Bachelor of Science in Information Systems
+**Vince Balbin** – *Bachelor of Science in Information Systems*
+
+---
 
 ## 📜 License
-Private Project – All Rights Reserved.
+**Private Project – All Rights Reserved.**
 
 Unauthorized copying, modification, distribution, or use of this software is strictly prohibited.
