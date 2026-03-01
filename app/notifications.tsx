@@ -1,3 +1,4 @@
+// filepath: app/notifications.tsx
 import {
     ArrowRight01Icon,
     CheckmarkBadge01Icon,
@@ -28,6 +29,7 @@ import Animated, {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActionMenu from '../components/ActionMenu';
+import BannerAdComponent from '../components/BannerAdComponent'; // <-- ADDED AD COMPONENT
 import Footer from '../components/Footer';
 import Header from '../components/Header';
 import { useAppTheme } from '../constants/theme';
@@ -92,26 +94,35 @@ const NotificationRow = ({
         if (onDeleteNotification) onDeleteNotification(item.id);
     };
 
+    // Gmail-style Auto-Trigger
+    const handleSwipeOpen = (direction: 'left' | 'right') => {
+        if (direction === 'left' && !item.read) {
+            handleMarkAsReadLocal();
+        } else if (direction === 'right') {
+            handleDeleteLocal();
+        }
+    };
+
     const renderLeftActions = (progress: any, dragX: any) => {
         if (item.read) return null;
-        const scale = dragX.interpolate({ inputRange: [0, 40, 80], outputRange: [0, 0.8, 1], extrapolate: 'clamp' });
+        const scale = dragX.interpolate({ inputRange: [0, 60], outputRange: [0.5, 1], extrapolate: 'clamp' });
         return (
-            <TouchableOpacity activeOpacity={0.8} onPress={handleMarkAsReadLocal} style={[styles.gmailActionLeft, { backgroundColor: theme.colors.success }]}>
+            <View style={[styles.gmailAction, { backgroundColor: theme.colors.success, alignItems: 'flex-start', paddingLeft: 24 }]}>
                 <RNAnimated.View style={{ transform: [{ scale }] }}>
                     <HugeiconsIcon icon={CheckmarkBadge01Icon} size={26} color="#FFF" />
                 </RNAnimated.View>
-            </TouchableOpacity>
+            </View>
         );
     };
 
     const renderRightActions = (progress: any, dragX: any) => {
-        const scale = dragX.interpolate({ inputRange: [-80, -40, 0], outputRange: [1, 0.8, 0], extrapolate: 'clamp' });
+        const scale = dragX.interpolate({ inputRange: [-60, 0], outputRange: [1, 0.5], extrapolate: 'clamp' });
         return (
-            <TouchableOpacity activeOpacity={0.8} onPress={handleDeleteLocal} style={[styles.gmailActionRight, { backgroundColor: theme.colors.danger }]}>
+            <View style={[styles.gmailAction, { backgroundColor: theme.colors.danger, alignItems: 'flex-end', paddingRight: 24 }]}>
                 <RNAnimated.View style={{ transform: [{ scale }] }}>
                     <HugeiconsIcon icon={Delete02Icon} size={26} color="#FFF" />
                 </RNAnimated.View>
-            </TouchableOpacity>
+            </View>
         );
     };
 
@@ -123,13 +134,14 @@ const NotificationRow = ({
             <Swipeable
                 ref={swipeableRef}
                 friction={1.5}
-                leftThreshold={40}
-                rightThreshold={40}
-                overshootLeft={false}
-                overshootRight={false}
+                leftThreshold={80} // Increased threshold for deliberate swipe action
+                rightThreshold={80} // Increased threshold for deliberate swipe action
+                overshootLeft={true} // Allow overshooting for smooth Gmail feel
+                overshootRight={true} // Allow overshooting for smooth Gmail feel
                 onSwipeableWillOpen={() => {
                     if (openRowId !== item.id) setOpenRowId(item.id);
                 }}
+                onSwipeableOpen={handleSwipeOpen}
                 renderLeftActions={item.read ? undefined : renderLeftActions}
                 renderRightActions={renderRightActions}
                 containerStyle={{ backgroundColor: theme.colors.background }}
@@ -269,7 +281,6 @@ export default function NotificationsScreen() {
         }
     };
 
-    // <-- FIXED: WRAPPED IN USEFOCUSEFFECT TO PREVENT CLOSING THE APP OUTSIDE THIS SCREEN
     useFocusEffect(
         useCallback(() => {
             const onBackPress = () => {
@@ -399,6 +410,11 @@ export default function NotificationsScreen() {
                                             </TouchableOpacity>
                                         </Footer>
                                     )}
+
+                                    {/* ADDED AD COMPONENT AT THE BOTTOM OF REPORT DETAILS */}
+                                    <View style={{ width: '100%' }}>
+                                        <BannerAdComponent />
+                                    </View>
                                 </>
                             )}
                         </View>
@@ -432,9 +448,8 @@ const styles = StyleSheet.create({
     itemDate: { fontSize: 12, fontFamily: 'Nunito_500Medium' },
     itemBody: { fontSize: 14, fontFamily: 'Nunito_500Medium', lineHeight: 22 },
     
-    // Gmail-Style Swipe Actions
-    gmailActionLeft: { flex: 1, justifyContent: 'center', paddingLeft: 24 },
-    gmailActionRight: { flex: 1, justifyContent: 'center', alignItems: 'flex-end', paddingRight: 24 },
+    // Gmail-Style Swipe Actions (Refined)
+    gmailAction: { flex: 1, justifyContent: 'center' },
 
     // Empty & Footer
     footerContainer: { paddingVertical: 32, paddingHorizontal: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, opacity: 0.4 },
@@ -445,7 +460,7 @@ const styles = StyleSheet.create({
     emptyTitle: { fontSize: 20, fontFamily: 'Nunito_700Bold', marginBottom: 8 },
     emptySubtitle: { fontSize: 15, fontFamily: 'Nunito_500Medium', textAlign: 'center', lineHeight: 22, paddingHorizontal: 20 },
 
-    // Detail View Styles (Matches report/details.tsx exactly)
+    // Detail View Styles
     detailScrollContent: { paddingHorizontal: 24, paddingTop: 32, paddingBottom: 40 },
     heroSection: { flexDirection: "row", alignItems: "center", marginBottom: 32, gap: 16 },
     heroIconBox: { width: 56, height: 56, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },

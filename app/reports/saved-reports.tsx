@@ -37,6 +37,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import ActionMenu from "../../components/ActionMenu";
+import BannerAdComponent from "../../components/BannerAdComponent"; // <-- ADDED AD COMPONENT
 import FloatingAlert, {
   AlertPosition,
   AlertType,
@@ -314,9 +315,14 @@ export default function SavedReportsScreen() {
     setSelectedIds(new Set());
   };
 
+  const isItemPdf = (item: any) => {
+    return item?.file_type?.toLowerCase().includes("pdf") || item?.file_path?.toLowerCase().endsWith(".pdf");
+  };
+
   const prepareFileLocal = async (item: any) => {
     const safeFilename = item.title.replace(/[^a-zA-Z0-9 _-]/g, "_");
-    const ext = item.file_type === "pdf" ? "pdf" : "xlsx";
+    const isPdf = isItemPdf(item);
+    const ext = isPdf ? "pdf" : "xlsx";
     const expectedPath = `${FileSystem.documentDirectory}reports/${safeFilename}.${ext}`;
 
     if (item.file_path && item.file_path.startsWith("file://")) {
@@ -394,10 +400,10 @@ export default function SavedReportsScreen() {
       }
 
       const uri = await prepareFileLocal(item);
-      const mimeType =
-        item.file_type === "pdf"
-          ? "application/pdf"
-          : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      const isPdf = isItemPdf(item);
+      const mimeType = isPdf 
+        ? "application/pdf" 
+        : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
       if (Platform.OS === "android") {
         try {
@@ -413,7 +419,7 @@ export default function SavedReportsScreen() {
         }
       } else {
         await Sharing.shareAsync(uri, {
-          UTI: item.file_type === "pdf" ? "com.adobe.pdf" : "com.microsoft.excel.xls",
+          UTI: isPdf ? "com.adobe.pdf" : "com.microsoft.excel.xls",
           mimeType,
           dialogTitle: item.title,
         });
@@ -610,14 +616,21 @@ export default function SavedReportsScreen() {
   const saveRename = async (newName: string) => {
     if (!selectedItem) return;
     try {
-      const ext = selectedItem.file_type === "pdf" ? "pdf" : "xlsx";
-      const safeName = newName.replace(/[^a-zA-Z0-9 _-]/g, "_");
+      const isPdf = isItemPdf(selectedItem);
+      const ext = isPdf ? "pdf" : "xlsx";
+
+      let cleanName = newName.trim();
+      if (cleanName.toLowerCase().endsWith('.pdf') || cleanName.toLowerCase().endsWith('.xlsx')) {
+         cleanName = cleanName.substring(0, cleanName.lastIndexOf('.'));
+      }
+
+      const safeName = cleanName.replace(/[^a-zA-Z0-9 _-]/g, "_");
       const newFileName = `${safeName}.${ext}`;
       const reportsDir = `${FileSystem.documentDirectory}reports/`;
       const newPath = `${reportsDir}${newFileName}`;
       const oldPath = selectedItem.file_path;
 
-      if (oldPath && oldPath.startsWith("file://")) {
+      if (oldPath && oldPath.startsWith("file://") && oldPath !== newPath) {
         const fileInfo = await FileSystem.getInfoAsync(oldPath);
         if (fileInfo.exists) {
            await FileSystem.makeDirectoryAsync(reportsDir, { intermediates: true });
@@ -625,19 +638,27 @@ export default function SavedReportsScreen() {
         }
       }
 
-      await renameReportLocal(selectedItem.id, newName, newPath);
+      await renameReportLocal(selectedItem.id, cleanName, newPath);
       await queueSyncItem("saved_reports", selectedItem.id, "UPDATE", {
-        title: newName,
+        title: cleanName,
       });
       await triggerSync();
+      
+      setRenameModalVisible(false);
       fetchReports();
     } catch (e) {
       console.error(e);
+      setFloatingAlert({
+        visible: true,
+        message: "Failed to rename report.",
+        type: "error",
+        position: "top",
+      });
     }
   };
 
   const renderItem = ({ item }: { item: any }) => {
-    const isPdf = item.file_type === "pdf";
+    const isPdf = isItemPdf(item);
     const isUnread = item.is_read === 0 || item.is_read === false || item.is_read == null;
     const isOpening = openingId === item.id;
     const isSelected = selectedIds.has(item.id);
@@ -662,25 +683,6 @@ export default function SavedReportsScreen() {
           },
         ]}
       >
-        {selectionMode && (
-          <View style={{ marginRight: 12 }}>
-            {isSelected ? (
-              <HugeiconsIcon
-                icon={Tick02Icon}
-                size={24}
-                color={theme.colors.primary}
-              />
-            ) : (
-              <View
-                style={[
-                  styles.checkbox,
-                  { borderColor: theme.colors.textSecondary },
-                ]}
-              />
-            )}
-          </View>
-        )}
-
         <View
           style={[
             styles.iconBox,
@@ -755,7 +757,24 @@ export default function SavedReportsScreen() {
           </View>
         </View>
 
-        {!selectionMode && (
+        {selectionMode ? (
+          <View style={{ padding: 4 }}>
+            {isSelected ? (
+              <HugeiconsIcon
+                icon={Tick02Icon}
+                size={24}
+                color={theme.colors.primary}
+              />
+            ) : (
+              <View
+                style={[
+                  styles.checkbox,
+                  { borderColor: theme.colors.textSecondary },
+                ]}
+              />
+            )}
+          </View>
+        ) : (
           <TouchableOpacity
             onPress={(e) => handleMenu(e, item)}
             hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
@@ -867,6 +886,10 @@ export default function SavedReportsScreen() {
           }
         />
       )}
+      
+      {/* ADDED AD COMPONENT AT THE BOTTOM OF THE SCREEN */}
+      <BannerAdComponent />
+
     </SafeAreaView>
   );
 }

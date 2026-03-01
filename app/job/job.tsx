@@ -1,3 +1,4 @@
+// filepath: app/job/job.tsx
 import {
     Briefcase01Icon,
     Building03Icon,
@@ -27,6 +28,7 @@ import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActionMenu from '../../components/ActionMenu';
+import BannerAdComponent from '../../components/BannerAdComponent'; // <-- ADDED AD COMPONENT
 import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import LoadingScreen from '../../components/LoadingScreen';
@@ -443,12 +445,16 @@ export default function MyJobsScreen() {
                     }
                 ]} 
             />
+
+            {/* ADDED AD COMPONENT AT THE BOTTOM */}
+            <BannerAdComponent />
+
         </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    scrollContent: { padding: 24, paddingBottom: 100, flexGrow: 1 },
+    scrollContent: { padding: 24, paddingBottom: 24, flexGrow: 1 },
     headerAddBtn: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
     sectionTitle: { fontSize: 11, fontFamily: 'Nunito_500Medium', letterSpacing: 1, marginBottom: 12, marginLeft: 4 },
     offlineStatus: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 8, borderBottomWidth: 1 },

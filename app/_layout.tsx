@@ -16,6 +16,7 @@ import * as SplashScreen from "expo-splash-screen";
 import { useEffect, useState } from "react";
 import { LogBox, StyleSheet, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import mobileAds from 'react-native-google-mobile-ads';
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import BiometricLockScreen from "../components/BiometricLockScreen";
@@ -197,6 +198,15 @@ export default function RootLayout() {
     Nunito_800ExtraBold,
     Nunito_900Black,
   });
+
+  // Initialize the AdMob SDK
+  useEffect(() => {
+    mobileAds()
+      .initialize()
+      .then(adapterStatuses => {
+        console.log('AdMob SDK Initialized!', adapterStatuses);
+      });
+  }, []);
 
   useEffect(() => {
     const setupApp = async () => {
