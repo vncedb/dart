@@ -15,11 +15,16 @@ All notable changes to the DART application will be documented in this file.
 - Implemented Gmail-style swipe interactions for the Notifications screen.
 - Redesigned the Sync Status Indicator for a cleaner, non-intrusive view.
 - Updated App sharing functionality directly from the settings header.
+- Added dual-signature (Primary and Approver) support for generated PDF reports.
+- Streamlined the Signature Modal and Generate Report UI for a smoother signing experience.
 
 ### Fixes
 - Resolved issue where saved PDF reports incorrectly attempted to open as XLSX files.
 - Fixed native module dependency errors during the Android build process.
 - Optimized background syncing callbacks for accurate progress tracking.
+- Resolved a critical bug where the Signature canvas appeared invisible (white ink on white background) due to Dark Mode inversion.
+- Fixed an issue where the Signature pad became unresponsive when switching between multiple signees.
+- Fixed a navigation bug that incorrectly triggered the 'Unsaved Changes' warning after successfully generating a report.
 
 ---
 

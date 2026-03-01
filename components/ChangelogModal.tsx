@@ -2,7 +2,7 @@
 import {
     ArrowUpRight01Icon,
     Bug02Icon,
-    Cancel01Icon, // <-- Added Cancel Icon
+    Cancel01Icon,
     Megaphone01Icon,
     PlusSignIcon,
     RefreshIcon,
@@ -115,14 +115,14 @@ export default function ChangelogModal({ visible, onClose }: ChangelogModalProps
                 <Animated.View style={[styles.modalSheet, { backgroundColor: theme.colors.background }, slideStyle]}>
                     
                     <GestureDetector gesture={pan}>
-                        <View style={styles.headerArea}>
+                        {/* Added border styling to match EditAvatar and EditDisplay Modals */}
+                        <View style={[styles.headerArea, { borderBottomColor: theme.colors.border, borderBottomWidth: 1 }]}>
                             <View style={[styles.handleBar, { backgroundColor: theme.dark ? '#374151' : '#E5E7EB' }]} />
                             <View style={styles.headerTextContainer}>
                                 <View>
                                     <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Changelog</Text>
                                     <Text style={[styles.headerSubtitle, { color: theme.colors.textSecondary }]}>Latest updates and fixes</Text>
                                 </View>
-                                {/* ADDED CLOSE X BUTTON */}
                                 <TouchableOpacity 
                                     onPress={handleClose}
                                     style={[styles.closeBtn, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
@@ -189,7 +189,8 @@ export default function ChangelogModal({ visible, onClose }: ChangelogModalProps
                         <TouchableOpacity 
                             style={[styles.fab, { backgroundColor: theme.dark ? '#374151' : '#111827' }]} 
                             activeOpacity={0.8}
-                            onPress={() => Linking.openURL('https://github.com/vncedb/dart')}
+                            // Directed explicitly to CHANGELOG.md file on GitHub
+                            onPress={() => Linking.openURL('https://github.com/vncedb/dart/blob/main/CHANGELOG.md')}
                         >
                             <Image source={require('../assets/images/github.png')} style={styles.fabIcon} />
                             <Text style={styles.fabText}>View on GitHub</Text>
@@ -209,7 +210,6 @@ const styles = StyleSheet.create({
     headerArea: { paddingBottom: 16, backgroundColor: 'transparent', zIndex: 10 },
     handleBar: { width: 40, height: 4, borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 16 },
     
-    // UPDATED HEADER LAYOUT
     headerTextContainer: { paddingHorizontal: 24, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     headerTitle: { fontSize: 22, fontFamily: 'Nunito_800ExtraBold', letterSpacing: -0.3, marginBottom: 2 },
     headerSubtitle: { fontSize: 14, fontFamily: 'Nunito_500Medium' },

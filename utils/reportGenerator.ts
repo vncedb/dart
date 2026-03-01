@@ -1,3 +1,4 @@
+// filepath: utils/reportGenerator.ts
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Print from 'expo-print';
 
@@ -12,6 +13,9 @@ interface ReportData {
     style?: 'corporate' | 'creative' | 'minimal';
     paperSize?: 'Letter' | 'A4' | 'Legal';
     signatureUri?: string | null;
+    secondaryName?: string;
+    secondaryTitle?: string;
+    secondarySignatureUri?: string | null;
     columns?: any;
     dateFormat?: string;
 }
@@ -30,11 +34,10 @@ const convertImageToBase64 = async (uri: string): Promise<string> => {
             }
         }
 
-        // FIX: Verify the file exists locally before trying to read it
         const fileInfo = await FileSystem.getInfoAsync(processUri);
         if (!fileInfo.exists) {
             console.warn(`File does not exist locally: ${processUri}`);
-            return ''; // Gracefully return empty so the report doesn't break
+            return ''; 
         }
 
         const base64 = await FileSystem.readAsStringAsync(processUri, { encoding: 'base64' });
@@ -71,7 +74,6 @@ const getDocumentationHtml = (reportData: any[]) => {
     reportData.forEach(day => {
         if (day.summary && Array.isArray(day.summary)) {
             day.summary.forEach((task: any) => {
-                // Ensure imgs array contains valid items after filtering
                 if (task.images && task.images.length > 0) {
                      const plainDate = day.date.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
                      tasksWithImages.push({
@@ -112,7 +114,7 @@ const getDocumentationHtml = (reportData: any[]) => {
 };
 
 export const generateReport = async ({ 
-    userName, userTitle, company, department, reportTitle, period, data, style = 'corporate', paperSize = 'Letter', signatureUri, columns 
+    userName, userTitle, company, department, reportTitle, period, data, style = 'corporate', paperSize = 'Letter', signatureUri, secondaryName, secondaryTitle, secondarySignatureUri, columns 
 }: ReportData) => {
     
     let safeSignature = null;
@@ -120,12 +122,16 @@ export const generateReport = async ({
         safeSignature = await convertImageToBase64(signatureUri);
     }
 
+    let safeSecondarySignature = null;
+    if (secondarySignatureUri) {
+        safeSecondarySignature = await convertImageToBase64(secondarySignatureUri);
+    }
+
     const processedData = await Promise.all(data.map(async (day) => {
         const processedTasks = await Promise.all((day.summary || []).map(async (task: any) => {
             const processedImages = await Promise.all((task.images || []).map(async (img: string) => {
                 return await convertImageToBase64(img);
             }));
-            // Filter out any images that failed to convert (returned '')
             return { ...task, images: processedImages.filter(Boolean) };
         }));
         
@@ -176,7 +182,6 @@ export const generateReport = async ({
 
     const t = configs[style];
 
-    // Dimensions
     const sizeMap: Record<string, { w: number; h: number }> = {
         'Letter': { w: 612, h: 792 },
         'A4': { w: 595, h: 842 },
@@ -269,17 +274,24 @@ export const generateReport = async ({
             .time-label { color: ${t.secondary}; font-weight: 700; font-size: 8px; text-transform: uppercase; margin-right: 4px; }
             .time-val { font-weight: 600; }
 
+            /* New Signatures Wrapper Layout */
+            .signatures-wrapper {
+                display: flex;
+                justify-content: flex-start;
+                gap: 60px;
+                margin-top: 50px;
+                page-break-inside: avoid;
+            }
             .signature-section { 
-                margin-top: 50px; 
-                page-break-inside: avoid; 
                 width: 250px; 
                 display: flex; 
                 flex-direction: column; 
                 align-items: center; 
             }
-            .sig-img { height: 60px; max-width: 200px; margin-bottom: -10px; z-index: 10; position: relative; }
+            .sig-img { height: 60px; max-width: 200px; margin-bottom: -10px; z-index: 10; position: relative; mix-blend-mode: multiply; }
             .sig-line { width: 100%; border-bottom: 1px solid ${t.primary}; margin-bottom: 8px; }
-            .sig-label { font-size: 10px; text-transform: uppercase; font-weight: 700; color: ${t.secondary}; letter-spacing: 0.5px; text-align: center; }
+            .sig-name { font-size: 13px; font-weight: 800; color: ${t.primary}; text-transform: uppercase; letter-spacing: 0.5px; text-align: center; }
+            .sig-label { font-size: 10px; font-weight: 600; color: ${t.secondary}; text-align: center; }
 
             .page-break { page-break-before: always; }
             .doc-section { margin-top: 0px; }
@@ -368,14 +380,25 @@ export const generateReport = async ({
             </tbody>
         </table>
 
-        ${safeSignature ? `
-            <div class="signature-section">
-                <img src="${safeSignature}" class="sig-img" />
-                <div class="sig-line"></div>
-                <div class="sig-label">Authorized Signature</div>
-            </div>
-        ` : ''}
-
+        <div class="signatures-wrapper">
+            ${safeSignature ? `
+                <div class="signature-section">
+                    <img src="${safeSignature}" class="sig-img" />
+                    <div class="sig-line"></div>
+                    <div class="sig-name">${escapeHtml(userName)}</div>
+                    <div class="sig-label">${escapeHtml(userTitle)}</div>
+                </div>
+            ` : ''}
+            
+            ${secondaryName ? `
+                <div class="signature-section">
+                    ${safeSecondarySignature ? `<img src="${safeSecondarySignature}" class="sig-img" />` : ''}
+                    <div class="sig-line"></div>
+                    <div class="sig-name">${escapeHtml(secondaryName)}</div>
+                    <div class="sig-label">${escapeHtml(secondaryTitle || '')}</div>
+                </div>
+            ` : ''}
+        </div>
         ${getDocumentationHtml(processedData)}
 
         <div class="footer">

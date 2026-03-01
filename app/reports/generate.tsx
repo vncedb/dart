@@ -21,8 +21,8 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { format } from "date-fns";
-import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -100,10 +100,24 @@ export default function GenerateReportScreen() {
   const [activeImage, setActiveImage] = useState<string | null>(null);
 
   const today = new Date();
+  
+  // --- GUARD BYPASS FLAG ---
+  // Tracks if the user intentionally moved forward so the router.dismissAll doesn't trigger the unsaved guard
+  const isProceeding = useRef(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      // Re-enable the guard whenever this screen comes back into focus
+      isProceeding.current = false;
+    }, [])
+  );
 
   // --- NAVIGATION GUARD ---
   useEffect(() => {
     const unsubscribe = navigation.addListener("beforeRemove", (e) => {
+      // If we are actively navigating to the preview screen, bypass the guard completely
+      if (isProceeding.current) return;
+
       const currentSettings = JSON.stringify({
         formatType, paperSize, reportStyle, dateFormat, timeFormat,
         includeDocs, includeDay, includeDept, includeSecondarySignee, columns, signature,
@@ -283,6 +297,9 @@ export default function GenerateReportScreen() {
       } catch (e) { console.log("Failed to save settings"); }
     }
 
+    // Flag that we are proceeding properly to disable the guard
+    isProceeding.current = true;
+
     router.push({
       pathname: "/reports/preview",
       params: {
@@ -327,10 +344,9 @@ export default function GenerateReportScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={["top", "bottom"]}>
-      <Header title="Report Settings" />
+      <Header title="Generate Report" />
       <ModernAlert {...alertConfig} />
       
-      {/* NO KEY PROP - Safely Mounts Canvas and Uses UseEffect to Clear */}
       <SignatureModal 
         visible={sigModalVisible} 
         onClose={() => setSigModalVisible(false)} 
@@ -494,12 +510,12 @@ export default function GenerateReportScreen() {
                     </View>
 
                     {signature ? (
-                        <TouchableOpacity activeOpacity={0.9} onPress={() => { setActiveImage(signature); setViewerVisible(true); }} style={styles.pdfSignaturePreview}>
+                        <View style={styles.pdfSignaturePreview}>
                             <Image source={{ uri: signature }} style={styles.pdfSigImage} resizeMode="contain" />
                             <View style={styles.pdfSigLine} />
                             <Text style={styles.pdfSigName}>{customName || 'YOUR NAME'}</Text>
                             <Text style={styles.pdfSigTitle}>{customTitle || 'Your Title'}</Text>
-                        </TouchableOpacity>
+                        </View>
                     ) : (
                         <TouchableOpacity activeOpacity={0.8} onPress={() => { setActiveSigner("primary"); setSigModalVisible(true); }} style={[styles.sigBtn, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
                             <View style={{ alignItems: "center", gap: 8 }}>
@@ -546,12 +562,12 @@ export default function GenerateReportScreen() {
                                 </View>
 
                                 {secondarySignature ? (
-                                    <TouchableOpacity activeOpacity={0.9} onPress={() => { setActiveImage(secondarySignature); setViewerVisible(true); }} style={styles.pdfSignaturePreview}>
+                                    <View style={styles.pdfSignaturePreview}>
                                         <Image source={{ uri: secondarySignature }} style={styles.pdfSigImage} resizeMode="contain" />
                                         <View style={styles.pdfSigLine} />
                                         <Text style={styles.pdfSigName}>{secondaryName || 'APPROVER NAME'}</Text>
                                         <Text style={styles.pdfSigTitle}>{secondaryTitle || 'Approver Title'}</Text>
-                                    </TouchableOpacity>
+                                    </View>
                                 ) : (
                                     <TouchableOpacity activeOpacity={0.8} onPress={() => { setActiveSigner("secondary"); setSigModalVisible(true); }} style={[styles.sigBtn, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
                                         <View style={{ alignItems: "center", gap: 8 }}>
@@ -611,17 +627,19 @@ const styles = StyleSheet.create({
   sigBtn: { height: 120, borderRadius: 16, borderWidth: 1.5, borderStyle: 'dashed', alignItems: "center", justifyContent: "center", overflow: "hidden" },
   
   pdfSignaturePreview: {
-      backgroundColor: '#FFFFFF',
-      padding: 16,
+      backgroundColor: '#F8FAFC',
+      padding: 20,
       borderRadius: 16,
       borderWidth: 1,
-      borderColor: '#E5E7EB',
-      alignItems: 'flex-start',
+      borderColor: '#E2E8F0',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 8,
   },
-  pdfSigImage: { width: 140, height: 60, marginBottom: 8 },
-  pdfSigLine: { width: 200, height: 1, backgroundColor: '#1e293b', marginBottom: 6 },
-  pdfSigName: { fontSize: 13, fontFamily: 'Nunito_800ExtraBold', color: '#1e293b', textTransform: 'uppercase', letterSpacing: 0.5 },
-  pdfSigTitle: { fontSize: 11, fontFamily: 'Nunito_600SemiBold', color: '#64748b' },
+  pdfSigImage: { width: 180, height: 75, marginBottom: -12, zIndex: 10 },
+  pdfSigLine: { width: '85%', height: 1, backgroundColor: '#1e293b', marginBottom: 8 },
+  pdfSigName: { fontSize: 14, fontFamily: 'Nunito_800ExtraBold', color: '#1e293b', textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'center' },
+  pdfSigTitle: { fontSize: 12, fontFamily: 'Nunito_600SemiBold', color: '#64748b', textAlign: 'center' },
 
   saveSettingsRow: { flexDirection: "row", alignItems: "center", padding: 18, borderRadius: 16, borderWidth: 1, marginBottom: 20, gap: 14 },
   checkbox: { width: 24, height: 24, borderRadius: 8, borderWidth: 2, alignItems: "center", justifyContent: "center" },

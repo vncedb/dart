@@ -2,7 +2,7 @@
 import { Cancel01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import React, { useEffect, useRef, useState } from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { LayoutChangeEvent, Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import SignatureScreen, { SignatureViewRef } from 'react-native-signature-canvas';
 
 import { useAppTheme } from '../constants/theme';
@@ -27,15 +27,27 @@ export default function SignatureModal({
     
     const [hasDrawn, setHasDrawn] = useState(false);
     const [alertVisible, setAlertVisible] = useState(false);
+    const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+
+    const handleCanvasLayout = (e: LayoutChangeEvent) => {
+        const { width, height } = e.nativeEvent.layout;
+        if (width > 0 && height > 0) {
+            setCanvasSize({ width, height });
+        }
+    };
+
+    const resetCanvas = () => {
+        setCanvasSize({ width: 0, height: 0 });
+    };
+
+    // Forces a fresh un-cached layout when switching signers
+    const canvasKey = `${title}-${visible ? 'open' : 'closed'}`;
 
     useEffect(() => {
         if (visible) {
             setHasDrawn(false);
             setAlertVisible(false);
-            // Wait slightly for the WebView to be ready, then clear any old strokes
-            setTimeout(() => {
-                ref.current?.clearSignature();
-            }, 150);
+            resetCanvas();
         }
     }, [visible]);
 
@@ -51,23 +63,26 @@ export default function SignatureModal({
     const handleClear = () => {
         ref.current?.clearSignature();
         setHasDrawn(false);
-        setAlertVisible(false);
     };
 
     const handleConfirm = () => {
         ref.current?.readSignature(); 
     };
 
-    // Forces a pure white piece of paper without native webview footers
+    const handleClose = () => {
+        ref.current?.clearSignature();
+        onClose();
+    }
+
     const webStyle = `
-        .m-signature-pad { box-shadow: none; border: none; margin: 0; padding: 0; background-color: #ffffff; }
-        .m-signature-pad--body { border: none; bottom: 0px; background-color: #ffffff; }
+        .m-signature-pad { box-shadow: none; border: none; margin: 0; padding: 0; }
+        .m-signature-pad--body { border: none; bottom: 0px; }
         .m-signature-pad--footer { display: none; margin: 0; }
-        body, html { width: 100%; height: 100%; background-color: #ffffff; padding: 0; margin: 0; overflow: hidden; }
+        body, html { width: 100%; height: 100%; background-color: transparent; padding: 0; margin: 0; }
     `;
 
     return (
-        <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
+        <Modal visible={visible} animationType="fade" transparent onRequestClose={handleClose}>
             <View style={styles.overlay}>
                 <View style={[styles.card, { backgroundColor: theme.colors.card }]}>
                     
@@ -85,35 +100,39 @@ export default function SignatureModal({
                         <Text style={[styles.title, { color: theme.colors.text }]}>
                             {title}
                         </Text>
-                        <TouchableOpacity onPress={onClose} style={[styles.headerAction, { backgroundColor: theme.colors.background }]}>
+                        <TouchableOpacity onPress={handleClose} style={[styles.headerAction, { backgroundColor: theme.colors.background }]}>
                             <HugeiconsIcon icon={Cancel01Icon} size={20} color={theme.colors.text} />
                         </TouchableOpacity>
                     </View>
 
-                    {/* CANVAS AREA - Hardcoded Black Ink on White Paper for Maximum Compatibility */}
+                    {/* CANVAS AREA */}
                     <View style={[styles.padContainer, { borderColor: theme.colors.border }]}>
-                        <View style={styles.canvasWrapper}>
-                            <SignatureScreen
-                                ref={ref}
-                                onOK={handleOK}
-                                onEmpty={handleEmpty}
-                                onBegin={() => setHasDrawn(true)}
-                                webStyle={webStyle}
-                                backgroundColor="#ffffff"
-                                penColor="#000000"
-                                imageType="image/png"
-                            />
+                        <View style={styles.canvasWrapper} onLayout={handleCanvasLayout}>
+                            {canvasSize.width > 0 && (
+                                <SignatureScreen
+                                    key={canvasKey}
+                                    ref={ref}
+                                    onOK={handleOK}
+                                    onEmpty={handleEmpty}
+                                    onBegin={() => setHasDrawn(true)}
+                                    webStyle={webStyle}
+                                    backgroundColor="rgba(255,255,255,0)"
+                                    imageType="image/png"
+                                    penColor={theme.dark ? "#FFFFFF" : "#000000"}
+                                    style={{ width: canvasSize.width, height: canvasSize.height }}
+                                />
+                            )}
                         </View>
                         {!hasDrawn && (
                             <View style={styles.signingHint}>
-                                <Text style={styles.signingHintText}>
+                                <Text style={[styles.signingHintText, { color: theme.colors.textSecondary }]}>
                                     Sign in the box above
                                 </Text>
                             </View>
                         )}
                     </View>
 
-                    {/* FOOTER ACTIONS - NO ICONS */}
+                    {/* FOOTER ACTIONS */}
                     <View style={styles.footer}>
                         <Button 
                             title="Clear" 
@@ -137,7 +156,12 @@ export default function SignatureModal({
 }
 
 const styles = StyleSheet.create({
-    overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: 24 },
+    overlay: { 
+        flex: 1, 
+        backgroundColor: 'rgba(0,0,0,0.6)', 
+        justifyContent: 'center', 
+        padding: 24 
+    },
     card: { 
         height: 500, 
         borderRadius: 28, 
@@ -148,21 +172,41 @@ const styles = StyleSheet.create({
         shadowRadius: 20,
         elevation: 10,
     },
-    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, paddingBottom: 16, borderBottomWidth: 1 },
-    title: { fontSize: 16, fontFamily: 'Nunito_800ExtraBold', textTransform: 'uppercase', letterSpacing: 0.5 },
-    headerAction: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-    
+    header: { 
+        flexDirection: 'row', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        padding: 16, 
+        paddingBottom: 16,
+        borderBottomWidth: 1
+    },
+    title: { 
+        fontSize: 16, 
+        fontFamily: 'Nunito_800ExtraBold', 
+        textTransform: 'uppercase', 
+        letterSpacing: 0.5 
+    },
+    headerAction: { 
+        width: 36, 
+        height: 36, 
+        borderRadius: 18, 
+        alignItems: 'center', 
+        justifyContent: 'center' 
+    },
     padContainer: { 
         flex: 1, 
-        backgroundColor: '#ffffff', 
+        backgroundColor: 'transparent', 
         borderWidth: 1, 
         margin: 20, 
         borderRadius: 20, 
         overflow: 'hidden', 
         position: 'relative' 
     },
-    canvasWrapper: { flex: 1, width: '100%', height: '100%' },
-    
+    canvasWrapper: {
+        flex: 1,
+        width: '100%',
+        height: '100%',
+    },
     signingHint: {
         position: 'absolute',
         bottom: 20,
@@ -175,7 +219,11 @@ const styles = StyleSheet.create({
         fontFamily: 'Nunito_700Bold',
         textTransform: 'uppercase',
         letterSpacing: 1,
-        color: '#9CA3AF'
+        opacity: 0.4
     },
-    footer: { flexDirection: 'row', padding: 20, paddingTop: 0 }
+    footer: { 
+        flexDirection: 'row', 
+        padding: 20, 
+        paddingTop: 0 
+    }
 });

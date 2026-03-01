@@ -163,6 +163,12 @@ export default function PreviewReportScreen() {
         reportTitle: "ACCOMPLISHMENT REPORT",
         period: viewOptions.meta?.period,
         signatureUri: viewOptions.meta?.signature,
+        
+        // Pass the secondary signee data to the reportGenerator
+        secondaryName: viewOptions.meta?.secondaryName,
+        secondaryTitle: viewOptions.meta?.secondaryTitle,
+        secondarySignatureUri: viewOptions.meta?.secondarySignature,
+        
         style: viewOptions.style,
         paperSize: viewOptions.paperSize,
         columns: viewOptions.columns,
