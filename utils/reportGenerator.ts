@@ -343,7 +343,6 @@ export const generateReport = async ({
                 ${columns?.time ? `<col style="width: 15%;">` : ''} 
                 ${columns?.duration ? `<col style="width: 10%;">` : ''} 
                 <col style="width: auto;"> 
-                ${columns?.remarks ? `<col style="width: 25%;">` : ''} 
             </colgroup>
             <thead>
                 <tr>
@@ -351,7 +350,6 @@ export const generateReport = async ({
                     ${columns?.time ? `<th>Time Record</th>` : ''}
                     ${columns?.duration ? `<th class="center-align">Hours</th>` : ''}
                     <th>ACCOMPLISHMENTS</th>
-                    ${columns?.remarks ? `<th>Remarks</th>` : ''}
                 </tr>
             </thead>
             <tbody>
@@ -365,7 +363,6 @@ export const generateReport = async ({
                             </td>` : ''}
                         ${columns?.duration ? `<td class="center-align">${item.duration}</td>` : ''}
                         <td>${getTaskTextHtml(item.summary)}</td>
-                        ${columns?.remarks ? `<td><span style="font-size:10px; color:${t.secondary}">${escapeHtml(item.remarks) || '-'}</span></td>` : ''}
                     </tr>
                 `).join('')}
             </tbody>

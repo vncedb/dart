@@ -329,9 +329,17 @@ export const syncPull = async (userId: string) => {
       supabase.from("saved_reports").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`)
     );
     for (const row of reportsData) {
+      // Supabase may not have is_read column; preserve local is_read when pulling
+      let isRead = 0;
+      if (typeof row.is_read !== "undefined" && row.is_read != null) {
+        isRead = row.is_read ? 1 : 0;
+      } else {
+        const local: any = await db.getFirstAsync("SELECT is_read FROM saved_reports WHERE id = ?", [row.id]);
+        if (local != null) isRead = local.is_read ? 1 : 0;
+      }
       const isConflict = await safeUpsert(db, 'saved_reports', row.id,
         `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, remote_url, created_at, updated_at, is_read, period_key, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-        [row.id, row.user_id, row.title || "Untitled", "", row.file_type || "pdf", row.file_size || 0, row.remote_url || null, row.created_at, row.updated_at || row.created_at, row.is_read ? 1 : 0, row.period_key || null]
+        [row.id, row.user_id, row.title || "Untitled", "", row.file_type || "pdf", row.file_size || 0, row.remote_url || null, row.created_at, row.updated_at || row.created_at, isRead, row.period_key || null]
       );
       if (isConflict) conflicts++;
     }

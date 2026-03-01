@@ -7,7 +7,6 @@ import {
   Clock01Icon,
   Delete02Icon,
   Image01Icon,
-  Note02Icon,
   Pdf01Icon,
   PencilEdit02Icon,
   PrinterIcon,
@@ -88,7 +87,6 @@ export default function GenerateReportScreen() {
     time: true,
     duration: true,
     activities: true,
-    remarks: false,
   });
 
   const [initialSettings, setInitialSettings] = useState<string>("");
@@ -143,11 +141,12 @@ export default function GenerateReportScreen() {
       setLoading(true);
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.user) {
+        const user = session?.user;
+        if (!user) {
           if (isMounted) setLoading(false);
           return;
         }
-        const userId = session.user.id;
+        const userId = user.id;
         const db = await getDB();
 
         const [profileRes, jobRes, settingsRes] = await Promise.all([
@@ -206,7 +205,7 @@ export default function GenerateReportScreen() {
             includeDept: settingsRes ? JSON.parse(settingsRes).includeDept : true,
             columns: settingsRes
               ? JSON.parse(settingsRes).columns
-              : { time: true, duration: true, activities: true, remarks: false },
+              : { time: true, duration: true, activities: true },
             signature: settingsRes ? JSON.parse(settingsRes).signature : null,
             customName: currentName,
             customTitle: currentTitle,
@@ -462,7 +461,6 @@ export default function GenerateReportScreen() {
                   { label: "Time Record", icon: Clock01Icon, value: columns.time, setValue: (v: boolean) => setColumns(prev => ({ ...prev, time: v })) },
                   { label: "Duration", icon: Timer01Icon, value: columns.duration, setValue: (v: boolean) => setColumns(prev => ({ ...prev, duration: v })) },
                   { label: "Activities", icon: CheckListIcon, value: columns.activities, setValue: (v: boolean) => setColumns(prev => ({ ...prev, activities: v })) },
-                  { label: "Remarks", icon: Note02Icon, value: columns.remarks, setValue: (v: boolean) => setColumns(prev => ({ ...prev, remarks: v })) },
                   { label: "Department", icon: UserGroupIcon, value: includeDept, setValue: setIncludeDept },
                 ].map((item, index, array) => (
                   <View key={item.label} style={[styles.checkRow, index !== array.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.colors.border }]}>

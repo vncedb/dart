@@ -10,7 +10,6 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useColorScheme } from 'nativewind';
 import React, { useEffect, useState } from 'react';
@@ -36,11 +35,6 @@ import OtpVerificationModal from '../components/OtpVerificationModal';
 import { queueSyncItem, saveProfileLocal } from '../lib/database';
 import { getDB } from '../lib/db-client';
 import { supabase } from '../lib/supabase';
-
-GoogleSignin.configure({
-    webClientId: '668715947282-h8h20h74tdtmj47efrkj9m7vjp8o39du.apps.googleusercontent.com',
-    scopes: ['profile', 'email'],
-});
 
 const Tooltip = ({ message, isDark }: { message: string, isDark: boolean }) => (
     <View className="absolute right-0 z-50 w-64 mt-2 top-full">
@@ -68,7 +62,6 @@ export default function AuthScreen() {
 
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
   const [successMode, setSuccessMode] = useState(false);
   
   const [email, setEmail] = useState('');
@@ -186,8 +179,7 @@ export default function AuthScreen() {
       
       setTimeout(() => {
           setLoading(false);
-          setGoogleLoading(false);
-          
+
           setTimeout(() => {
               if (isDeviceOnboarded) {
                   router.replace('/(tabs)/home'); 
@@ -244,7 +236,7 @@ export default function AuthScreen() {
                     visible: true,
                     type: 'confirm',
                     title: 'Account Already Exists',
-                    message: 'This email is already registered.\n\nIf you originally signed up with Google, please select "Continue with Google" to log in. You can also reset your password if you prefer to log in with an email.',
+                    message: 'This email is already registered.\n\nIf you originally signed up with Google, go back and use "Continue with Google". You can also reset your password if you prefer to log in with email.',
                     confirmText: 'Go to Login',
                     onConfirm: () => {
                         setAlertConfig((p:any) => ({...p, visible: false}));
@@ -276,48 +268,8 @@ export default function AuthScreen() {
     }
   };
 
-  const handleGoogleLogin = async () => {
-    setGoogleLoading(true);
-    try {
-        await GoogleSignin.hasPlayServices();
-        const userInfo = await GoogleSignin.signIn();
-        const idToken = userInfo?.data?.idToken || (userInfo as any)?.idToken;
-
-        if (idToken) {
-            const { data, error } = await supabase.auth.signInWithIdToken({
-                provider: 'google',
-                token: idToken,
-            });
-            
-            if (error) throw error;
-            
-            if (data?.user) {
-                const isDeviceOnboarded = await checkAppRegistration(data.user);
-                onLoginSuccess(isDeviceOnboarded);
-            }
-        } else {
-            throw new Error('No ID token present in Google response.');
-        }
-
-    } catch (error: any) {
-        setGoogleLoading(false);
-        if (error.code !== 'SIGN_IN_CANCELLED') {
-            setAlertConfig({ 
-                visible: true, 
-                type: 'error', 
-                title: 'Google Error', 
-                message: `Code: ${error.code}\nMessage: ${error.message}`, 
-                onDismiss: () => setAlertConfig((p:any) => ({...p, visible: false})) 
-            });
-        }
-    } finally {
-        setGoogleLoading(false);
-    }
-  };
-
   let loadingMessage = "";
   if (successMode) loadingMessage = "Success!";
-  else if (googleLoading) loadingMessage = "Connecting...";
   else loadingMessage = authMode === 'login' ? "Signing In..." : "Creating Account...";
 
   return (
@@ -327,7 +279,7 @@ export default function AuthScreen() {
         <ModernToast visible={toastVisible} message="Success!" type="success" />
         <ModernAlert {...alertConfig} />
         
-        <LoadingOverlay visible={loading || googleLoading} message={loadingMessage} />
+        <LoadingOverlay visible={loading} message={loadingMessage} />
         
         <OtpVerificationModal 
             visible={showOtp} 
@@ -351,7 +303,7 @@ export default function AuthScreen() {
 
         <View style={{ flex: 1, paddingTop: insets.top, paddingBottom: insets.bottom }}>
             <View className="absolute left-0 right-0 z-50 flex-row items-center justify-between px-6" style={{ top: insets.top + 16 }}>
-                <TouchableOpacity onPress={() => router.replace('/')} disabled={loading || googleLoading} className={`items-center justify-center w-10 h-10 rounded-full ${isDark ? 'bg-slate-800' : 'bg-white'}`}>
+                <TouchableOpacity onPress={() => router.replace('/')} disabled={loading} className={`items-center justify-center w-10 h-10 rounded-full ${isDark ? 'bg-slate-800' : 'bg-white'}`}>
                     <HugeiconsIcon icon={ArrowLeft02Icon} size={20} color={isDark ? '#94a3b8' : '#64748b'} />
                 </TouchableOpacity>
                 <Image source={isDark ? require('../assets/images/icon-transparent-white.png') : require('../assets/images/icon-transparent.png')} style={{ width: 40, height: 40 }} resizeMode="contain" />
@@ -433,28 +385,16 @@ export default function AuthScreen() {
 
                     <View className="mt-8">
                         <View>
-                            <TouchableOpacity onPress={handleAuthAction} disabled={loading || googleLoading} className="flex-row items-center justify-center w-full gap-2 bg-indigo-600 shadow-lg h-14 rounded-2xl shadow-indigo-500/30 active:opacity-90">
+                            <TouchableOpacity onPress={handleAuthAction} disabled={loading} className="flex-row items-center justify-center w-full gap-2 bg-indigo-600 shadow-lg h-14 rounded-2xl shadow-indigo-500/30 active:opacity-90">
                                 <Text className="text-lg font-bold text-white">{authMode === 'login' ? 'Sign In' : 'Create Account'}</Text>
                                 <HugeiconsIcon icon={ArrowRight01Icon} color="white" size={20} strokeWidth={2.5} />
                             </TouchableOpacity>
                         </View>
 
-                        <View>
-                            <View className="flex-row items-center my-6">
-                                <View className={`flex-1 h-[1px] ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
-                                <Text className="mx-4 text-xs font-bold tracking-wider uppercase text-slate-400">OR</Text>
-                                <View className={`flex-1 h-[1px] ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
-                            </View>
-
-                            <TouchableOpacity onPress={handleGoogleLogin} disabled={loading || googleLoading} className={`flex-row items-center justify-center gap-3 border h-14 rounded-2xl active:opacity-90 ${isDark ? 'bg-slate-800 border-slate-700' : 'bg-white border-slate-200'}`}>
-                                <Image source={require('../assets/images/google-logo.png')} style={{ width: 24, height: 24 }} resizeMode="contain" />
-                                <Text className={`font-bold ${isDark ? 'text-white' : 'text-slate-700'}`}>Continue with Google</Text>
-                            </TouchableOpacity>
-                        </View>
 
                         <View className="flex-row justify-center mt-6">
                             <Text className="text-slate-500">{authMode === 'login' ? "Don't have an account? " : "Already have an account? "}</Text>
-                            <TouchableOpacity onPress={toggleAuthMode} disabled={loading || googleLoading}>
+                            <TouchableOpacity onPress={toggleAuthMode} disabled={loading}>
                                 <Text className="ml-1 font-bold text-indigo-500">{authMode === 'login' ? 'Sign Up' : 'Log In'}</Text>
                             </TouchableOpacity>
                         </View>

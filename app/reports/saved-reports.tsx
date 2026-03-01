@@ -46,6 +46,7 @@ import InputModal from "../../components/InputModal";
 import LoadingOverlay from "../../components/LoadingOverlay";
 import ModernAlert from "../../components/ModernAlert";
 import { useAppTheme } from "../../constants/theme";
+import { FontFamily, Typography } from "../../constants/typography";
 import { useAuth } from "../../context/AuthContext";
 import { useSync } from "../../context/SyncContext";
 import {
@@ -384,7 +385,7 @@ export default function SavedReportsScreen() {
     setOpeningId(item.id);
 
     try {
-      if (!item.is_read) {
+      if (item.is_read === 0 || item.is_read === false || item.is_read == null) {
         await markReportReadLocal(item.id);
         const updateRead = (r: any) =>
           r.id === item.id ? { ...r, is_read: 1 } : r;
@@ -434,6 +435,12 @@ export default function SavedReportsScreen() {
     setMenuVisible(false);
     if (!selectedItem) return;
     try {
+      if (selectedItem.is_read === 0 || selectedItem.is_read === false || selectedItem.is_read == null) {
+        await markReportReadLocal(selectedItem.id);
+        const updateRead = (r: any) => r.id === selectedItem.id ? { ...r, is_read: 1 } : r;
+        setReports((prev) => prev.map(updateRead));
+        setFilteredReports((prev) => prev.map(updateRead));
+      }
       const uriToShare = await prepareFileLocal(selectedItem);
       await Sharing.shareAsync(uriToShare, { dialogTitle: selectedItem.title });
     } catch {
@@ -631,7 +638,7 @@ export default function SavedReportsScreen() {
 
   const renderItem = ({ item }: { item: any }) => {
     const isPdf = item.file_type === "pdf";
-    const isUnread = !item.is_read;
+    const isUnread = item.is_read === 0 || item.is_read === false || item.is_read == null;
     const isOpening = openingId === item.id;
     const isSelected = selectedIds.has(item.id);
 
@@ -705,7 +712,7 @@ export default function SavedReportsScreen() {
                 styles.cardTitle,
                 {
                   color: theme.colors.text,
-                  fontWeight: isUnread ? "800" : "600",
+                  fontFamily: isUnread ? FontFamily.extrabold : FontFamily.semibold,
                 },
               ]}
             >
@@ -889,7 +896,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   cardTitle: {
-    fontSize: 16,
+    ...Typography.h4,
     flex: 1,
   },
   unreadDot: {
@@ -903,8 +910,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   metaText: {
-    fontSize: 13,
-    fontWeight: "500",
+    ...Typography.small,
   },
   checkbox: {
     width: 24,

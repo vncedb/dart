@@ -75,12 +75,18 @@ export const syncPersistentNotification = async (userId: string | null) => {
 
             const isBreakMode = activeShift.status === 'On Break' || activeShift.status === 'Break';
             const isOvertime = activeShift.status === 'Overtime';
-            
+
+            let accumulatedBreakMs = 0;
+            if (activeShift.remarks && activeShift.remarks.includes('BreakMs:')) {
+                const match = activeShift.remarks.match(/BreakMs:(\d+)/);
+                if (match) accumulatedBreakMs = parseInt(match[1], 10) || 0;
+            }
+
             await updateAttendanceNotification(
                 activeShift.clock_in,
                 isOvertime,
                 isBreakMode,
-                0 
+                accumulatedBreakMs
             );
         } else {
             await clearAttendanceNotification();
@@ -164,7 +170,7 @@ export const updateAttendanceNotification = async (
             chronometerDirection: 'up' as const,
             timestamp: chronometerStartTime, 
             style: {
-                type: AndroidStyle.BIGTEXT,
+                type: AndroidStyle.BIGTEXT as const,
                 text: isBreakMode 
                     ? `Your shift timer is currently paused.\n\n🕒 **Time In:** ${timeInStr}` 
                     : `Your shift is actively being tracked.\n\n🕒 **Time In:** ${timeInStr}\n⏱️ **Worked:** ${elapsedText}`,

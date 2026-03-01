@@ -34,7 +34,7 @@ import TimePicker from '../../components/TimePicker';
 import { useAppTheme } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { useSync } from '../../context/SyncContext';
-import { queueSyncItem } from '../../lib/database';
+import { generateUUID, queueSyncItem, saveAttendanceLocal } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
 
 export default function EditReportScreen() {
@@ -144,24 +144,26 @@ export default function EditReportScreen() {
     };
 
     const handleSave = async () => {
+        if (!user) return;
         setLoading(true);
         try {
             const db = await getDB();
             const now = new Date().toISOString();
-            
-            for (const session of sessions) {
-                if (session.id && session.clock_in) {
-                    const clockInStr = session.clock_in;
-                    const clockOutStr = session.clock_out || null;
-                    const status = clockOutStr ? 'completed' : 'pending';
+            const profile: any = await db.getFirstAsync('SELECT current_job_id FROM profiles WHERE id = ?', [user!.id]);
+            const jobId = profile?.current_job_id || null;
 
-                    // 1. UPDATE LOCALLY FIRST AND FLAG AS UN-SYNCED
+            for (const session of sessions) {
+                if (!session.clock_in) continue;
+
+                const clockInStr = session.clock_in;
+                const clockOutStr = session.clock_out || null;
+                const status = clockOutStr ? 'completed' : 'pending';
+
+                if (session.id) {
                     await db.runAsync(
                         'UPDATE attendance SET clock_in = ?, clock_out = ?, status = ?, title = ?, updated_at = ?, is_synced = 0 WHERE id = ?',
                         [clockInStr, clockOutStr, status, session.title, now, session.id]
                     );
-
-                    // 2. QUEUE FOR BACKGROUND SYNC
                     await queueSyncItem('attendance', session.id, 'UPDATE', {
                         clock_in: clockInStr,
                         clock_out: clockOutStr,
@@ -169,6 +171,21 @@ export default function EditReportScreen() {
                         title: session.title,
                         updated_at: now
                     });
+                } else {
+                    const newId = generateUUID();
+                    const newAtt = {
+                        id: newId,
+                        user_id: user!.id,
+                        job_id: jobId,
+                        date: date as string,
+                        title: session.title || 'Session 1',
+                        clock_in: clockInStr,
+                        clock_out: clockOutStr,
+                        status,
+                        remarks: '',
+                        updated_at: now,
+                    };
+                    await saveAttendanceLocal(newAtt);
                 }
             }
             
@@ -214,21 +231,22 @@ export default function EditReportScreen() {
         setIsDirty(true);
     };
 
-    const handleDeleteSession = (sessionId: string) => {
+    const handleDeleteSession = (sessionId: string | null) => {
         setAlertConfig({
             visible: true, type: 'warning', title: 'Delete Session', message: 'Are you sure you want to remove this session?', confirmText: 'Delete', cancelText: 'Cancel',
             onConfirm: async () => {
                 setAlertConfig((p: any) => ({...p, visible: false}));
                 setSessions(sessions.filter(s => s.id !== sessionId));
                 setIsDirty(true);
-                
-                try {
-                    const db = await getDB();
-                    // OFFLINE FIRST DELETION
-                    await db.runAsync('DELETE FROM attendance WHERE id = ?', [sessionId]);
-                    await queueSyncItem('attendance', sessionId, 'DELETE');
-                    triggerSync();
-                } catch (e) { console.log(e); }
+
+                if (sessionId) {
+                    try {
+                        const db = await getDB();
+                        await db.runAsync('DELETE FROM attendance WHERE id = ?', [sessionId]);
+                        await queueSyncItem('attendance', sessionId, 'DELETE');
+                        triggerSync();
+                    } catch (e) { console.log(e); }
+                    }
             },
             onCancel: () => setAlertConfig((p: any) => ({...p, visible: false}))
         });
@@ -397,9 +415,32 @@ export default function EditReportScreen() {
                     <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>TIME SETTINGS</Text>
                     
                     {sessions.length === 0 ? (
-                        <View style={[styles.emptyState, { borderColor: theme.colors.border, marginBottom: 36 }]}>
-                            <HugeiconsIcon icon={Time02Icon} size={32} color={theme.colors.border} />
-                            <Text style={{ marginTop: 8, color: theme.colors.textSecondary, fontFamily: 'Nunito_600SemiBold' }}>No sessions logged.</Text>
+                        <View key="draft" style={[styles.sessionBlock, { borderColor: theme.colors.border, backgroundColor: theme.colors.card }]}>
+                            <View style={[styles.sessionHeaderRow, { borderBottomColor: theme.colors.border }]}>
+                                <Text style={[styles.sessionTitleText, { color: theme.colors.text }]}>Session 1</Text>
+                            </View>
+                            <View style={styles.timeGrid}>
+                                <TouchableOpacity onPress={() => { setSessions([{ id: null, title: 'Session 1', clock_in: null, clock_out: null }]); setPickerConfig({ index: 0, mode: 'in' }); setPickerVisible(true); }} style={[styles.timeCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+                                    <View style={styles.timeCardHeader}>
+                                        <HugeiconsIcon icon={Clock01Icon} size={14} color={theme.colors.success} />
+                                        <Text style={[styles.timeCardLabel, { color: theme.colors.textSecondary }]}>TIME IN</Text>
+                                    </View>
+                                    <View style={styles.timeCardBody}>
+                                        <Text style={[styles.timeCardValue, { color: theme.colors.textSecondary }]}>--:--</Text>
+                                        <HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.icon} />
+                                    </View>
+                                </TouchableOpacity>
+                                <TouchableOpacity onPress={() => { if (sessions.length === 0) { setSessions([{ id: null, title: 'Session 1', clock_in: null, clock_out: null }]); } setPickerConfig({ index: 0, mode: 'out' }); setPickerVisible(true); }} style={[styles.timeCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+                                    <View style={styles.timeCardHeader}>
+                                        <HugeiconsIcon icon={Clock01Icon} size={14} color={theme.colors.warning} />
+                                        <Text style={[styles.timeCardLabel, { color: theme.colors.textSecondary }]}>TIME OUT</Text>
+                                    </View>
+                                    <View style={styles.timeCardBody}>
+                                        <Text style={[styles.timeCardValue, { color: theme.colors.textSecondary }]}>--:--</Text>
+                                        <HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.icon} />
+                                    </View>
+                                </TouchableOpacity>
+                            </View>
                         </View>
                     ) : (
                         sessions.map((session, index) => (

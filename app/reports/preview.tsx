@@ -64,7 +64,8 @@ export default function PreviewReportScreen() {
   const generateFile = useCallback(async () => {
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) return;
 
       const job: any = await ReportService.getActiveJob(user.id);
@@ -211,7 +212,8 @@ export default function PreviewReportScreen() {
       setLoading(true);
       
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
         if (!user) return;
 
         const reportTitle = viewOptions.meta?.period;
@@ -252,7 +254,8 @@ export default function PreviewReportScreen() {
   const executeSave = async (overwriteId?: string) => {
     try {
       setLoading(true);
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user;
       if (!user) return;
 
       const reportTitle = viewOptions.meta?.period;

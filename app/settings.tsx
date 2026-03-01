@@ -15,6 +15,7 @@ import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { useColorScheme } from 'nativewind';
+import Constants from 'expo-constants';
 import React, { useEffect, useRef, useState } from 'react';
 import {
     BackHandler,
@@ -36,6 +37,7 @@ import ModernAlert from '../components/ModernAlert';
 import { ModernSettingsItem } from '../components/SettingsComponents';
 import { useAppTheme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
+import { checkForUpdate } from '../lib/updateCheck';
 import { ExportService } from '../services/ExportService';
 
 type ThemeOption = 'system' | 'light' | 'dark';
@@ -52,6 +54,7 @@ export default function SettingsScreen() {
     const [isLoading, setIsLoading] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState('');
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+    const [hasUpdate, setHasUpdate] = useState(false);
 
     // Check all connected authentication providers
     const providers = user?.app_metadata?.providers || [];
@@ -87,6 +90,13 @@ export default function SettingsScreen() {
         loadSettings();
         return () => { isMounted.current = false; };
     }, [colorScheme]);
+
+    useEffect(() => {
+        const version = Constants.expoConfig?.version || '1.0.0';
+        checkForUpdate(version).then((res) => {
+            if (res.hasUpdate) setHasUpdate(true);
+        });
+    }, []);
 
     const loadSettings = async () => {
         try {
@@ -252,7 +262,16 @@ export default function SettingsScreen() {
                         <ModernSettingsItem icon={InformationCircleIcon} label="Legal & Privacy" onPress={() => router.push('/settings/privacy-policy')} theme={theme} />
                         <ModernSettingsItem icon={Mail01Icon} label="Contact Support" onPress={handleContactSupport} theme={theme} />
                         <ModernSettingsItem icon={PencilEdit02Icon} label="Report or Feedback" onPress={() => router.push('/settings/feedback')} theme={theme} />
-                        <ModernSettingsItem icon={InformationCircleIcon} label="About" onPress={() => router.push('/settings/about')} isLast theme={theme} />
+                        <ModernSettingsItem
+                            icon={InformationCircleIcon}
+                            label="About"
+                            onPress={() => router.push('/settings/about')}
+                            isLast
+                            theme={theme}
+                            rightElement={hasUpdate ? (
+                                <View style={[styles.updateBadge, { backgroundColor: theme.colors.primary }]} />
+                            ) : undefined}
+                        />
                     </View>
                 </View>
 
@@ -282,6 +301,11 @@ const styles = StyleSheet.create({
     card: { borderRadius: 24, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
     profileIconContainer: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
     
+    updateBadge: {
+        width: 8,
+        height: 8,
+        borderRadius: 4,
+    },
     signOutButton: {
         height: 56, 
         borderRadius: 16, 

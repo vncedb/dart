@@ -7,12 +7,15 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import Constants from 'expo-constants';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as IntentLauncher from 'expo-intent-launcher';
 import { useColorScheme } from 'nativewind';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Image,
     Linking,
+    Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -23,33 +26,127 @@ import Animated, { FadeInDown, FadeOutDown } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import Header from '../../components/Header';
+import ModernAlert from '../../components/ModernAlert';
 import { useAppTheme } from '../../constants/theme';
+import {
+    checkForUpdate,
+    getApkDownloadUrl,
+    UpdateCheckResult,
+} from '../../lib/updateCheck';
 
 export default function AboutScreen() {
     const theme = useAppTheme();
     const { colorScheme } = useColorScheme();
     const isDark = colorScheme === 'dark';
 
-    const [toastState, setToastState] = useState<'hidden' | 'checking' | 'latest'>('hidden');
-
     const appVersion = Constants.expoConfig?.version || '1.0.0';
-    const releaseDate = "March 1, 2026"; 
 
-    const handleCheckUpdate = () => {
-        if (toastState !== 'hidden') return;
-        
+    const [toastState, setToastState] = useState<'hidden' | 'checking' | 'latest' | 'update'>('hidden');
+    const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
+    const [hasUpdate, setHasUpdate] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+
+    // Check for update on mount (for indicator)
+    useEffect(() => {
+        let cancelled = false;
+        checkForUpdate(appVersion).then((res) => {
+            if (!cancelled && res.hasUpdate) {
+                setHasUpdate(true);
+                setUpdateResult(res);
+            }
+        });
+        return () => { cancelled = true; };
+    }, [appVersion]);
+
+    const handleCheckUpdate = async () => {
+        if (toastState !== 'hidden' && toastState !== 'update') return;
+
         setToastState('checking');
-        setTimeout(() => {
+        setLoading(true);
+
+        try {
+            const res = await checkForUpdate(appVersion);
+            setUpdateResult(res);
+
+            if (res.hasUpdate) {
+                setHasUpdate(true);
+                setToastState('update');
+                setAlertConfig({
+                    visible: true,
+                    type: 'confirm',
+                    title: 'Update Available',
+                    message: `Version ${res.latestVersion} is available. You're on ${appVersion}`,
+                    confirmText: Platform.OS === 'android' ? 'Download & Install' : 'View Release',
+                    cancelText: 'Later',
+                    onConfirm: () => {
+                        setAlertConfig((p: any) => ({ ...p, visible: false }));
+                        handleInstallUpdate(res);
+                    },
+                    onCancel: () => {
+                        setAlertConfig((p: any) => ({ ...p, visible: false }));
+                        setToastState('hidden');
+                    },
+                });
+            } else {
+                setToastState('latest');
+                setTimeout(() => setToastState('hidden'), 3000);
+            }
+        } catch {
             setToastState('latest');
-            setTimeout(() => {
-                setToastState('hidden');
-            }, 3000);
-        }, 1500);
+            setTimeout(() => setToastState('hidden'), 3000);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleInstallUpdate = async (res: UpdateCheckResult) => {
+        setToastState('hidden');
+
+        if (Platform.OS === 'android') {
+            const apkUrl = getApkDownloadUrl(res.release);
+            if (apkUrl) {
+                try {
+                    await downloadAndInstallApk(apkUrl);
+                } catch (e) {
+                    setAlertConfig({
+                        visible: true,
+                        type: 'error',
+                        title: 'Install Failed',
+                        message: 'Could not download or install. Please try from the release page.',
+                        confirmText: 'Open Release',
+                        onConfirm: () => {
+                            setAlertConfig((p: any) => ({ ...p, visible: false }));
+                            if (res.release?.html_url) Linking.openURL(res.release.html_url);
+                        },
+                    });
+                }
+            } else {
+                if (res.release?.html_url) Linking.openURL(res.release.html_url);
+            }
+        } else {
+            if (res.release?.html_url) Linking.openURL(res.release.html_url);
+        }
+    };
+
+    const downloadAndInstallApk = async (url: string) => {
+        const filename = `dart-update-${Date.now()}.apk`;
+        const dir = FileSystem.cacheDirectory || FileSystem.documentDirectory;
+        const localPath = `${dir}${filename}`;
+
+        const { uri } = await FileSystem.downloadAsync(url, localPath);
+        const contentUri = await FileSystem.getContentUriAsync(uri);
+
+        await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+            data: contentUri,
+            flags: 1,
+            type: 'application/vnd.android.package-archive',
+        });
     };
 
     const SocialButton = ({ icon, url, color }: { icon: any, url: string, color?: string }) => (
-        <TouchableOpacity 
-            activeOpacity={0.7} 
+        <TouchableOpacity
+            activeOpacity={0.7}
             onPress={() => Linking.openURL(url)}
             style={[styles.socialIconBtn, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
         >
@@ -60,21 +157,22 @@ export default function AboutScreen() {
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
             <Header title="About" />
-            
-            <ScrollView 
-                contentContainerStyle={styles.scrollContent} 
+            <ModernAlert {...alertConfig} />
+
+            <ScrollView
+                contentContainerStyle={styles.scrollContent}
                 showsVerticalScrollIndicator={false}
             >
                 {/* Logo */}
-                <Image 
-                    source={isDark 
-                        ? require('../../assets/images/dart-logo-transparent-light.png') 
+                <Image
+                    source={isDark
+                        ? require('../../assets/images/dart-logo-transparent-light.png')
                         : require('../../assets/images/dart-logo-transparent-dark.png')
-                    } 
-                    style={styles.logo} 
-                    resizeMode="contain" 
+                    }
+                    style={styles.logo}
+                    resizeMode="contain"
                 />
-                
+
                 <View style={[styles.badge, { backgroundColor: theme.colors.primary + '15' }]}>
                     <Text style={[styles.badgeText, { color: theme.colors.primary }]}>
                         Daily Accomplishment Report Tools
@@ -85,12 +183,20 @@ export default function AboutScreen() {
                     A streamlined, secure, and intuitive platform designed to help professionals track their hours and log daily accomplishments with ease.
                 </Text>
 
-                {/* Sleek Interactive Version Pill */}
-                <TouchableOpacity 
+                {/* Version Pill with Update Indicator */}
+                <TouchableOpacity
                     activeOpacity={0.7}
                     onPress={handleCheckUpdate}
-                    style={[styles.metaContainer, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+                    disabled={loading}
+                    style={[
+                        styles.metaContainer,
+                        { backgroundColor: theme.colors.card, borderColor: theme.colors.border },
+                        hasUpdate && { borderColor: theme.colors.primary, backgroundColor: theme.colors.primary + '08' },
+                    ]}
                 >
+                    {hasUpdate && (
+                        <View style={[styles.updateDot, { backgroundColor: theme.colors.primary }]} />
+                    )}
                     <View style={styles.metaBlock}>
                         <Text style={[styles.metaLabel, { color: theme.colors.textSecondary }]}>Version</Text>
                         <Text style={[styles.metaValue, { color: theme.colors.text }]}>{appVersion}</Text>
@@ -99,17 +205,21 @@ export default function AboutScreen() {
                     <View style={[styles.metaDivider, { backgroundColor: theme.colors.textSecondary }]} />
 
                     <View style={styles.metaBlock}>
-                        <Text style={[styles.metaLabel, { color: theme.colors.textSecondary }]}>Updated</Text>
-                        <Text style={[styles.metaValue, { color: theme.colors.text }]}>{releaseDate}</Text>
+                        <Text style={[styles.metaLabel, { color: theme.colors.textSecondary }]}>
+                            {loading ? 'Checking...' : 'Tap to check'}
+                        </Text>
+                        <Text style={[styles.metaValue, { color: theme.colors.text }]}>
+                            {updateResult?.latestVersion || '—'}
+                        </Text>
                     </View>
                 </TouchableOpacity>
 
-                {/* Connect With Us - Modern UI */}
+                {/* Connect With Us */}
                 <View style={styles.linksSection}>
                     <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>
                         CONNECT WITH US
                     </Text>
-                    
+
                     <View style={styles.socialRow}>
                         <SocialButton icon={GithubIcon} url="https://github.com/vncedb/dart" />
                         <SocialButton icon={Facebook02Icon} url="https://facebook.com/projectvdb" color="#1877F2" />
@@ -130,24 +240,28 @@ export default function AboutScreen() {
 
             </ScrollView>
 
-            {/* Custom Version Toast */}
+            {/* Toast */}
             {toastState !== 'hidden' && (
-                <Animated.View 
-                    entering={FadeInDown.duration(300)} 
-                    exiting={FadeOutDown.duration(300)} 
+                <Animated.View
+                    entering={FadeInDown.duration(300)}
+                    exiting={FadeOutDown.duration(300)}
                     style={[styles.toast, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
                 >
                     {toastState === 'checking' ? (
                         <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginRight: 10 }} />
                     ) : (
-                        <Image 
-                            source={isDark ? require('../../assets/images/icon-transparent-white.png') : require('../../assets/images/icon-transparent.png')} 
-                            style={styles.toastLogo} 
-                            resizeMode="contain" 
+                        <Image
+                            source={isDark ? require('../../assets/images/icon-transparent-white.png') : require('../../assets/images/icon-transparent.png')}
+                            style={styles.toastLogo}
+                            resizeMode="contain"
                         />
                     )}
                     <Text style={[styles.toastText, { color: theme.colors.text }]}>
-                        {toastState === 'checking' ? "Checking for updates..." : "This is the latest version."}
+                        {toastState === 'checking'
+                            ? 'Checking for updates...'
+                            : toastState === 'update'
+                                ? 'Update available!'
+                                : 'This is the latest version.'}
                     </Text>
                 </Animated.View>
             )}
@@ -162,27 +276,36 @@ const styles = StyleSheet.create({
     badge: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12, marginBottom: 24 },
     badgeText: { fontSize: 11, fontFamily: 'Nunito_700Bold', textTransform: 'uppercase', letterSpacing: 0.5 },
     appDesc: { fontSize: 15, fontFamily: 'Nunito_600SemiBold', textAlign: 'center', marginBottom: 32, paddingHorizontal: 16, lineHeight: 24 },
-    
-    metaContainer: { 
-        flexDirection: 'row', 
-        alignItems: 'center', 
+
+    metaContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
         justifyContent: 'center',
-        paddingVertical: 12, 
-        paddingHorizontal: 24, 
-        borderRadius: 100, 
-        borderWidth: 1, 
-        marginBottom: 48
+        paddingVertical: 12,
+        paddingHorizontal: 24,
+        borderRadius: 100,
+        borderWidth: 1,
+        marginBottom: 48,
+        position: 'relative',
+    },
+    updateDot: {
+        position: 'absolute',
+        top: -4,
+        right: -4,
+        width: 10,
+        height: 10,
+        borderRadius: 5,
     },
     metaBlock: { flexDirection: 'row', alignItems: 'baseline', gap: 6 },
     metaLabel: { fontSize: 12, fontFamily: 'Nunito_600SemiBold', letterSpacing: 0.2 },
     metaValue: { fontSize: 13, fontFamily: 'Nunito_800ExtraBold' },
     metaDivider: { width: 4, height: 4, borderRadius: 2, marginHorizontal: 16, opacity: 0.4 },
-    
+
     linksSection: { width: '100%', alignItems: 'center', marginBottom: 48 },
     sectionTitle: { fontSize: 11, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 1, marginBottom: 20, textTransform: 'uppercase', opacity: 0.7 },
     socialRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16 },
     socialIconBtn: { width: 56, height: 56, borderRadius: 28, borderWidth: 1, alignItems: 'center', justifyContent: 'center', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
-    
+
     footer: { alignItems: 'center', marginBottom: 20 },
     footerDev: { fontSize: 14, fontFamily: 'Nunito_700Bold', marginBottom: 6 },
     footerCopy: { fontSize: 12, fontFamily: 'Nunito_600SemiBold', opacity: 0.6 },
@@ -197,7 +320,7 @@ const styles = StyleSheet.create({
         paddingHorizontal: 20,
         borderRadius: 100,
         borderWidth: 1,
-        shadowColor: "#000",
+        shadowColor: '#000',
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.1,
         shadowRadius: 16,
