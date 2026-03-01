@@ -1,4 +1,4 @@
-// lib/sync.ts
+// filepath: lib/sync.ts
 import NetInfo from "@react-native-community/netinfo";
 import { decode } from "base64-arraybuffer";
 import * as FileSystem from "expo-file-system/legacy";
@@ -51,15 +51,15 @@ const uploadFileToSupabase = async (localUri: string, userId: string, bucket: st
 export const syncPush = async () => {
   try {
     const db = await getDB();
+    // FIX: Fetch both PENDING and FAILED items so they are forced to retry if internet is restored
     const queueItems = await db.getAllAsync(
-      'SELECT * FROM sync_queue WHERE status = "PENDING" AND retry_count < ? ORDER BY created_at ASC',
-      [MAX_RETRIES]
+      'SELECT * FROM sync_queue WHERE status IN ("PENDING", "FAILED") ORDER BY created_at ASC'
     ) as any[];
 
     if (queueItems.length === 0) return { success: true, count: 0, failedCount: 0 };
 
     const state = await NetInfo.fetch();
-    if (!state.isConnected) return { success: false, error: "No internet connection" };
+    if (state.isConnected === false) return { success: false, error: "No internet connection" };
 
     let successCount = 0;
     let failedCount = 0;
@@ -70,8 +70,10 @@ export const syncPush = async () => {
       let payload: any = data ? JSON.parse(data) : {};
 
       try {
+        // Aggressive cleanup to ensure Supabase doesn't reject the payload
         if ("is_synced" in payload) delete payload.is_synced; 
         if ("local_avatar_path" in payload) delete payload.local_avatar_path;
+        if ("snippet_desc" in payload) delete payload.snippet_desc;
         
         // Handle File Uploads before pushing the DB row
         if (table_name === "accomplishments" && payload.image_url?.startsWith("file://") && action !== "DELETE") {
@@ -82,7 +84,7 @@ export const syncPush = async () => {
           const remoteUrl = await uploadFileToSupabase(payload.file_path, payload.user_id, "reports");
           if (remoteUrl) {
             payload.remote_url = remoteUrl;
-            payload.file_path = remoteUrl; // Preserve to avoid NOT NULL schema errors
+            payload.file_path = remoteUrl; 
           }
         }
         if (table_name === "profiles" && payload.local_avatar_path?.startsWith("file://") && action !== "DELETE") {
@@ -93,7 +95,6 @@ export const syncPush = async () => {
           }
         }
 
-        // Group for batching
         const groupKey = `${table_name}_${action}`;
         if (!batchGroups[groupKey]) batchGroups[groupKey] = { tableName: table_name, action, items: [], payloads: [] };
         batchGroups[groupKey].items.push(item);
@@ -101,7 +102,7 @@ export const syncPush = async () => {
 
       } catch (e: any) {
         console.error(`[Sync] Pre-flight/Upload failed for queue id ${id}:`, e);
-        await db.runAsync(`UPDATE sync_queue SET retry_count = retry_count + 1, status = CASE WHEN retry_count + 1 >= ? THEN 'FAILED' ELSE 'PENDING' END WHERE id = ?`, [MAX_RETRIES, id]);
+        await db.runAsync(`UPDATE sync_queue SET retry_count = retry_count + 1, status = 'FAILED' WHERE id = ?`, [id]);
         failedCount++;
         continue;
       }
@@ -114,7 +115,13 @@ export const syncPush = async () => {
 
         try {
             if (action === "INSERT" || action === "UPSERT") {
-                const { error: err } = await supabase.from(tableName).upsert(payloads);
+                const uniquePayloadsMap = new Map();
+                for (const p of payloads) {
+                    if (p.id) uniquePayloadsMap.set(p.id, p);
+                }
+                const deduplicatedPayloads = Array.from(uniquePayloadsMap.values());
+
+                const { error: err } = await supabase.from(tableName).upsert(deduplicatedPayloads);
                 error = err;
             } else {
                 for (let i = 0; i < items.length; i++) {
@@ -137,11 +144,10 @@ export const syncPush = async () => {
             }
 
             if (!error || error.code === "PGRST116") {
-                // Fixed: Sequential execution prevents array-binding bugs in SQLite
                 for (const item of items) {
                     await db.runAsync(`DELETE FROM sync_queue WHERE id = ?`, [item.id]);
                     if (action !== 'DELETE') {
-                        await db.runAsync(`UPDATE ${tableName} SET is_synced = 1 WHERE id = ?`, [item.row_id]);
+                        try { await db.runAsync(`UPDATE ${tableName} SET is_synced = 1 WHERE id = ?`, [item.row_id]); } catch(e) {}
                     }
                 }
                 successCount += items.length;
@@ -151,7 +157,7 @@ export const syncPush = async () => {
         } catch (e: any) {
             console.error(`[Sync] Supabase error on batch ${key}:`, e.message || e);
             for (const item of items) {
-                await db.runAsync(`UPDATE sync_queue SET retry_count = retry_count + 1, status = CASE WHEN retry_count + 1 >= ? THEN 'FAILED' ELSE 'PENDING' END WHERE id = ?`, [MAX_RETRIES, item.id]);
+                await db.runAsync(`UPDATE sync_queue SET retry_count = retry_count + 1, status = 'FAILED' WHERE id = ?`, [item.id]);
             }
             failedCount += items.length;
         }
@@ -162,15 +168,15 @@ export const syncPush = async () => {
   }
 };
 
-// Skip overwriting rows that have unsynced local changes
 const safeUpsert = async (db: any, table: string, id: string, sql: string, params: any[]): Promise<boolean> => {
-  const local: any = await db.getFirstAsync(`SELECT is_synced FROM ${table} WHERE id = ?`, [id]);
-  if (local && local.is_synced === 0) return true; // Conflict detected
+  try {
+    const local: any = await db.getFirstAsync(`SELECT is_synced FROM ${table} WHERE id = ?`, [id]);
+    if (local && local.is_synced === 0) return true; 
+  } catch (e: any) {}
   await db.runAsync(sql, params);
   return false;
 };
 
-// Paginated fetch to avoid Supabase's default 1000-row limit
 const fetchAllRows = async (query: any): Promise<any[]> => {
   const PAGE_SIZE = 1000;
   let allData: any[] = [];
@@ -186,12 +192,11 @@ const fetchAllRows = async (query: any): Promise<any[]> => {
   return allData;
 };
 
-// --- SYNC PULL (Cloud -> Local) ---
 export const syncPull = async (userId: string) => {
   try {
     const db = await getDB();
     const state = await NetInfo.fetch();
-    if (!state.isConnected) return { success: false, message: "Offline" };
+    if (state.isConnected === false) return { success: false, message: "Offline" };
 
     const result: any = await db.getFirstAsync("SELECT value FROM app_settings WHERE key = ?", ["last_synced_at"]);
     const lastSyncedAt = result?.value || "1970-01-01T00:00:00.000Z";

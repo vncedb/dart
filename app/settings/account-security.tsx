@@ -1,11 +1,14 @@
+// filepath: app/settings/account-security.tsx
 import {
     Alert02Icon,
     ArrowRight01Icon,
     BiometricAccessIcon,
     LockKeyIcon,
+    Mail01Icon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
@@ -30,6 +33,11 @@ import { useAppTheme } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
+
+GoogleSignin.configure({
+    webClientId: '668715947282-h8h20h74tdtmj47efrkj9m7vjp8o39du.apps.googleusercontent.com',
+    scopes: ['profile', 'email'],
+});
 
 const ModernSettingsItem = ({ icon, label, desc, onPress, rightElement, destructive, isLast, theme }: any) => {
     const scaleValue = useRef(new Animated.Value(1)).current;
@@ -116,7 +124,10 @@ export default function AccountSecurityScreen() {
     const [otpVisible, setOtpVisible] = useState(false);
     const [generatedCode, setGeneratedCode] = useState<string | null>(null);
 
-    const isGoogleUser = user?.app_metadata?.provider === 'google' || user?.app_metadata?.providers?.includes('google');
+    // Get an array of linked providers
+    const providers = user?.app_metadata?.providers || [];
+    const hasGoogle = providers.includes('google');
+    const isGoogleOnlyUser = hasGoogle && !providers.includes('email');
 
     useEffect(() => { checkBiometrics(); }, []);
 
@@ -165,6 +176,34 @@ export default function AccountSecurityScreen() {
             if (!result.success) return; 
         }
         router.push('/auth/update-password');
+    };
+
+    // --- NEW: Account Linking Logic ---
+    const handleLinkGoogle = async () => {
+        try {
+            setLoading(true);
+            setLoadingMsg("Connecting to Google...");
+            await GoogleSignin.hasPlayServices();
+            const userInfo = await GoogleSignin.signIn();
+            const idToken = userInfo?.data?.idToken || (userInfo as any)?.idToken;
+
+            if (idToken) {
+                const { data, error } = await supabase.auth.linkIdentity({
+                    provider: 'google',
+                    token: idToken,
+                });
+                
+                if (error) throw error;
+                
+                setAlertConfig({ visible: true, type: 'success', title: 'Account Linked', message: 'Your Google account has been successfully connected.', onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false })) });
+            }
+        } catch (error: any) {
+            if (error.code !== 'SIGN_IN_CANCELLED') {
+                setAlertConfig({ visible: true, type: 'error', title: 'Linking Failed', message: error.message, onConfirm: () => setAlertConfig((p: any) => ({ ...p, visible: false })) });
+            }
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleDeleteRequest = async () => {
@@ -262,10 +301,15 @@ export default function AccountSecurityScreen() {
                     <Text style={styles.sectionTitle}>LOGIN SECURITY</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                         {biometricSupported && (
-                            <ModernSettingsItem icon={BiometricAccessIcon} label="Biometric Unlock" desc="Use FaceID/TouchID to open app" theme={theme} isLast={isGoogleUser} rightElement={<Switch value={biometricEnabled} onValueChange={toggleBiometric} trackColor={{ false: theme.colors.border, true: theme.colors.success }} thumbColor={'#fff'} style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }} />} />
+                            <ModernSettingsItem icon={BiometricAccessIcon} label="Biometric Unlock" desc="Use FaceID/TouchID to open app" theme={theme} isLast={isGoogleOnlyUser} rightElement={<Switch value={biometricEnabled} onValueChange={toggleBiometric} trackColor={{ false: theme.colors.border, true: theme.colors.success }} thumbColor={'#fff'} style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }} />} />
                         )}
-                        {!isGoogleUser && (
-                            <ModernSettingsItem icon={LockKeyIcon} label="Change Password" desc="Update your login credentials" onPress={handleChangePassword} isLast theme={theme} />
+                        
+                        {!isGoogleOnlyUser && (
+                            <ModernSettingsItem icon={LockKeyIcon} label="Change Password" desc="Update your login credentials" onPress={handleChangePassword} isLast={hasGoogle} theme={theme} />
+                        )}
+
+                        {!hasGoogle && (
+                            <ModernSettingsItem icon={Mail01Icon} label="Link Google Account" desc="Connect to enable Google Sign-In" onPress={handleLinkGoogle} isLast theme={theme} />
                         )}
                     </View>
                 </View>

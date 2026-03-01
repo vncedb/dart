@@ -1,5 +1,6 @@
-// app/settings.tsx
+// filepath: app/settings.tsx
 import {
+    CreditCardIcon,
     Download04Icon,
     InformationCircleIcon,
     Logout01Icon,
@@ -52,8 +53,20 @@ export default function SettingsScreen() {
     const [loadingMessage, setLoadingMessage] = useState('');
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
-    const isGoogleAuth = user?.app_metadata?.provider === 'google';
+    // Check all connected authentication providers
+    const providers = user?.app_metadata?.providers || [];
+    const hasGoogle = providers.includes('google');
+    const hasEmail = providers.includes('email');
+
+    let authProviderText = 'Email';
+    if (hasGoogle && hasEmail) authProviderText = 'Google & Email';
+    else if (hasGoogle) authProviderText = 'Google';
+    else if (hasEmail) authProviderText = 'Email';
+
     const isMounted = useRef(true);
+
+    // Fallback danger color if it's missing in some theme variants
+    const dangerColor = theme.colors.danger || '#ef4444';
 
     useEffect(() => {
         loadSettings();
@@ -149,11 +162,11 @@ export default function SettingsScreen() {
                 
                 {/* PROFILE */}
                 <View style={{ marginBottom: 24 }}>
-                    <Text style={styles.sectionTitle}>PROFILE</Text>
+                    <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>PROFILE</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                             <View style={[styles.profileIconContainer, { backgroundColor: theme.colors.background }]}>
-                              {isGoogleAuth ? (
+                              {hasGoogle ? (
                                 <Image source={require('../assets/images/google-logo.png')} style={{ width: 22, height: 22 }} resizeMode="contain" />
                               ) : (
                                 <HugeiconsIcon icon={Mail01Icon} size={22} color={theme.colors.primary} />
@@ -161,7 +174,7 @@ export default function SettingsScreen() {
                             </View>
                             <View style={{ marginLeft: 12, flex: 1 }}>
                                 <Text style={{ fontSize: 16, fontWeight: '600', color: theme.colors.text }}>{user?.email}</Text>
-                                <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 2 }}>Signed in via {isGoogleAuth ? 'Google' : 'Email'}</Text>
+                                <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 2 }}>Connected via {authProviderText}</Text>
                             </View>
                          </View>
                     </View>
@@ -169,7 +182,7 @@ export default function SettingsScreen() {
 
                 {/* BACKUP DATA */}
                 <View style={{ marginBottom: 24 }}>
-                    <Text style={styles.sectionTitle}>DATA MANAGEMENT</Text>
+                    <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>DATA MANAGEMENT</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
                         <ModernSettingsItem 
                             icon={Download04Icon} 
@@ -182,9 +195,24 @@ export default function SettingsScreen() {
                     </View>
                 </View>
 
+                {/* SUBSCRIPTION & BILLING */}
+                <View style={{ marginBottom: 24 }}>
+                    <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>BILLING & SUBSCRIPTION</Text>
+                    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
+                        <ModernSettingsItem 
+                            icon={CreditCardIcon} 
+                            label="Manage Subscription" 
+                            subLabel="View plans, invoices, and billing history"
+                            onPress={() => router.push('/settings/manage-subscriptions')} 
+                            isLast
+                            theme={theme} 
+                        />
+                    </View>
+                </View>
+
                 {/* APP SETTINGS */}
                 <View style={{ marginBottom: 24 }}>
-                    <Text style={styles.sectionTitle}>APP SETTINGS</Text>
+                    <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>APP SETTINGS</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
 
                         <ModernSettingsItem icon={Notification01Icon} label="Notifications" onPress={() => router.push('/settings/notifications')} theme={theme} />
@@ -211,7 +239,7 @@ export default function SettingsScreen() {
 
                 {/* SECURITY */}
                 <View style={{ marginBottom: 24 }}>
-                    <Text style={styles.sectionTitle}>SECURITY</Text>
+                    <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>SECURITY</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
                         <ModernSettingsItem icon={SecurityCheckIcon} label="Account & Security" subLabel="Biometrics, Password, Danger Zone" onPress={() => router.push('/settings/account-security')} isLast theme={theme} />
                     </View>
@@ -219,7 +247,7 @@ export default function SettingsScreen() {
 
                 {/* SUPPORT */}
                 <View style={{ marginBottom: 32 }}>
-                    <Text style={styles.sectionTitle}>SUPPORT</Text>
+                    <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>SUPPORT</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
                         <ModernSettingsItem icon={InformationCircleIcon} label="Legal & Privacy" onPress={() => router.push('/settings/privacy-policy')} theme={theme} />
                         <ModernSettingsItem icon={Mail01Icon} label="Contact Support" onPress={handleContactSupport} theme={theme} />
@@ -228,16 +256,20 @@ export default function SettingsScreen() {
                     </View>
                 </View>
 
+                {/* SIGN OUT BUTTON */}
                 <TouchableOpacity
                     onPress={handleSignOut}
-                    activeOpacity={0.8}
-                    style={{
-                        backgroundColor: '#FEF2F2', 
-                        height: 56, borderRadius: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, borderWidth: 1, borderColor: '#FEE2E2'
-                    }}
+                    activeOpacity={0.7}
+                    style={[
+                        styles.signOutButton,
+                        {
+                            backgroundColor: dangerColor + '10', 
+                            borderColor: dangerColor + '30',
+                        }
+                    ]}
                 >
-                    <Text style={{ color: '#ef4444', fontSize: 15, fontWeight: '600' }}>Sign Out</Text>
-                    <HugeiconsIcon icon={Logout01Icon} size={20} color="#ef4444" strokeWidth={2.5} />
+                    <HugeiconsIcon icon={Logout01Icon} size={20} color={dangerColor} strokeWidth={2.5} />
+                    <Text style={[styles.signOutText, { color: dangerColor }]}>Sign Out</Text>
                 </TouchableOpacity>
 
             </ScrollView>
@@ -248,5 +280,22 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
     sectionTitle: { fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase', opacity: 0.7 },
     card: { borderRadius: 24, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
-    profileIconContainer: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' }
+    profileIconContainer: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+    
+    signOutButton: {
+        height: 56, 
+        borderRadius: 16, 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        gap: 10, 
+        borderWidth: 1,
+        marginTop: 8,
+        marginBottom: 16
+    },
+    signOutText: { 
+        fontSize: 16, 
+        fontWeight: '700',
+        letterSpacing: 0.3 
+    }
 });

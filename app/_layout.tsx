@@ -1,4 +1,4 @@
-// app/_layout.tsx
+// filepath: app/_layout.tsx
 import {
   Nunito_400Regular,
   Nunito_500Medium,
@@ -22,7 +22,26 @@ import BiometricLockScreen from "../components/BiometricLockScreen";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { SyncProvider } from "../context/SyncContext";
 import "../global.css";
-import { initDatabase } from "../lib/database";
+import { initDatabase, queueSyncItem } from "../lib/database";
+import { getDB } from "../lib/db-client";
+import { supabase } from "../lib/supabase";
+import {
+  clearAttendanceNotification,
+  syncPersistentNotification,
+  verifyActiveShiftBeforeAction
+} from "../utils/NotificationService";
+
+// --- FIX FOR EXPO HEADLESS KEEP AWAKE ERROR IN DEV MODE ---
+if (__DEV__) {
+    const originalConsoleError = console.error;
+    console.error = (...args) => {
+        if (args.length > 0 && typeof args[0] === 'string' && args[0].includes('Unable to activate keep awake')) {
+            return; // Silently ignore Expo DevTool's background keep-awake failure
+        }
+        originalConsoleError(...args);
+    };
+    LogBox.ignoreAllLogs(true);
+}
 
 notifee.registerForegroundService((notification) => {
     return new Promise(() => {
@@ -30,14 +49,52 @@ notifee.registerForegroundService((notification) => {
     });
 });
 
-if (__DEV__) LogBox.ignoreAllLogs(true);
-
+// BACKGROUND EVENT HANDLER
 notifee.onBackgroundEvent(async ({ type, detail }) => {
-    const { notification, pressAction } = detail;
+    const { pressAction } = detail;
 
     if (type === EventType.ACTION_PRESS && pressAction?.id) {
         if (pressAction.id === 'action_checkout') {
-            await notifee.cancelNotification('attendance_persistent');
+            try {
+                // Fetch the current authenticated user inside the background task
+                const { data } = await supabase.auth.getSession();
+                const userId = data.session?.user?.id;
+
+                if (userId) {
+                    // 1. Verify if shift is actually active in the database
+                    const isActive = await verifyActiveShiftBeforeAction(userId);
+                    
+                    // 2. If active, write the checkout to the database directly
+                    if (isActive) {
+                        const db = await getDB();
+                        const activeShift: any = await db.getFirstAsync(
+                            "SELECT * FROM attendance WHERE user_id = ? AND clock_out IS NULL ORDER BY clock_in DESC LIMIT 1",
+                            [userId]
+                        );
+
+                        if (activeShift) {
+                            const clockOutTime = new Date().toISOString();
+                            await db.runAsync(
+                                "UPDATE attendance SET clock_out = ?, status = 'Completed', updated_at = ?, is_synced = 0 WHERE id = ?",
+                                [clockOutTime, clockOutTime, activeShift.id]
+                            );
+                            
+                            // Queue for cloud sync when internet is available
+                            await queueSyncItem('attendance', activeShift.id, 'UPDATE', { 
+                                ...activeShift, 
+                                clock_out: clockOutTime, 
+                                status: 'Completed',
+                                updated_at: clockOutTime 
+                            });
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error("[BackgroundEvent] Error checking out:", error);
+            } finally {
+                // 3. Always clear the persistent notification on Time Out
+                await clearAttendanceNotification();
+            }
         }
     }
 });
@@ -48,6 +105,15 @@ function RootLayoutNav() {
   const { session, isLoading: loading } = useAuth();
   const [isBiometricLocked, setIsBiometricLocked] = useState(false);
   const user = session?.user;
+
+  // Sync Notification with Actual Database State on Load
+  useEffect(() => {
+      if (user?.id) {
+          syncPersistentNotification(user.id);
+      } else if (!loading) {
+          clearAttendanceNotification();
+      }
+  }, [user?.id, loading]);
 
   useEffect(() => {
     const checkBiometricSettings = async () => {
@@ -85,6 +151,7 @@ function RootLayoutNav() {
           <Stack.Screen name="settings" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/account-security" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/notifications" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="settings/manage-subscriptions" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/appearance" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/privacy-policy" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/about" options={{ animation: "slide_from_right" }} />

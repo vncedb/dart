@@ -1,5 +1,11 @@
+// filepath: utils/NotificationService.ts
 import notifee, { AndroidImportance, AndroidStyle, AuthorizationStatus } from '@notifee/react-native';
 import { Appearance, Platform } from 'react-native';
+import { getDB } from '../lib/db-client';
+
+// FIX: A Promise Lock (Mutex) to prevent Android Service Manager crashes.
+// This guarantees we never try to start and stop a foreground service at the exact same millisecond.
+let notificationQueue = Promise.resolve();
 
 export const initNotificationSystem = async () => {
     await notifee.requestPermission();
@@ -30,112 +36,161 @@ export const checkNotificationPermissions = async () => {
 
 export const scheduleReminders = async (startTime: string | null) => {
     if (!startTime) return;
-    // Reminder scheduling logic goes here
-    console.log(`[NotificationService] Reminders synced for shift starting at: ${startTime}`);
 };
 
-/**
- * Starts or updates the Native Timer Notification
- */
+export const syncPersistentNotification = async (userId: string | null) => {
+    if (!userId) {
+        await clearAttendanceNotification();
+        return;
+    }
+    
+    try {
+        const db = await getDB();
+        const activeShift: any = await db.getFirstAsync(
+            "SELECT * FROM attendance WHERE user_id = ? AND clock_out IS NULL ORDER BY clock_in DESC LIMIT 1",
+            [userId]
+        );
+
+        if (activeShift) {
+            const isBreakMode = activeShift.status === 'On Break' || activeShift.status === 'Break';
+            const isOvertime = activeShift.status === 'Overtime';
+            
+            await updateAttendanceNotification(
+                activeShift.clock_in,
+                isOvertime,
+                isBreakMode,
+                0 
+            );
+        } else {
+            await clearAttendanceNotification();
+        }
+    } catch (error) {
+        console.error("[NotificationService] Sync Error:", error);
+    }
+};
+
+export const verifyActiveShiftBeforeAction = async (userId: string): Promise<boolean> => {
+    try {
+        const db = await getDB();
+        const activeShift: any = await db.getFirstAsync(
+            "SELECT id FROM attendance WHERE user_id = ? AND clock_out IS NULL",
+            [userId]
+        );
+        
+        if (!activeShift) {
+            await clearAttendanceNotification();
+            return false; 
+        }
+        return true;
+    } catch (e) {
+        return false; 
+    }
+};
+
 export const updateAttendanceNotification = async (
     clockInTimestamp: string,
     isOvertime: boolean,
     isBreakMode: boolean,
     accumulatedBreakMs: number = 0
 ) => {
-    const startTimeMs = new Date(clockInTimestamp).getTime();
-    const chronometerStartTime = startTimeMs + accumulatedBreakMs;
+    notificationQueue = notificationQueue.then(async () => {
+        try {
+            const startTimeMs = new Date(clockInTimestamp).getTime();
+            const chronometerStartTime = startTimeMs + accumulatedBreakMs;
 
-    // Format the Exact Clock-In Time
-    const timeInStr = new Date(clockInTimestamp).toLocaleTimeString([], { 
-        hour: '2-digit', 
-        minute: '2-digit',
-        hour12: true 
-    });
+            const timeInStr = new Date(clockInTimestamp).toLocaleTimeString([], { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: true 
+            });
 
-    // Calculate Elapsed Time
-    const totalElapsedMs = Date.now() - chronometerStartTime;
-    const elapsedHrs = Math.floor(totalElapsedMs / (1000 * 60 * 60));
-    const elapsedMins = Math.floor((totalElapsedMs % (1000 * 60 * 60)) / (1000 * 60));
-    const elapsedText = elapsedHrs > 0 
-        ? `${elapsedHrs} hr ${elapsedMins} min` 
-        : `${elapsedMins} min`;
+            // FIX: Math.max ensures the timer math never glitches into negative bounds resulting in high numbers
+            const totalElapsedMs = Math.max(0, Date.now() - chronometerStartTime);
+            const elapsedHrs = Math.floor(totalElapsedMs / (1000 * 60 * 60));
+            const elapsedMins = Math.floor((totalElapsedMs % (1000 * 60 * 60)) / (1000 * 60));
+            const elapsedText = elapsedHrs > 0 
+                ? `${elapsedHrs} hr ${elapsedMins} min` 
+                : `${elapsedMins} min`;
 
-    // Dynamic Theme Detection for Icon Background Color
-    const colorScheme = Appearance.getColorScheme();
-    const isDarkMode = colorScheme === 'dark';
-    
-    // Choose base color: Dark = Orange (#f97316), Light = Indigo (#4f46e5)
-    const baseThemeColor = isDarkMode ? '#f97316' : '#4f46e5';
-    
-    // If on break, we can still use a distinct warning color, or fallback to the theme color
-    const notificationColor = isBreakMode ? '#F59E0B' : baseThemeColor;
+            const colorScheme = Appearance.getColorScheme();
+            const isDarkMode = colorScheme === 'dark';
+            const baseThemeColor = isDarkMode ? '#f97316' : '#4f46e5';
+            const notificationColor = isBreakMode ? '#F59E0B' : baseThemeColor;
 
-    await notifee.displayNotification({
-        id: 'attendance_persistent',
-        title: isBreakMode 
-            ? '☕ You are on Break' 
-            : isOvertime 
-                ? '🔥 Overtime Active' 
-                : '💼 Shift in Progress',
-        
-        body: isBreakMode 
-            ? `Paused. Time In: ${timeInStr}` 
-            : `Time In: ${timeInStr} • Elapsed: ${elapsedText}`,
-            
-        android: {
-            channelId: 'attendance_timer',
-            
-            // 1. SMALL ICON: Expo auto-generates your app.json icon into 'notification_icon'
-            smallIcon: 'notification_icon', 
-            
-            // 2. LARGE ICON: Only ONE set of dots "../"
-            largeIcon: require('../assets/icons/notification/ic-dart-notification-large.png'), 
-            
-            // 3. DYNAMIC COLOR: Based on system theme
-            color: notificationColor, 
-            
-            ongoing: true,
-            autoCancel: false,
-            asForegroundService: true, 
-            showChronometer: !isBreakMode, 
-            chronometerDirection: 'up',
-            timestamp: chronometerStartTime, 
+            await notifee.displayNotification({
+                id: 'attendance_persistent',
+                title: isBreakMode 
+                    ? '☕ You are on Break' 
+                    : isOvertime 
+                        ? '🔥 Overtime Active' 
+                        : '💼 Shift in Progress',
+                
+                body: isBreakMode 
+                    ? `Paused. Time In: ${timeInStr}` 
+                    : `Time In: ${timeInStr} • Elapsed: ${elapsedText}`,
+                    
+                android: {
+                    channelId: 'attendance_timer',
+                    smallIcon: 'notification_icon', 
+                    largeIcon: require('../assets/icons/notification/ic-dart-notification-large.png'), 
+                    color: notificationColor, 
+                    
+                    ongoing: true,
+                    autoCancel: false,
+                    asForegroundService: true, 
+                    showChronometer: !isBreakMode, 
+                    chronometerDirection: 'up',
+                    timestamp: chronometerStartTime, 
 
-            style: {
-                type: AndroidStyle.BIGTEXT,
-                text: isBreakMode 
-                    ? `Your shift timer is currently paused.\n\n🕒 **Time In:** ${timeInStr}` 
-                    : `Your shift is actively being tracked.\n\n🕒 **Time In:** ${timeInStr}\n⏱️ **Worked:** ${elapsedText}`,
-            },
+                    style: {
+                        type: AndroidStyle.BIGTEXT,
+                        text: isBreakMode 
+                            ? `Your shift timer is currently paused.\n\n🕒 **Time In:** ${timeInStr}` 
+                            : `Your shift is actively being tracked.\n\n🕒 **Time In:** ${timeInStr}\n⏱️ **Worked:** ${elapsedText}`,
+                    },
 
-            actions: isBreakMode ? [
-                {
-                    title: 'Resume Work',
-                    pressAction: { id: 'action_resume' },
-                }
-            ] : [
-                {
-                    title: 'Take Break',
-                    pressAction: { id: 'action_break' },
+                    actions: isBreakMode ? [
+                        {
+                            title: 'Resume Work',
+                            pressAction: { id: 'action_resume' },
+                        }
+                    ] : [
+                        {
+                            title: 'Take Break',
+                            pressAction: { id: 'action_break' },
+                        },
+                        {
+                            title: 'Time Out',
+                            pressAction: { id: 'action_checkout' },
+                        }
+                    ]
                 },
-                {
-                    title: 'Time Out',
-                    pressAction: { id: 'action_checkout' },
+                ios: {
+                    interruptionLevel: 'critical',
                 }
-            ]
-        },
-        ios: {
-            interruptionLevel: 'critical',
+            });
+        } catch (e) {
+            console.error("[NotificationService] Error updating notification:", e);
         }
     });
+
+    return notificationQueue;
 };
 
 export const clearAttendanceNotification = async () => {
-    if (Platform.OS === 'android') {
-        await notifee.stopForegroundService();
-    }
-    await notifee.cancelNotification('attendance_persistent');
+    notificationQueue = notificationQueue.then(async () => {
+        try {
+            // Cancel notification first, then stop service to prevent lifecycle crashes
+            await notifee.cancelNotification('attendance_persistent');
+            if (Platform.OS === 'android') {
+                await notifee.stopForegroundService();
+            }
+        } catch (e) {
+            console.log("[NotificationService] Error clearing notification", e);
+        }
+    });
+
+    return notificationQueue;
 };
 
 export const showStandardNotification = async (title: string, body: string) => {
@@ -151,4 +206,4 @@ export const showStandardNotification = async (title: string, body: string) => {
             pressAction: { id: 'default' },
         },
     });
-}; 
+};

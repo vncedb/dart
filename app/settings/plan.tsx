@@ -325,8 +325,8 @@ export default function PlanScreen() {
 
                 </ScrollView>
 
-                {/* Flat CTA Footer */}
-                <Animated.View entering={FadeInDown.duration(500).delay(500)} style={[styles.footer, { backgroundColor: theme.colors.background, borderTopColor: theme.colors.border }]}>
+                {/* Flat CTA Footer - Uses FadeInDown to slide down smoothly without shadows */}
+                <Animated.View entering={FadeInDown.duration(500).delay(900)} style={[styles.footer, { backgroundColor: theme.colors.background, borderTopColor: theme.colors.border }]}>
                     <AnimatedTouchableOpacity 
                         style={[styles.ctaButton, { backgroundColor: activeColor }, animatedButtonStyle]} 
                         activeOpacity={0.85}
@@ -411,7 +411,17 @@ const styles = StyleSheet.create({
     cancelText: { fontSize: 14, fontFamily: 'Nunito_700Bold' },
 
     footer: { position: 'absolute', bottom: 0, width, padding: 24, paddingTop: 16, borderTopWidth: 1 },
-    ctaButton: { width: '100%', height: 56, borderRadius: 100, alignItems: 'center', justifyContent: 'center', marginBottom: 12, elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
+    
+    // Completely removed shadow parameters from the CTA button
+    ctaButton: { 
+        width: '100%', 
+        height: 56, 
+        borderRadius: 100, 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        marginBottom: 12 
+    },
+    
     ctaText: { color: '#fff', fontSize: 16, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 0.5 },
     disclaimer: { fontSize: 12, fontFamily: 'Nunito_500Medium', textAlign: 'center', opacity: 0.6 }
 });

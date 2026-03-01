@@ -3,14 +3,12 @@
 # Expo + React Native + Supabase
 # =========================================
 
-
 # ================================
 # Dependencies
 # ================================
 node_modules/
 .pnp/
 .pnp.js
-
 
 # ================================
 # Environment Variables (CRITICAL)
@@ -20,26 +18,32 @@ node_modules/
 .env.local
 .env*.local
 
+# EXCEPTION: Always track the example file for team reference
+!.env.example
 
 # ================================
-# Expo
+# Expo & React Native
 # ================================
 .expo/
 dist/
 web-build/
 expo-env.d.ts
-
-
-# ================================
-# Build / Production
-# ================================
 build/
-coverage/
-*.tsbuildinfo
 
+# Native folders (Ignored for Expo Continuous Native Generation - CNG)
+# Note: Remove these if you run 'npx expo prebuild' and need to manually edit native code.
+ios/
+android/
 
 # ================================
-# Native (Android / iOS)
+# Supabase Local Development
+# ================================
+supabase/.temp/
+supabase/.branches/
+# Note: Do NOT ignore supabase/migrations/ or supabase/functions/
+
+# ================================
+# Native Build Artifacts & Security
 # ================================
 .kotlin/
 *.jks
@@ -48,32 +52,40 @@ coverage/
 *.p12
 *.key
 *.mobileprovision
-
+*.pem
 
 # ================================
-# Metro Bundler
+# Metro Bundler & Logs
 # ================================
 .metro-health-check*
-
-
-# ================================
-# Logs & Debug
-# ================================
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 hs_err_pid*
 
+# ================================
+# Testing & Coverage
+# ================================
+coverage/
+*.tsbuildinfo
+jest.config.js.snap
 
 # ================================
-# macOS / System Files
+# OS & IDEs (macOS / Windows / VSCode)
 # ================================
 .DS_Store
-*.pem
-
+.DS_Store?
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.swp
 
 # ================================
 # Misc
 # ================================
 *.orig.*
-app-example
+app-example/

@@ -32,8 +32,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  UIManager,
-  View,
+  View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -57,14 +56,6 @@ import {
   saveReportLocal,
 } from "../../lib/database";
 import { getDB } from "../../lib/db-client";
-
-// Enable LayoutAnimation on Android
-if (
-  Platform.OS === "android" &&
-  UIManager.setLayoutAnimationEnabledExperimental
-) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 

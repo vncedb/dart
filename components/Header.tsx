@@ -149,8 +149,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     bottom: 0,
-    left: 60,  // Locks the width dynamically between the action buttons
-    right: 60, // Locks the width dynamically between the action buttons
+    left: 48,  // Reduced from 60 to prevent text truncation
+    right: 48, // Reduced from 60 to prevent text truncation
     alignItems: "center",
     justifyContent: "center",
     zIndex: -1,

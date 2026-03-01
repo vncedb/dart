@@ -1,4 +1,4 @@
-// app/(tabs)/home.tsx
+// filepath: app/(tabs)/home.tsx
 import {
     ArrowDown01Icon,
     Notification01Icon,
@@ -16,6 +16,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
+    AppState,
     RefreshControl,
     StatusBar,
     StyleSheet,
@@ -232,7 +233,6 @@ export default function Home() {
 
     const [appSettings, setAppSettings] = useState<any>({ vibrationEnabled: true, soundEnabled: true, notificationsEnabled: true });
 
-    // SCROLLING REFS & STATES
     const scrollViewRef = useRef<any>(null);
     const [noJobCardY, setNoJobCardY] = useState(0);
     const [highlightNoJob, setHighlightNoJob] = useState(0);
@@ -260,7 +260,9 @@ export default function Home() {
     }));
 
     const latestRecord = todaysRecords.length > 0 ? todaysRecords[0] : null;
-    const isClockedIn = latestRecord?.status === 'pending';
+    
+    // FIX: Tolerate lowercase 'pending' for older rows, but standard is 'Pending'
+    const isClockedIn = latestRecord?.status?.toLowerCase() === 'pending' || latestRecord?.status?.toLowerCase() === 'active';
     const isSessionOvertime = latestRecord?.remarks?.includes('Overtime');
     const unreadNotifsCount = notifications.filter(n => !n.read).length;
     
@@ -296,9 +298,9 @@ export default function Home() {
         } catch (e) { console.log('Err saving notifs', e); }
     }, [loadNotifications]);
 
-    const loadData = useCallback(async () => {
+    const loadData = useCallback(async (isSilent = false) => {
         if (!user) return;
-        if (!isInitialLoadRef.current) setTimelineLoading(true);
+        if (!isInitialLoadRef.current && isSilent !== true) setTimelineLoading(true);
         try {
             const db = await getDB();
             const dateStr = format(selectedDate, 'yyyy-MM-dd');
@@ -347,16 +349,18 @@ export default function Home() {
                     const bTotal = await AsyncStorage.getItem(`break_total_${currentRecordId}`);
                     const bStart = await AsyncStorage.getItem(`break_start_${currentRecordId}`);
                     
-                    setAccumulatedBreakMs(bTotal ? Number(bTotal) : 0);
+                    setAccumulatedBreakMs(bTotal ? parseInt(bTotal, 10) || 0 : 0);
                     if (bStart) {
-                        setBreakStartTimestamp(Number(bStart));
+                        setBreakStartTimestamp(parseInt(bStart, 10) || null);
                         setIsBreakMode(true);
                     } else {
                         setBreakStartTimestamp(null);
+                        setIsBreakMode(false); 
                     }
                 } else {
                     setAccumulatedBreakMs(0);
                     setBreakStartTimestamp(null);
+                    setIsBreakMode(false);
                 }
 
                 const payoutType = parsedJob.payout_type || 'Semi-Monthly';
@@ -423,10 +427,22 @@ export default function Home() {
         } catch (e: any) { 
             console.log("Load Data Error:", e);
         } finally { 
-            setRefreshing(false); setTimelineLoading(false);
+            setRefreshing(false); 
+            if (isSilent !== true) setTimelineLoading(false);
             setTimeout(() => { setIsInitialLoading(false); isInitialLoadRef.current = false; }, 300); 
         }
     }, [user, selectedDate, saveNotifications]);
+
+    useEffect(() => {
+        const subscription = AppState.addEventListener('change', (nextAppState) => {
+            if (nextAppState === 'active') {
+                loadData(true); 
+                loadNotifications();
+                triggerSync(); 
+            }
+        });
+        return () => subscription.remove();
+    }, [loadData, loadNotifications, triggerSync]);
 
     const processClockAction = useCallback(async (isOvertime = false, duration = 0) => {
         if (!user || !activeJobId) {
@@ -443,7 +459,8 @@ export default function Home() {
                 let finalRemarks = latestRecord.remarks || '';
                 if (accumulatedBreakMs > 0) finalRemarks = finalRemarks ? `${finalRemarks} | BreakMs:${accumulatedBreakMs}` : `BreakMs:${accumulatedBreakMs}`;
 
-                const updatedRecord = { ...latestRecord, clock_out: now, status: 'completed', remarks: finalRemarks };
+                // FIX: Used 'Completed' Title Case for Database Constraint
+                const updatedRecord = { ...latestRecord, clock_out: now, status: 'Completed', remarks: finalRemarks };
                 await saveAttendanceLocal(updatedRecord);
                 
                 await AsyncStorage.removeItem(`break_start_${latestRecord.id}`);
@@ -453,6 +470,7 @@ export default function Home() {
                 await AsyncStorage.removeItem('active_ot_expiry');
                 setOtExpiry(null);
                 hasWarnedTimeout.current = false;
+                
                 await clearAttendanceNotification();
                 setIsBreakMode(false);
                 setAlertMessage("See you later!"); 
@@ -470,7 +488,8 @@ export default function Home() {
                      setOtExpiry(null);
                 }
                 
-                const record = { id: generateUUID(), user_id: user.id, job_id: activeJobId, clock_in: now.toISOString(), date: todayStr, status: 'pending', remarks };
+                // FIX: Used 'Pending' Title Case for Database Constraint
+                const record = { id: generateUUID(), user_id: user.id, job_id: activeJobId, clock_in: now.toISOString(), date: todayStr, status: 'Pending', remarks };
                 await saveAttendanceLocal(record);
                 
                 setAlertMessage(isOvertime ? "Overtime Started!" : "Welcome In!"); 
@@ -547,7 +566,8 @@ export default function Home() {
             let finalRemarks = `Auto-timeout: ${reason}`;
             if (accumulatedBreakMs > 0) finalRemarks += ` | BreakMs:${accumulatedBreakMs}`;
 
-            const updatedRecord = { ...latestRecord, clock_out: endIso, status: 'completed', remarks: finalRemarks };
+            // FIX: Used 'Completed' Title Case for Database Constraint
+            const updatedRecord = { ...latestRecord, clock_out: endIso, status: 'Completed', remarks: finalRemarks };
             await saveAttendanceLocal(updatedRecord);
             
             await showStandardNotification("Auto Timed Out", `You have been timed out. (${reason})`);
@@ -580,8 +600,10 @@ export default function Home() {
     useEffect(() => {
         if (isClockedIn && latestRecord?.clock_in && appSettings?.notificationsEnabled !== false) {
              updateAttendanceNotification(latestRecord.clock_in, isSessionOvertime, isBreakMode, accumulatedBreakMs);
+        } else {
+             clearAttendanceNotification();
         }
-    }, [isBreakMode, isClockedIn, isSessionOvertime, latestRecord, appSettings, accumulatedBreakMs]);
+    }, [isBreakMode, isClockedIn, isSessionOvertime, latestRecord?.clock_in, appSettings?.notificationsEnabled, accumulatedBreakMs]);
 
     useEffect(() => {
         const updateBreakState = async () => {

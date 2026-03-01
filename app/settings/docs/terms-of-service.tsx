@@ -1,3 +1,4 @@
+// filepath: app/settings/docs/terms-of-service.tsx
 import { File02Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import React from 'react';
@@ -33,7 +34,7 @@ export default function TermsOfServiceScreen() {
                     </View>
                     <Text style={[styles.mainTitle, { color: theme.colors.text }]}>Terms & Conditions</Text>
                     <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
-                        Effective Date: February 2026
+                        Effective Date: March 2026
                     </Text>
                 </View>
 
@@ -45,22 +46,32 @@ export default function TermsOfServiceScreen() {
                 <Section 
                     number="2"
                     title="User Responsibilities" 
-                    content="You are responsible for maintaining the confidentiality of your login credentials. You agree to provide accurate, current, and complete information during the registration process." 
+                    content="You are responsible for maintaining the confidentiality of your login credentials. You agree to provide accurate, current, and complete information during the registration process and billing." 
                 />
                 <Section 
                     number="3"
                     title="Acceptable Use" 
-                    content="DART is designed for attendance and work logging. You agree not to use the app for any unlawful purposes, to submit false attendance logs, or to attempt to breach the app's security." 
+                    content="DART is designed for attendance tracking, work logging, and report generation. You agree not to use the app for any unlawful purposes, to submit fraudulent logs, or to attempt to breach the app's security." 
                 />
                 <Section 
                     number="4"
+                    title="Subscriptions & Billing" 
+                    content="DART offers both Free and Pro plans. DART Pro subscriptions are billed on a recurring basis (monthly or annually) and may include a 7-day free trial. Unless canceled at least 24 hours before the end of the current billing cycle or trial period, your subscription will automatically renew and you will be charged the applicable fee." 
+                />
+                <Section 
+                    number="5"
+                    title="Cancellations & Refunds" 
+                    content="You may cancel your DART Pro subscription at any time through the app's Manage Subscription settings or via your device's App Store/Google Play settings. Cancellations take effect at the end of the current billing cycle. Refunds are strictly subject to the policies of the respective payment processor or app store." 
+                />
+                <Section 
+                    number="6"
                     title="Intellectual Property" 
                     content="All content, features, and functionality of DART, including but not limited to designs, logos, and code, are the exclusive property of DART developers and are protected by copyright laws." 
                 />
                 <Section 
-                    number="5"
+                    number="7"
                     title="Account Termination" 
-                    content="We reserve the right to suspend or terminate your account at any time, without prior notice, for conduct that we believe violates these Terms of Service or is harmful to our business." 
+                    content="We reserve the right to suspend or terminate your account at any time, without prior notice, for conduct that we believe violates these Terms of Service, including payment fraud, or is harmful to our business." 
                 />
                 
                 <View style={{ height: 40 }} />

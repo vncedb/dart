@@ -1,4 +1,4 @@
-// filepath: vncedb/dart/dart-8346f6d6d3ba6721214d0c5b9d4684d9a2a9874e/app/auth.tsx
+// filepath: app/auth.tsx
 import {
     ArrowLeft02Icon,
     ArrowRight01Icon,
@@ -147,7 +147,6 @@ export default function AuthScreen() {
               return deviceOnboarded === 'true';
           }
 
-          // ONLY parse from Google meta if no profile exists anywhere
           const meta = user.user_metadata || {};
           const avatarUrl = meta.avatar_url || meta.picture || meta.avatar || null;
           let fullName = meta.full_name || meta.name || '';
@@ -235,11 +234,25 @@ export default function AuthScreen() {
             }
         } 
         else if (authMode === 'signup') {
-            const { data: existingProfile } = await supabase.from('profiles').select('id').eq('email', email).single();
+            // BUG FIX: changed .single() to .maybeSingle() to prevent crashing on new signups
+            const { data: existingProfile } = await supabase.from('profiles').select('id').eq('email', email).maybeSingle();
+            
+            // SMART ERROR HANDLING FOR OAUTH CONFLICTS
             if (existingProfile) {
                 setLoading(false);
-                setErrors({ email: 'This email is already registered. Please sign in.' });
-                setVisibleTooltip('email');
+                setAlertConfig({
+                    visible: true,
+                    type: 'confirm',
+                    title: 'Account Already Exists',
+                    message: 'This email is already registered.\n\nIf you originally signed up with Google, please select "Continue with Google" to log in. You can also reset your password if you prefer to log in with an email.',
+                    confirmText: 'Go to Login',
+                    onConfirm: () => {
+                        setAlertConfig((p:any) => ({...p, visible: false}));
+                        setAuthMode('login');
+                    },
+                    cancelText: 'Cancel',
+                    onCancel: () => setAlertConfig((p:any) => ({...p, visible: false}))
+                });
                 return;
             }
 

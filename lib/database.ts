@@ -1,4 +1,4 @@
-// filepath: vncedb/dart/dart-8346f6d6d3ba6721214d0c5b9d4684d9a2a9874e/lib/database.ts
+// filepath: lib/database.ts
 import { getDB } from "./db-client";
 
 // --- INITIALIZATION ---
@@ -90,7 +90,8 @@ export const initDatabase = async () => {
       avatar_url TEXT, 
       local_avatar_path TEXT, 
       is_onboarded INTEGER DEFAULT 0,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      is_synced INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS job_positions (
@@ -107,7 +108,8 @@ export const initDatabase = async () => {
         work_schedule TEXT, 
         break_schedule TEXT, 
         created_at TEXT DEFAULT CURRENT_TIMESTAMP, 
-        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        is_synced INTEGER DEFAULT 0
     );
     CREATE VIRTUAL TABLE IF NOT EXISTS accomplishments_fts USING fts5(
         id UNINDEXED, 
@@ -150,6 +152,7 @@ export const initDatabase = async () => {
   await addColumn("profiles", "avatar_url", "TEXT");
   await addColumn("profiles", "local_avatar_path", "TEXT");
   await addColumn("profiles", "is_onboarded", "INTEGER DEFAULT 0");
+  await addColumn("profiles", "is_synced", "INTEGER DEFAULT 0");
   await addColumn("job_positions", "company", "TEXT");
   await addColumn("job_positions", "department", "TEXT");
   await addColumn("job_positions", "employment_status", "TEXT");
@@ -159,6 +162,7 @@ export const initDatabase = async () => {
   await addColumn("job_positions", "period_target", "INTEGER"); 
   await addColumn("job_positions", "created_at", "TEXT");
   await addColumn("job_positions", "updated_at", "TEXT");
+  await addColumn("job_positions", "is_synced", "INTEGER DEFAULT 0");
   await addColumn("accomplishments", "updated_at", "TEXT");
   await addColumn("attendance", "job_id", "TEXT");
   await addColumn("accomplishments", "job_id", "TEXT");
@@ -170,7 +174,7 @@ export const initDatabase = async () => {
   await addColumn("notifications", "updated_at", "TEXT");
   await addColumn("notifications", "type", "TEXT");
   await addColumn("notifications", "is_read", "INTEGER DEFAULT 0");
-  await addColumn("attendance", "title", "TEXT"); // NEW MIGRATION
+  await addColumn("attendance", "title", "TEXT");
 
   // 3. Create Indexes for fast querying
   await database.execAsync(`
@@ -239,7 +243,6 @@ export const queueSyncItem = async (tableName: string, rowId: string, action: st
 
 export const getPendingSyncCount = async () => {
   const db = await getDB();
-  // FIX: Only count items that haven't hit the max retry limit yet
   const res: any = await db.getFirstAsync("SELECT COUNT(*) as count FROM sync_queue WHERE status = 'PENDING' AND retry_count < 5");
   return res?.count || 0;
 };
@@ -249,7 +252,7 @@ export const saveProfileLocal = async (profile: any) => {
   const db = await getDB();
   const now = new Date().toISOString();
   await db.runAsync(
-    `INSERT OR REPLACE INTO profiles (id, email, first_name, last_name, middle_name, title, professional_suffix, current_job_id, full_name, avatar_url, local_avatar_path, is_onboarded, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO profiles (id, email, first_name, last_name, middle_name, title, professional_suffix, current_job_id, full_name, avatar_url, local_avatar_path, is_onboarded, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
     [
       profile.id, profile.email || "", profile.first_name || "", profile.last_name || "", profile.middle_name || "", profile.title || "", profile.professional_suffix || "", profile.current_job_id, profile.full_name || "", profile.avatar_url || null, profile.local_avatar_path || null, profile.is_onboarded ? 1 : 0, profile.updated_at || now,
     ]
@@ -262,7 +265,7 @@ export const saveJobLocal = async (job: any) => {
   const db = await getDB();
   const now = new Date().toISOString();
   await db.runAsync(
-    `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, payout_type, period_target, work_schedule, break_schedule, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, payout_type, period_target, work_schedule, break_schedule, created_at, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
     [
       job.id, job.user_id, job.title, job.company || job.company_name || "", job.department || "", job.employment_status || "Regular", job.rate || 0, job.rate_type || "hourly", job.payout_type || "Semi-Monthly", job.period_target !== undefined ? job.period_target : null, typeof job.work_schedule === "string" ? job.work_schedule : JSON.stringify(job.work_schedule), typeof job.break_schedule === "string" ? job.break_schedule : JSON.stringify(job.break_schedule), job.created_at || now, now,
     ]
