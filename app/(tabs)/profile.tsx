@@ -346,7 +346,7 @@ export default function ProfileScreen() {
 
                             <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, opacity: 0.6 }}>
                                 <HugeiconsIcon icon={Mail01Icon} size={14} color={theme.colors.text} />
-                                <Text style={{ marginLeft: 6, fontSize: 13, color: theme.colors.text, fontWeight: '500' }}>{email}</Text>
+                                <Text style={{ marginLeft: 6, fontSize: 13, color: theme.colors.text, fontFamily: 'Nunito_500Medium' }}>{email}</Text>
                             </View>
                         </View>
 

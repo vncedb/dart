@@ -1,7 +1,8 @@
-// app/(tabs)/reports.tsx
+// filepath: app/(tabs)/reports.tsx
 import {
   File02Icon,
   FileVerifiedIcon,
+  Message01Icon,
   PlusSignIcon,
   RefreshIcon,
   Search01Icon,
@@ -36,9 +37,7 @@ import FloatingAlert from "../../components/FloatingAlert";
 import LoadingScreen from "../../components/LoadingScreen";
 import ModernAlert from "../../components/ModernAlert";
 import ReportFilterBar from "../../components/ReportFilterBar";
-import ReportFilterModal, {
-  DateRange,
-} from "../../components/ReportFilterModal";
+import ReportFilterModal, { DateRange } from "../../components/ReportFilterModal";
 import ReportItem from "../../components/ReportItem";
 import TabHeader from "../../components/TabHeader";
 import { useAppTheme } from "../../constants/theme";
@@ -46,6 +45,8 @@ import { useSync } from "../../context/SyncContext";
 import { getDB } from "../../lib/db-client";
 import { supabase } from "../../lib/supabase";
 import { ReportService } from "../../services/ReportService";
+
+type ExtendedDateRange = DateRange & { type?: "period" | "custom" | "day" };
 
 const OfflineIndicator = ({ isOffline, theme }: { isOffline: boolean; theme: any; }) => {
   if (!isOffline) return null;
@@ -62,7 +63,7 @@ const OfflineIndicator = ({ isOffline, theme }: { isOffline: boolean; theme: any
 export default function ReportsScreen() {
   const router = useRouter();
   const theme = useAppTheme();
-  const { triggerSync, syncStatus, lastSyncedAt } = useSync();
+  const { syncStatus, lastSyncedAt, pendingCount, failedCount } = useSync();
   const isSyncing = syncStatus === "syncing";
 
   const filterBarRef = useRef<View>(null);
@@ -79,7 +80,7 @@ export default function ReportsScreen() {
   const [calendarLoading, setCalendarLoading] = useState(false);
 
   const [modalVisible, setModalVisible] = useState(false);
-  const [currentRange, setCurrentRange] = useState<DateRange | null>(null);
+  const [currentRange, setCurrentRange] = useState<ExtendedDateRange | null>(null);
   const [actionMenuVisible, setActionMenuVisible] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
 
@@ -108,32 +109,6 @@ export default function ReportsScreen() {
   const syncButtonStyle = useAnimatedStyle(() => ({
     transform: [{ rotate: `${syncButtonRotation.value}deg` }],
   }));
-
-  const handleManualSync = async () => {
-    if (isSyncing) return;
-    try {
-      const success = await triggerSync();
-      if (success) {
-        setFloatingAlert({ visible: true, message: "Data synced successfully", type: "success" });
-        await fetchReports();
-      } else {
-        if (isOffline) {
-          setFloatingAlert({ visible: true, message: "Offline: Sync paused", type: "error" });
-        } else {
-          setAlertConfig({
-            visible: true,
-            type: "error",
-            title: "Sync Error",
-            message: "Could not sync data. Please check your connection and try again.",
-            confirmText: "OK",
-            onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
-          });
-        }
-      }
-    } catch (e: any) {
-      console.error(e);
-    }
-  };
 
   const handleCalendarPress = () => {
     setCalendarLoading(true);
@@ -240,14 +215,14 @@ export default function ReportsScreen() {
           end = endOfMonth(now);
           label = `${format(start, "MMM 16")} - ${format(end, "d, yyyy")}`;
         }
-        const defaultRange: DateRange = { start: format(start, "yyyy-MM-dd"), end: format(end, "yyyy-MM-dd"), label, type: "period" };
+        const defaultRange: ExtendedDateRange = { start: format(start, "yyyy-MM-dd"), end: format(end, "yyyy-MM-dd"), label, type: "period" };
         setCurrentRange(defaultRange);
         applyFilter(defaultRange, sectionsArray);
       } else {
         applyFilter(currentRange, sectionsArray);
       }
-    } catch (e: any) {
-      console.log("Fetch Error", e);
+    } catch (error) { 
+      console.log("Fetch Error", error);
     } finally {
       setRefreshing(false);
       setIsLoading(false);
@@ -263,13 +238,13 @@ export default function ReportsScreen() {
   const handleExactDateSelect = (date: Date) => {
     if (date) {
       const dateStr = format(date, "yyyy-MM-dd");
-      const range: DateRange = { start: dateStr, end: dateStr, label: format(date, "MMMM d, yyyy"), type: "day" as any };
+      const range: ExtendedDateRange = { start: dateStr, end: dateStr, label: format(date, "MMMM d, yyyy"), type: "day" };
       setCurrentRange(range);
       applyFilter(range, allSections);
     }
   };
 
-  const handleRangeSelect = (range: DateRange) => {
+  const handleRangeSelect = (range: ExtendedDateRange) => {
     setCurrentRange(range);
     applyFilter(range, allSections);
   };
@@ -289,7 +264,7 @@ export default function ReportsScreen() {
         description: "You haven't logged any hours or tasks. Add a new entry to get started."
       };
     }
-    if ((currentRange as any)?.type === "day") {
+    if (currentRange?.type === "day") {
       return {
         title: "No Entries Today",
         description: `There are no activities logged for ${currentRange?.label}. Try selecting a different date.`
@@ -309,9 +284,9 @@ export default function ReportsScreen() {
       <FloatingAlert visible={floatingAlert.visible} message={floatingAlert.message} type={floatingAlert.type as any} onHide={() => setFloatingAlert({ ...floatingAlert, visible: false })} />
       <ModernAlert {...alertConfig} />
 
-      <ReportFilterModal visible={modalVisible} onClose={() => setModalVisible(false)} availableDates={availableDates} currentRange={currentRange} onSelect={handleRangeSelect} />
+      <ReportFilterModal visible={modalVisible} onClose={() => setModalVisible(false)} availableDates={availableDates} currentRange={currentRange} onSelect={handleRangeSelect as any} />
 
-      <DatePicker visible={showDatePicker} onClose={() => setShowDatePicker(false)} onSelect={handleExactDateSelect} selectedDate={currentRange && (currentRange as any).type === "day" ? new Date(currentRange.start) : new Date()} title="Select Specific Date" markedDates={markedDates} />
+      <DatePicker visible={showDatePicker} onClose={() => setShowDatePicker(false)} onSelect={handleExactDateSelect} selectedDate={currentRange && currentRange.type === "day" ? new Date(currentRange.start) : new Date()} title="Select Specific Date" markedDates={markedDates} />
 
       <ActionMenu
         visible={actionMenuVisible}
@@ -319,7 +294,40 @@ export default function ReportsScreen() {
         anchor={menuAnchor}
         actions={[
           { label: "Add Entry", icon: PlusSignIcon, onPress: () => router.push("/reports/add-entry") },
-          { label: "Generate Report", icon: File02Icon, onPress: () => { setActionMenuVisible(false); if (filteredSections.length > 0) { router.push({ pathname: "/reports/generate", params: { startDate: currentRange?.start, endDate: currentRange?.end, date: currentRange && (currentRange as any).type === "day" ? currentRange.start : undefined } }); } else { setFloatingAlert({ visible: true, message: "No data to generate", type: "error" }); } } },
+          { 
+              label: "Generate Report", 
+              icon: File02Icon, 
+              onPress: () => { 
+                  setActionMenuVisible(false); 
+                  if (filteredSections.length > 0) { 
+                      router.push({ 
+                          pathname: "/reports/generate", 
+                          params: { 
+                              startDate: currentRange?.start || "", 
+                              endDate: currentRange?.end || "", 
+                              date: currentRange?.type === "day" ? currentRange.start : "" 
+                          } 
+                      }); 
+                  } else { 
+                      setFloatingAlert({ visible: true, message: "No data to generate", type: "error" }); 
+                  } 
+              } 
+          },
+          {
+              label: "Summary",
+              icon: Message01Icon,
+              onPress: () => {
+                  setActionMenuVisible(false);
+                  router.push({
+                      pathname: "/reports/ai-summary",
+                      params: {
+                          startDate: currentRange?.start || "",
+                          endDate: currentRange?.end || "",
+                          periodLabel: currentRange?.label || "",
+                      },
+                  });
+              },
+          },
         ]}
       />
 
@@ -327,10 +335,15 @@ export default function ReportsScreen() {
         title="Reports"
         rightElement={
           <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
-            <TouchableOpacity onPress={handleManualSync} disabled={isSyncing} style={[styles.headerBtn, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-              <Animated.View style={syncButtonStyle}>
-                <HugeiconsIcon icon={RefreshIcon} size={20} color={theme.colors.text} />
-              </Animated.View>
+            <TouchableOpacity onPress={() => router.push('/reports/sync')} style={[styles.headerBtn, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+              <View>
+                  <Animated.View style={syncButtonStyle}>
+                    <HugeiconsIcon icon={RefreshIcon} size={20} color={theme.colors.text} />
+                  </Animated.View>
+                  {(pendingCount > 0 || failedCount > 0) && (
+                    <View style={[styles.syncBadge, { backgroundColor: failedCount > 0 ? theme.colors.danger : theme.colors.primary, borderColor: theme.colors.card }]} />
+                  )}
+              </View>
             </TouchableOpacity>
 
             <TouchableOpacity onPress={() => router.push("/reports/saved-reports")} style={[styles.headerBtn, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
@@ -379,7 +392,7 @@ export default function ReportsScreen() {
             keyExtractor={(item) => item.id}
             renderItem={renderItem}
             renderSectionHeader={({ section }: any) => {
-              if (filteredSections.length === 1 && (currentRange as any)?.type !== "custom" && (currentRange as any)?.type !== "day") return null;
+              if (filteredSections.length === 1 && currentRange?.type !== "custom" && currentRange?.type !== "day") return null;
               return (
                 <View style={[styles.sectionHeader, { backgroundColor: theme.colors.background }]}>
                   <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>{section.title}</Text>
@@ -415,12 +428,13 @@ export default function ReportsScreen() {
 const styles = StyleSheet.create({
   headerBtn: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   badge: { position: "absolute", top: -6, right: -6, borderRadius: 10, minWidth: 16, height: 16, alignItems: "center", justifyContent: "center", borderWidth: 2 },
+  syncBadge: { position: 'absolute', top: -2, right: -2, width: 10, height: 10, borderRadius: 5, borderWidth: 1.5 },
   offlineStatus: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 8, borderBottomWidth: 1 },
   separator: { height: 1, marginHorizontal: 20, opacity: 0.5, marginBottom: 8 },
   sectionHeader: { paddingHorizontal: 20, paddingVertical: 12 },
   sectionTitle: { fontSize: 12, fontFamily: 'Nunito_500Medium', letterSpacing: 0.8, textTransform: "uppercase" },
-  
-  // Clean Empty State matching Job/job.tsx
+
+
   emptyContainer: { alignItems: 'center', marginTop: 80, paddingHorizontal: 24 },
   emptyIconContainer: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
   emptyTextContainer: { alignItems: 'center', marginBottom: 8 },

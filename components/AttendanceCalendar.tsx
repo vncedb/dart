@@ -136,7 +136,7 @@ export default function AttendanceCalendar({
                                         styles.dayText,
                                         isSelected && styles.selectedText,
                                         !isSelected && { color: theme.colors.text },
-                                        !isSelected && isTodayDate && { color: theme.colors.primary, fontWeight: '800' },
+                                        !isSelected && isTodayDate && { color: theme.colors.primary, fontFamily: 'Nunito_800ExtraBold' },
                                         !isCurrentMonth && { color: theme.colors.border, opacity: 0.5 }
                                     ]}>
                                         {format(dayItem, 'd')}
@@ -247,7 +247,7 @@ const styles = StyleSheet.create({
     },
     headerTitle: {
         fontSize: 15,
-        fontWeight: '700',
+        fontFamily: 'Nunito_700Bold',
         letterSpacing: 0.5,
     },
     arrowBtn: {
@@ -287,17 +287,17 @@ const styles = StyleSheet.create({
     },
     selectedText: {
         color: 'white',
-        fontWeight: '800',
+        fontFamily: 'Nunito_800ExtraBold',
     },
     weekdayText: {
         fontSize: 11,
-        fontWeight: '800',
+        fontFamily: 'Nunito_800ExtraBold',
         textTransform: 'uppercase',
         opacity: 0.6,
     },
     dayText: {
         fontSize: 14,
-        fontWeight: '600',
+        fontFamily: 'Nunito_600SemiBold',
     },
     dot: {
         position: 'absolute',
@@ -318,7 +318,7 @@ const styles = StyleSheet.create({
     },
     footerTitle: {
         fontSize: 13,
-        fontWeight: '700',
+        fontFamily: 'Nunito_700Bold',
         textTransform: 'uppercase',
         letterSpacing: 0.5,
     },
@@ -338,7 +338,7 @@ const styles = StyleSheet.create({
     },
     navText: {
         fontSize: 11,
-        fontWeight: '600',
+        fontFamily: 'Nunito_600SemiBold',
     },
     detailsRow: {
         flexDirection: 'row',
@@ -352,7 +352,7 @@ const styles = StyleSheet.create({
     },
     label: { 
         fontSize: 10, 
-        fontWeight: '800', 
+        fontFamily: 'Nunito_800ExtraBold', 
         letterSpacing: 0.5, 
         marginBottom: 6 
     },
@@ -362,7 +362,7 @@ const styles = StyleSheet.create({
         gap: 8 
     },
     timeText: { 
-        fontWeight: '700',
+        fontFamily: 'Nunito_700Bold',
         fontSize: 15,
     },
     emptyState: { 
@@ -378,7 +378,7 @@ const styles = StyleSheet.create({
         borderRadius: 3,
     },
     emptyText: { 
-        fontWeight: '500',
+        fontFamily: 'Nunito_500Medium',
         fontSize: 13
     },
 });

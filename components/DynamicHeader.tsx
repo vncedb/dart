@@ -13,6 +13,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAppTheme } from '../constants/theme';
+import { FontFamily, Typography } from '../constants/typography';
 import SyncStatusIndicator from './SyncStatusIndicator';
 
 interface DynamicHeaderProps {
@@ -187,9 +188,9 @@ const styles = StyleSheet.create({
         marginBottom: 12,
         height: 56 // Rigid height to stop dynamic resizing when sync indicator mounts
     },
-    dateText: { fontSize: 12, fontWeight: '600', textTransform: 'uppercase', opacity: 0.6, marginBottom: 0, letterSpacing: 0.5 },
-    timeText: { fontSize: 24, fontWeight: '700', letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
-    ampmText: { fontSize: 14, fontWeight: '600', marginLeft: 2 },
+    dateText: { ...Typography.caption, fontFamily: FontFamily.semibold, textTransform: 'uppercase', opacity: 0.6, marginBottom: 0, letterSpacing: 0.5 },
+    timeText: { fontSize: 24, fontFamily: FontFamily.bold, letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
+    ampmText: { fontSize: 14, fontFamily: FontFamily.semibold, marginLeft: 2 },
     badge: { 
         height: 26, // Matched height
         flexDirection: 'row', 
@@ -199,7 +200,7 @@ const styles = StyleSheet.create({
         borderWidth: 1 
     },
     dot: { width: 5, height: 5, borderRadius: 2.5, marginRight: 6 },
-    badgeText: { fontSize: 11, fontWeight: '700' }, // Matched fontSize
+    badgeText: { ...Typography.label, textTransform: 'none' },
     progressTrack: { height: 3, borderRadius: 1.5, width: '100%', overflow: 'hidden', opacity: 0.5 },
     progressFill: { height: '100%', borderRadius: 1.5 }
 });

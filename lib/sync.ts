@@ -48,10 +48,17 @@ const uploadFileToSupabase = async (localUri: string, userId: string, bucket: st
 };
 
 // --- SYNC PUSH (Local Queue -> Cloud) ---
-export const syncPush = async () => {
+export const syncPush = async (userId: string) => {
   try {
     const db = await getDB();
-    // FIX: Fetch both PENDING and FAILED items so they are forced to retry if internet is restored
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (!sessionData?.session) {
+      return { success: false, error: "No valid session" };
+    }
+
+    await db.runAsync(`DELETE FROM sync_queue WHERE retry_count >= ?`, [MAX_RETRIES]);
+
     const queueItems = await db.getAllAsync(
       'SELECT * FROM sync_queue WHERE status IN ("PENDING", "FAILED") ORDER BY created_at ASC'
     ) as any[];
@@ -70,12 +77,58 @@ export const syncPush = async () => {
       let payload: any = data ? JSON.parse(data) : {};
 
       try {
-        // Aggressive cleanup to ensure Supabase doesn't reject the payload
+        // --- 1. Aggressive local cleanup ---
         if ("is_synced" in payload) delete payload.is_synced; 
         if ("local_avatar_path" in payload) delete payload.local_avatar_path;
         if ("snippet_desc" in payload) delete payload.snippet_desc;
         
-        // Handle File Uploads before pushing the DB row
+        // --- 2. RLS Security Fix: Force User ID onto the payload ---
+        if (action !== "DELETE") {
+          if (table_name === "profiles") {
+             payload.id = userId;
+          } else {
+             payload.user_id = userId;
+          }
+          if (!payload.id) payload.id = row_id;
+        }
+
+        // --- 3. Schema Data Normalization ---
+        if (table_name === "saved_reports") {
+          if ("file_path" in payload) delete payload.file_path;
+          if ("is_read" in payload) delete payload.is_read;
+        }
+        
+        // FIX: Supabase 'notifications' table strictly expects a BigInt timestamp
+        if (table_name === "notifications") {
+          if (payload.date) {
+             // Convert ISO string to BigInt milliseconds
+             if (typeof payload.date === 'string') {
+                 payload.date = new Date(payload.date).getTime();
+             }
+          } else {
+             payload.date = payload.created_at ? new Date(payload.created_at).getTime() : Date.now();
+          }
+        }
+
+        // FIX: Sanitize empty strings to null for foreign keys and timestamp columns
+        if (payload.job_id === "") payload.job_id = null;
+
+        if (table_name === "attendance") {
+            if (payload.clock_out === "") payload.clock_out = null;
+            if (payload.job_id === "" || payload.job_id === undefined) payload.job_id = null;
+            
+            if (payload.status) {
+                payload.status = payload.status.toLowerCase();
+                if (!['pending', 'completed'].includes(payload.status)) {
+                    payload.status = payload.clock_out ? 'completed' : 'pending';
+                }
+            } else {
+                payload.status = payload.clock_out ? 'completed' : 'pending';
+            }
+            if (!payload.updated_at) payload.updated_at = new Date().toISOString();
+        }
+
+        // --- 4. Handle File Uploads before pushing the DB row ---
         if (table_name === "accomplishments" && payload.image_url?.startsWith("file://") && action !== "DELETE") {
           const remoteUrl = await uploadFileToSupabase(payload.image_url, payload.user_id || "unknown", "entry-images", "entries");
           if (remoteUrl) payload.image_url = remoteUrl;
@@ -84,7 +137,6 @@ export const syncPush = async () => {
           const remoteUrl = await uploadFileToSupabase(payload.file_path, payload.user_id, "reports");
           if (remoteUrl) {
             payload.remote_url = remoteUrl;
-            payload.file_path = remoteUrl; 
           }
         }
         if (table_name === "profiles" && payload.local_avatar_path?.startsWith("file://") && action !== "DELETE") {
@@ -97,6 +149,13 @@ export const syncPush = async () => {
 
         const groupKey = `${table_name}_${action}`;
         if (!batchGroups[groupKey]) batchGroups[groupKey] = { tableName: table_name, action, items: [], payloads: [] };
+        
+        // Exclude empty payload updates
+        if (action === "UPDATE" && Object.keys(payload).length === 0) {
+            await db.runAsync(`DELETE FROM sync_queue WHERE id = ?`, [id]);
+            continue;
+        }
+
         batchGroups[groupKey].items.push(item);
         batchGroups[groupKey].payloads.push(payload);
 
@@ -108,21 +167,49 @@ export const syncPush = async () => {
       }
     }
 
-    // Batch Execution
-    for (const key of Object.keys(batchGroups)) {
+    // --- 5. Fix Execution Order for RLS dependencies ---
+    const SYNC_ORDER = ["profiles", "job_positions", "attendance", "accomplishments", "saved_reports", "notifications"];
+    const orderedKeys = Object.keys(batchGroups).sort((a, b) => {
+        const indexA = SYNC_ORDER.indexOf(batchGroups[a].tableName);
+        const indexB = SYNC_ORDER.indexOf(batchGroups[b].tableName);
+        return (indexA === -1 ? 99 : indexA) - (indexB === -1 ? 99 : indexB);
+    });
+
+    for (const key of orderedKeys) {
         const { tableName, action, items, payloads } = batchGroups[key];
-        let error = null;
 
         try {
             if (action === "INSERT" || action === "UPSERT") {
-                const uniquePayloadsMap = new Map();
-                for (const p of payloads) {
-                    if (p.id) uniquePayloadsMap.set(p.id, p);
+                const seen = new Map<string, any>();
+                for (let i = 0; i < payloads.length; i++) {
+                    const pid = payloads[i].id || items[i].row_id;
+                    seen.set(pid, { ...payloads[i], id: pid });
                 }
-                const deduplicatedPayloads = Array.from(uniquePayloadsMap.values());
+                const deduped = Array.from(seen.values());
 
-                const { error: err } = await supabase.from(tableName).upsert(deduplicatedPayloads);
-                error = err;
+                const { error: batchErr } = await supabase.from(tableName).upsert(deduped);
+
+                if (batchErr) {
+                    for (let i = 0; i < items.length; i++) {
+                        const p = { ...payloads[i], id: payloads[i].id || items[i].row_id };
+                        const { error: singleErr } = await supabase.from(tableName).upsert(p);
+                        if (!singleErr) {
+                            await db.runAsync(`DELETE FROM sync_queue WHERE id = ?`, [items[i].id]);
+                            try { await db.runAsync(`UPDATE ${tableName} SET is_synced = 1 WHERE id = ?`, [items[i].row_id]); } catch(e) {}
+                            successCount++;
+                        } else {
+                            await db.runAsync(`UPDATE sync_queue SET retry_count = retry_count + 1, status = 'FAILED' WHERE id = ?`, [items[i].id]);
+                            failedCount++;
+                        }
+                    }
+                    continue;
+                }
+
+                for (const item of items) {
+                    await db.runAsync(`DELETE FROM sync_queue WHERE id = ?`, [item.id]);
+                    try { await db.runAsync(`UPDATE ${tableName} SET is_synced = 1 WHERE id = ?`, [item.row_id]); } catch(e) {}
+                }
+                successCount += items.length;
             } else {
                 for (let i = 0; i < items.length; i++) {
                     const rowId = items[i].row_id;
@@ -140,19 +227,13 @@ export const syncPush = async () => {
                         const { error: err } = await supabase.from(tableName).delete().eq("id", rowId);
                         if (err) throw err;
                     }
-                }
-            }
 
-            if (!error || error.code === "PGRST116") {
-                for (const item of items) {
-                    await db.runAsync(`DELETE FROM sync_queue WHERE id = ?`, [item.id]);
+                    await db.runAsync(`DELETE FROM sync_queue WHERE id = ?`, [items[i].id]);
                     if (action !== 'DELETE') {
-                        try { await db.runAsync(`UPDATE ${tableName} SET is_synced = 1 WHERE id = ?`, [item.row_id]); } catch(e) {}
+                        try { await db.runAsync(`UPDATE ${tableName} SET is_synced = 1 WHERE id = ?`, [items[i].row_id]); } catch(e) {}
                     }
+                    successCount++;
                 }
-                successCount += items.length;
-            } else {
-                throw error;
             }
         } catch (e: any) {
             console.error(`[Sync] Supabase error on batch ${key}:`, e.message || e);

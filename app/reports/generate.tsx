@@ -619,15 +619,15 @@ const styles = StyleSheet.create({
   iconBox: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
   checkRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16, paddingVertical: 14 },
-  checkLabel: { fontSize: 15, fontWeight: "700" },
-  checkSub: { fontSize: 12, marginTop: 4, opacity: 0.6, fontWeight: '500' },
+  checkLabel: { fontSize: 15, fontFamily: "Nunito_700Bold" },
+  checkSub: { fontSize: 12, marginTop: 4, opacity: 0.6, fontFamily: 'Nunito_500Medium' },
   divider: { height: 1, width: "100%", opacity: 0.5 },
   
   // Custom Input Styles
   inputGroup: { marginBottom: 16 },
-  inputLabel: { fontSize: 11, fontWeight: "800", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 },
+  inputLabel: { fontSize: 11, fontFamily: "Nunito_800ExtraBold", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 },
   inputWrapper: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, height: 52 },
-  inputElement: { flex: 1, fontSize: 15, fontWeight: '600', marginLeft: 10, height: '100%' },
+  inputElement: { flex: 1, fontSize: 15, fontFamily: 'Nunito_600SemiBold', marginLeft: 10, height: '100%' },
   
   sigBtn: { height: 120, borderRadius: 16, borderWidth: 1.5, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   sigPreviewContainer: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center", padding: 10 },

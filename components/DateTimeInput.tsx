@@ -76,7 +76,7 @@ export default function DateTimeInput({ type, label, value, onChange }: DateTime
 
 const styles = StyleSheet.create({
     container: { marginBottom: 16 },
-    label: { fontSize: 12, fontWeight: '600', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
+    label: { fontSize: 12, fontFamily: 'Nunito_600SemiBold', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
     input: { flexDirection: 'row', alignItems: 'center', height: 50, borderRadius: 12, borderWidth: 1, paddingHorizontal: 16 },
-    value: { marginLeft: 12, fontSize: 16, fontWeight: '500' }
+    value: { marginLeft: 12, fontSize: 16, fontFamily: 'Nunito_500Medium' }
 });

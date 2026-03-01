@@ -2,11 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  * {
+    font-family: Nunito_400Regular, System;
+  }
+}
+
 @layer components {
   .label {
-    @apply ml-1 text-xs font-bold tracking-wider uppercase text-slate-400;
+    @apply ml-1 text-label font-bold tracking-wider uppercase text-slate-400;
   }
   .input {
-    @apply p-4 font-medium bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-700 dark:text-white;
+    @apply p-4 font-medium bg-slate-50 dark:bg-slate-900 rounded-xl text-slate-700 dark:text-white text-base;
   }
 }

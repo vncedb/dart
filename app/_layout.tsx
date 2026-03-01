@@ -35,7 +35,9 @@ import {
 if (__DEV__) {
     const originalConsoleError = console.error;
     console.error = (...args) => {
-        if (args.length > 0 && typeof args[0] === 'string' && args[0].includes('Unable to activate keep awake')) {
+        // Deeply check arguments (including Promise Rejection Error objects)
+        const errorMsg = args.map(a => (typeof a === 'string' ? a : (a?.message || ''))).join(' ');
+        if (errorMsg.includes('Unable to activate keep awake')) {
             return; // Silently ignore Expo DevTool's background keep-awake failure
         }
         originalConsoleError(...args);
@@ -74,8 +76,9 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
 
                         if (activeShift) {
                             const clockOutTime = new Date().toISOString();
+                            // FIX: Status must strictly be lowercase 'completed' to match cloud database schema
                             await db.runAsync(
-                                "UPDATE attendance SET clock_out = ?, status = 'Completed', updated_at = ?, is_synced = 0 WHERE id = ?",
+                                "UPDATE attendance SET clock_out = ?, status = 'completed', updated_at = ?, is_synced = 0 WHERE id = ?",
                                 [clockOutTime, clockOutTime, activeShift.id]
                             );
                             
@@ -83,7 +86,7 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
                             await queueSyncItem('attendance', activeShift.id, 'UPDATE', { 
                                 ...activeShift, 
                                 clock_out: clockOutTime, 
-                                status: 'Completed',
+                                status: 'completed',
                                 updated_at: clockOutTime 
                             });
                         }
@@ -171,6 +174,7 @@ function RootLayoutNav() {
           <Stack.Screen name="reports/preview" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="reports/details" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="reports/edit" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="reports/ai-summary" options={{ animation: "slide_from_right" }} />
         </Stack>
 
         {isBiometricLocked && user && (

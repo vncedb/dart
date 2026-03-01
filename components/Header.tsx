@@ -8,6 +8,7 @@ import { useRouter } from "expo-router";
 import React, { useRef, useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useAppTheme } from "../constants/theme";
+import { Typography } from "../constants/typography";
 import ActionMenu from "./ActionMenu";
 
 export interface HeaderAction {
@@ -162,8 +163,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   titleText: {
-    fontSize: 18,
-    fontWeight: "700",
+    ...Typography.h3,
     textAlign: "center",
   },
   leftContainer: {

@@ -1,4 +1,4 @@
-// context/SyncContext.tsx
+// filepath: context/SyncContext.tsx
 import NetInfo from '@react-native-community/netinfo';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
@@ -41,7 +41,9 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
   const [isOffline, setIsOffline] = useState(false);
   
   const isSyncing = useRef(false);
+  const lastSyncTime = useRef(0);
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const SYNC_COOLDOWN = 10000;
 
   const updatePendingCount = useCallback(async () => {
     try { 
@@ -75,7 +77,12 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
 
   const triggerSync = useCallback(async (): Promise<boolean> => {
     if (!user || isSyncing.current) return false;
+
+    const now = Date.now();
+    if (now - lastSyncTime.current < SYNC_COOLDOWN) return false;
+
     isSyncing.current = true;
+    lastSyncTime.current = now;
 
     if (isOffline) { isSyncing.current = false; return false; }
     if (resetTimerRef.current) { clearTimeout(resetTimerRef.current); resetTimerRef.current = null; }
@@ -83,9 +90,9 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       setSyncStatus('syncing');
       
-      const pushRes = await syncPush();
+      // FIX: Pass user ID to bypass RLS violations
+      const pushRes = await syncPush(user.id);
       
-      // Fixed: explicitly clear out failed counts if successful
       setFailedCount(pushRes.failedCount || 0);
       
       const pullResult = await syncPull(user.id);
@@ -129,7 +136,6 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
     return () => { if (resetTimerRef.current) clearTimeout(resetTimerRef.current); };
   }, []);
 
-  // Trigger 1: When App comes to foreground
   useEffect(() => {
     const subscription = AppState.addEventListener('change', nextAppState => {
       if (nextAppState === 'active') triggerSync();
@@ -137,7 +143,6 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
     return () => subscription.remove();
   }, [triggerSync]);
 
-  // Trigger 2: When network is restored (skip initial fire)
   useEffect(() => {
     let isInitial = true;
     const unsubscribe = NetInfo.addEventListener(state => {
@@ -149,12 +154,10 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
     return () => unsubscribe();
   }, [triggerSync]);
 
-  // Trigger 3: Initial load
   useEffect(() => {
     if (user) triggerSync();
   }, [user, triggerSync]);
 
-  // Trigger 4: Background Interval (Every 2 Minutes)
   useEffect(() => {
     if (!user) return;
     const intervalId = setInterval(() => {

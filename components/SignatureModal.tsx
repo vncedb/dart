@@ -121,7 +121,7 @@ const styles = StyleSheet.create({
         paddingBottom: 12,
         borderBottomWidth: 1
     },
-    title: { fontSize: 16, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+    title: { fontSize: 16, fontFamily: 'Nunito_700Bold', textTransform: 'uppercase', letterSpacing: 0.5 },
     headerAction: { 
         width: 36, 
         height: 36, 

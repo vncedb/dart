@@ -194,7 +194,7 @@ export default function SelectDropdown({ label, value, options, onChange, placeh
 
 const styles = StyleSheet.create({
     wrapper: { marginBottom: 20 },
-    label: { fontSize: 11, fontWeight: '700', marginBottom: 8, marginLeft: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
+    label: { fontSize: 11, fontFamily: 'Nunito_700Bold', marginBottom: 8, marginLeft: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
     trigger: { 
         height: 56, 
         borderRadius: 12, 
@@ -204,7 +204,7 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between', 
         paddingHorizontal: 16 
     },
-    valueText: { fontSize: 15, fontWeight: '600' },
+    valueText: { fontSize: 15, fontFamily: 'Nunito_600SemiBold' },
     
     overlay: { flex: 1 },
     dropdown: { 
@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
     },
     headerTitle: {
         fontSize: 11,
-        fontWeight: '700',
+        fontFamily: 'Nunito_700Bold',
         textTransform: 'uppercase',
         opacity: 0.7
     },
@@ -239,6 +239,6 @@ const styles = StyleSheet.create({
         borderRadius: 8, 
         marginBottom: 2,
     },
-    optionLabel: { fontSize: 14, fontWeight: '600' },
+    optionLabel: { fontSize: 14, fontFamily: 'Nunito_600SemiBold' },
     optionDesc: { fontSize: 11, marginTop: 2, lineHeight: 14 }
 });

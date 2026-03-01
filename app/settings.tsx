@@ -173,8 +173,8 @@ export default function SettingsScreen() {
                               )}
                             </View>
                             <View style={{ marginLeft: 12, flex: 1 }}>
-                                <Text style={{ fontSize: 16, fontWeight: '600', color: theme.colors.text }}>{user?.email}</Text>
-                                <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 2 }}>Connected via {authProviderText}</Text>
+                                <Text style={{ fontSize: 16, fontFamily: 'Nunito_600SemiBold', color: theme.colors.text }}>{user?.email}</Text>
+                                <Text style={{ fontSize: 12, fontFamily: 'Nunito_500Medium', color: theme.colors.textSecondary, marginTop: 2 }}>Connected via {authProviderText}</Text>
                             </View>
                          </View>
                     </View>
@@ -278,7 +278,7 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-    sectionTitle: { fontSize: 12, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase', opacity: 0.7 },
+    sectionTitle: { fontSize: 12, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase', opacity: 0.7 },
     card: { borderRadius: 24, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
     profileIconContainer: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
     
@@ -295,7 +295,7 @@ const styles = StyleSheet.create({
     },
     signOutText: { 
         fontSize: 16, 
-        fontWeight: '700',
+        fontFamily: 'Nunito_700Bold',
         letterSpacing: 0.3 
     }
 });

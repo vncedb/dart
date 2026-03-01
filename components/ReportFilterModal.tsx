@@ -365,7 +365,7 @@ const styles = StyleSheet.create({
         alignItems: 'center'
     },
     emptyText: {
-        fontFamily: 'Nunito_400Regularr',
+        fontFamily: 'Nunito_400Regular',
         fontSize: 14
     }
 });

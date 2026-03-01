@@ -2,6 +2,7 @@ import { HugeiconsIcon } from '@hugeicons/react-native';
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAppTheme } from '../constants/theme';
+import { Typography } from '../constants/typography';
 
 interface TabHeaderProps {
   title: string;
@@ -39,7 +40,7 @@ export default function TabHeader({
             {subtitle && (
             <View style={{ marginTop: 4 }}>
                 {typeof subtitle === 'string' ? (
-                <Text style={{ color: theme.colors.textSecondary, fontSize: 12, fontWeight: '600' }}>{subtitle}</Text>
+                <Text style={[Typography.caption, { color: theme.colors.textSecondary }]}>{subtitle}</Text>
                 ) : subtitle}
             </View>
             )}
@@ -75,9 +76,7 @@ const styles = StyleSheet.create({
     minHeight: 80, // Ensure consistent height with Profile
   },
   headerTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    letterSpacing: -0.5,
+    ...Typography.h1,
   },
   iconButton: {
     padding: 10,

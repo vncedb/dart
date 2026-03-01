@@ -41,7 +41,7 @@ export default function AuthCallback() {
   return (
     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
       <ActivityIndicator size="large" color="#4F46E5" />
-      <Text style={{ marginTop: 20, color: '#666', fontWeight: '500' }}>Verifying login...</Text>
+      <Text style={{ marginTop: 20, color: '#666', fontFamily: 'Nunito_500Medium' }}>Verifying login...</Text>
     </View>
   );
 }

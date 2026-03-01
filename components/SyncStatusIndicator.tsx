@@ -1,7 +1,7 @@
-// components/SyncStatusIndicator.tsx
+// filepath: components/SyncStatusIndicator.tsx
 import { Alert01Icon, CheckmarkCircle02Icon, CloudUploadIcon, NoInternetIcon, RefreshIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import Reanimated, { useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { useAppTheme } from '../constants/theme';
@@ -18,6 +18,7 @@ export default function SyncStatusIndicator() {
   // Keep content mounted even while fading out so it doesn't abruptly disappear
   const [renderedContent, setRenderedContent] = useState<any>(null);
 
+  // FIX: Added spinValue to dependency array
   useEffect(() => {
     if (syncStatus === 'syncing') {
       Animated.loop(
@@ -27,38 +28,40 @@ export default function SyncStatusIndicator() {
       spinValue.stopAnimation();
       spinValue.setValue(0);
     }
-  }, [syncStatus]);
+  }, [syncStatus, spinValue]);
 
   const spin = spinValue.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
 
-  const getStatusContent = () => {
+  // FIX: Wrapped in useCallback to safely pass it to the useEffect dependency array below
+  const getStatusContent = useCallback(() => {
     if (isOffline) {
-        return { icon: NoInternetIcon, text: `Offline`, color: theme.colors.textSecondary };
+        return { icon: NoInternetIcon, text: `Offline`, color: theme.colors.textSecondary, spin: false };
     }
     if (syncStatus === 'syncing') {
         return { icon: RefreshIcon, text: 'Syncing', color: theme.colors.primary, spin: true };
     }
     if (conflictCount > 0) {
-        return { icon: Alert01Icon, text: `${conflictCount} conflicts`, color: theme.colors.warning };
+        return { icon: Alert01Icon, text: `${conflictCount} conflicts`, color: theme.colors.warning, spin: false };
     }
     if (failedCount >= 5) {
-        return { icon: Alert01Icon, text: `${failedCount} failed`, color: theme.colors.danger };
+        return { icon: Alert01Icon, text: `${failedCount} failed`, color: theme.colors.danger, spin: false };
     }
     if (pendingCount > 0) {
-        return { icon: CloudUploadIcon, text: `${pendingCount} pending`, color: theme.colors.textSecondary };
+        return { icon: CloudUploadIcon, text: `${pendingCount} pending`, color: theme.colors.textSecondary, spin: false };
     }
     if (syncStatus === 'success') {
-        return { icon: CheckmarkCircle02Icon, text: `Synced`, color: theme.colors.success };
+        return { icon: CheckmarkCircle02Icon, text: `Synced`, color: theme.colors.success, spin: false };
     }
     return null;
-  };
+  }, [isOffline, syncStatus, conflictCount, failedCount, pendingCount, theme.colors]);
 
+  // FIX: Added getStatusContent to dependency array
   useEffect(() => {
     const content = getStatusContent();
     if (content) {
         setRenderedContent(content);
     }
-  }, [syncStatus, pendingCount, failedCount, conflictCount, isOffline]);
+  }, [getStatusContent]);
 
   // Smoothly animate the container's physical layout to avoid overlapping
   const animatedStyle = useAnimatedStyle(() => {
@@ -104,7 +107,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center', 
     borderRadius: 100, 
     alignSelf: 'flex-end', 
-    overflow: 'hidden', // Ensures content is hidden when height shrinks
+    overflow: 'hidden', 
     zIndex: 10
   },
   innerContent: {

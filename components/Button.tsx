@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useAppTheme } from '../constants/theme';
+import { Typography } from '../constants/typography';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'neutral';
 
@@ -123,7 +124,6 @@ const styles = StyleSheet.create({
         paddingHorizontal: 16,
     },
     text: {
-        fontSize: 15,
-        fontFamily: 'Nunito_700Bold', // Explicitly use Nunito Bold to ensure consistency globally
+        ...Typography.button,
     }
 });

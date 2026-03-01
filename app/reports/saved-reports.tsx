@@ -1,4 +1,4 @@
-// app/reports/saved-reports.tsx
+// filepath: app/reports/saved-reports.tsx
 import {
   Cancel01Icon,
   Delete02Icon,
@@ -13,7 +13,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import * as FileSystem from "expo-file-system/legacy";
 import * as IntentLauncher from "expo-intent-launcher";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useRef, useState } from "react";
 import {
@@ -61,7 +61,9 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 export default function SavedReportsScreen() {
   const theme = useAppTheme();
+  const router = useRouter();
   const { user } = useAuth();
+  
   const { triggerSync } = useSync();
 
   const [reports, setReports] = useState<any[]>([]);
@@ -123,7 +125,7 @@ export default function SavedReportsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [searchQuery]);
+  }, [searchQuery, user]);
 
   useFocusEffect(
     useCallback(() => {
@@ -131,7 +133,6 @@ export default function SavedReportsScreen() {
     }, [fetchReports]),
   );
 
-  // --- HARDWARE BACK BUTTON HANDLER ---
   useFocusEffect(
     useCallback(() => {
       const onBackPress = () => {
@@ -139,7 +140,7 @@ export default function SavedReportsScreen() {
           LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
           setSelectionMode(false);
           setSelectedIds(new Set());
-          return true; // Prevents default back navigation
+          return true;
         }
         if (isSearching) {
           LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -147,9 +148,9 @@ export default function SavedReportsScreen() {
           setSearchQuery("");
           setFilteredReports(reports);
           Keyboard.dismiss();
-          return true; // Prevents default back navigation
+          return true;
         }
-        return false; // Allows default back navigation
+        return false;
       };
 
       const subscription = BackHandler.addEventListener(
@@ -161,8 +162,9 @@ export default function SavedReportsScreen() {
     }, [selectionMode, isSearching, reports])
   );
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setRefreshing(true);
+    await triggerSync(); 
     fetchReports();
   };
 
@@ -200,7 +202,6 @@ export default function SavedReportsScreen() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
   };
 
-  // --- Header Renderers ---
   const renderHeaderTitle = () => {
     if (isSearching) {
       return (
@@ -273,16 +274,11 @@ export default function SavedReportsScreen() {
     }
     return (
       <TouchableOpacity onPress={toggleSearch} style={styles.headerIconButton}>
-        <HugeiconsIcon
-          icon={Search01Icon}
-          size={24}
-          color={theme.colors.text}
-        />
+        <HugeiconsIcon icon={Search01Icon} size={24} color={theme.colors.text} />
       </TouchableOpacity>
     );
   };
 
-  // --- ACTIONS ---
   const handleMenu = (event: GestureResponderEvent, item: any) => {
     const { pageY, locationY } = event.nativeEvent;
     const anchorX = SCREEN_WIDTH - 20;
@@ -410,7 +406,8 @@ export default function SavedReportsScreen() {
               flags: 1,
               type: mimeType,
             });
-        } catch (e) {
+        } catch (error) { 
+            console.warn("Intent Launcher fallback:", error);
             await Sharing.shareAsync(uri, { mimeType, dialogTitle: item.title });
         }
       } else {

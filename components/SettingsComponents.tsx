@@ -55,8 +55,8 @@ export const ModernSettingsItem = ({
                         <HugeiconsIcon icon={icon} size={18} color={destructive ? '#ef4444' : (onPress || rightElement ? theme.colors.primary : theme.colors.textSecondary)} />
                     </View>
                     <View style={{ flex: 1, marginRight: 8 }}>
-                        <Text style={{ fontSize: 15, fontWeight: '600', color: destructive ? '#ef4444' : theme.colors.text }}>{label}</Text>
-                        {subLabel && <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginTop: 2 }}>{subLabel}</Text>}
+                        <Text style={{ fontSize: 15, fontFamily: 'Nunito_600SemiBold', color: destructive ? '#ef4444' : theme.colors.text }}>{label}</Text>
+                        {subLabel && <Text style={{ fontSize: 11, fontFamily: 'Nunito_500Medium', color: theme.colors.textSecondary, marginTop: 2 }}>{subLabel}</Text>}
                     </View>
                     {rightElement ? rightElement : (onPress && <HugeiconsIcon icon={ArrowRight01Icon} size={20} color={theme.colors.textSecondary} />)}
                 </Animated.View>
@@ -121,7 +121,7 @@ export const SettingsDropdownItem = ({ icon, label, options, value, onChange, th
                 onPress={openDropdown}
                 rightElement={
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={{ fontSize: 13, fontWeight: '600', color: theme.colors.primary }}>
+                        <Text style={{ fontSize: 13, fontFamily: 'Nunito_600SemiBold', color: theme.colors.primary }}>
                             {selectedOption?.label || 'Select'}
                         </Text>
                         <HugeiconsIcon icon={ArrowRight01Icon} size={16} color={theme.colors.textSecondary} style={{ transform: [{ rotate: '90deg' }] }} />
@@ -171,5 +171,5 @@ const styles = StyleSheet.create({
     overlay: { flex: 1, backgroundColor: 'transparent' },
     dropdown: { position: 'absolute', borderRadius: 16, borderWidth: 1, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 12, overflow: 'hidden' },
     dropdownItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 16, borderRadius: 10, marginBottom: 2 },
-    dropdownText: { fontSize: 13, fontWeight: '600' }
+    dropdownText: { fontSize: 13, fontFamily: 'Nunito_600SemiBold' }
 });

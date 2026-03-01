@@ -203,7 +203,7 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1 },
     skipContainer: { width: '100%', alignItems: 'flex-end', paddingHorizontal: 24, paddingTop: 10, zIndex: 10 },
-    skipText: { fontSize: 16, fontWeight: '600', opacity: 0.8 },
+    skipText: { fontSize: 16, fontFamily: 'Nunito_600SemiBold', opacity: 0.8 },
     slideContainer: { width: SCREEN_WIDTH, alignItems: 'center', padding: 32, justifyContent: 'center' },
     imageContainer: { width: SCREEN_WIDTH * 0.8, height: SCREEN_WIDTH * 0.8, justifyContent: 'center', alignItems: 'center', marginBottom: 40 },
     slideImage: { width: '100%', height: '100%' },

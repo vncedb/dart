@@ -1,4 +1,5 @@
 import { useAppTheme } from '@/constants/theme';
+import { Typography } from '@/constants/typography';
 import LottieView from 'lottie-react-native';
 import React, { useEffect, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -62,8 +63,7 @@ const styles = StyleSheet.create({
         height: '100%',
     },
     text: {
-        fontSize: 15,
-        fontWeight: '600',
+        ...Typography.bodySemibold,
         letterSpacing: 0.5,
     }
 });
