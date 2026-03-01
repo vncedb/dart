@@ -287,7 +287,7 @@ export default function NotificationsScreen() {
             <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} />
 
             <Header
-                title={selectedItem ? "Notification Details" : "Notifications"} 
+                title={selectedItem ? "Details" : "Notifications"} 
                 onBack={selectedItem ? handleCloseDetail : () => router.back()}
                 rightElement={
                     !selectedItem && unreadCount > 0 ? (

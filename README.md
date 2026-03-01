@@ -1,4 +1,4 @@
-# 🎯 DART – Daily Accomplishment Report Tool
+# 🎯 DART – Daily Accomplishment Report Tools
 
 <p align="center">
   <strong>A Professional Productivity & Work Reporting Mobile Application</strong><br/>
@@ -35,7 +35,7 @@
 
 ## 📱 Overview
 
-**DART (Daily Accomplishment Report Tool)** is a powerful mobile productivity application designed specifically for professionals. It streamlines the process of tracking daily tasks, managing work logs, generating structured reports, and exporting data effortlessly. 
+**DART (Daily Accomplishment Report Tools)** is a powerful mobile productivity application designed specifically for professionals. It streamlines the process of tracking daily tasks, managing work logs, generating structured reports, and exporting data effortlessly. 
 
 Whether you need secure cloud synchronization, rapid report exports, or a beautifully crafted interface, DART provides an all-in-one workspace to maximize your productivity.
 
