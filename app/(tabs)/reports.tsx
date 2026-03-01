@@ -4,7 +4,6 @@ import {
   FileVerifiedIcon,
   Message01Icon,
   PlusSignIcon,
-  RefreshIcon,
   Search01Icon,
   WifiOff01Icon,
 } from "@hugeicons/core-free-icons";
@@ -22,13 +21,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import Animated, {
-  cancelAnimation,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import ActionMenu from "../../components/ActionMenu";
@@ -63,8 +55,7 @@ const OfflineIndicator = ({ isOffline, theme }: { isOffline: boolean; theme: any
 export default function ReportsScreen() {
   const router = useRouter();
   const theme = useAppTheme();
-  const { syncStatus, lastSyncedAt, pendingCount, failedCount } = useSync();
-  const isSyncing = syncStatus === "syncing";
+  const { lastSyncedAt } = useSync();
 
   const filterBarRef = useRef<View>(null);
 
@@ -88,27 +79,12 @@ export default function ReportsScreen() {
   const [floatingAlert, setFloatingAlert] = useState({ visible: false, message: "", type: "success" });
   const [showDatePicker, setShowDatePicker] = useState(false);
 
-  const syncButtonRotation = useSharedValue(0);
-
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {
       setIsOffline(!(state.isConnected && state.isInternetReachable));
     });
     return unsubscribe;
   }, []);
-
-  useEffect(() => {
-    if (isSyncing) {
-      syncButtonRotation.value = withRepeat(withTiming(360, { duration: 1000 }), -1);
-    } else {
-      cancelAnimation(syncButtonRotation);
-      syncButtonRotation.value = withTiming(0);
-    }
-  }, [isSyncing, syncButtonRotation]);
-
-  const syncButtonStyle = useAnimatedStyle(() => ({
-    transform: [{ rotate: `${syncButtonRotation.value}deg` }],
-  }));
 
   const handleCalendarPress = () => {
     setCalendarLoading(true);
@@ -335,17 +311,6 @@ export default function ReportsScreen() {
         title="Reports"
         rightElement={
           <View style={{ flexDirection: "row", gap: 10, alignItems: "center" }}>
-            <TouchableOpacity onPress={() => router.push('/reports/sync')} style={[styles.headerBtn, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-              <View>
-                  <Animated.View style={syncButtonStyle}>
-                    <HugeiconsIcon icon={RefreshIcon} size={20} color={theme.colors.text} />
-                  </Animated.View>
-                  {(pendingCount > 0 || failedCount > 0) && (
-                    <View style={[styles.syncBadge, { backgroundColor: failedCount > 0 ? theme.colors.danger : theme.colors.primary, borderColor: theme.colors.card }]} />
-                  )}
-              </View>
-            </TouchableOpacity>
-
             <TouchableOpacity onPress={() => router.push("/reports/saved-reports")} style={[styles.headerBtn, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
               <View>
                 <HugeiconsIcon icon={FileVerifiedIcon} size={20} color={theme.colors.text} />
@@ -428,12 +393,10 @@ export default function ReportsScreen() {
 const styles = StyleSheet.create({
   headerBtn: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   badge: { position: "absolute", top: -6, right: -6, borderRadius: 10, minWidth: 16, height: 16, alignItems: "center", justifyContent: "center", borderWidth: 2 },
-  syncBadge: { position: 'absolute', top: -2, right: -2, width: 10, height: 10, borderRadius: 5, borderWidth: 1.5 },
   offlineStatus: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 8, borderBottomWidth: 1 },
   separator: { height: 1, marginHorizontal: 20, opacity: 0.5, marginBottom: 8 },
   sectionHeader: { paddingHorizontal: 20, paddingVertical: 12 },
   sectionTitle: { fontSize: 12, fontFamily: 'Nunito_500Medium', letterSpacing: 0.8, textTransform: "uppercase" },
-
 
   emptyContainer: { alignItems: 'center', marginTop: 80, paddingHorizontal: 24 },
   emptyIconContainer: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },

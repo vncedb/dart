@@ -1,4 +1,4 @@
-// components/DynamicHeader.tsx
+// filepath: components/DynamicHeader.tsx
 import { format } from 'date-fns';
 import * as Haptics from 'expo-haptics';
 import React, { useEffect, useState } from 'react';
@@ -14,7 +14,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAppTheme } from '../constants/theme';
 import { FontFamily, Typography } from '../constants/typography';
-import SyncStatusIndicator from './SyncStatusIndicator';
 
 interface DynamicHeaderProps {
     selectedDate: Date;
@@ -148,7 +147,7 @@ export default function DynamicHeader({
                             )}
                         </View>
 
-                        {/* Right Side: Status Badge and Sync Indicator */}
+                        {/* Right Side: Status Badge */}
                         <View style={{ alignItems: 'flex-end', justifyContent: 'center', maxWidth: '45%', height: '100%' }}>
                             {isLoading ? (
                                 <SkeletonBox width={60} height={26} borderRadius={13} />
@@ -160,9 +159,6 @@ export default function DynamicHeader({
                                     </Text>
                                 </Animated.View>
                             )}
-                            
-                            {/* Sync indicator now controls its own smooth height rendering */}
-                            {!isLoading && <SyncStatusIndicator />}
                         </View>
                     </View>
 
@@ -186,16 +182,16 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between', 
         alignItems: 'center', 
         marginBottom: 12,
-        height: 56 // Rigid height to stop dynamic resizing when sync indicator mounts
+        height: 56 
     },
     dateText: { ...Typography.caption, fontFamily: FontFamily.semibold, textTransform: 'uppercase', opacity: 0.6, marginBottom: 0, letterSpacing: 0.5 },
     timeText: { fontSize: 24, fontFamily: FontFamily.bold, letterSpacing: -0.5, fontVariant: ['tabular-nums'] },
     ampmText: { fontSize: 14, fontFamily: FontFamily.semibold, marginLeft: 2 },
     badge: { 
-        height: 26, // Matched height
+        height: 26, 
         flexDirection: 'row', 
         alignItems: 'center', 
-        paddingHorizontal: 10, // Matched padding
+        paddingHorizontal: 10, 
         borderRadius: 100, 
         borderWidth: 1 
     },

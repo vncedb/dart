@@ -1,9 +1,10 @@
-// app/(tabs)/profile.tsx
+// filepath: app/(tabs)/profile.tsx
 import {
     Briefcase01Icon,
     Camera01Icon,
     Layers01Icon,
     Mail01Icon,
+    Note05Icon,
     PencilEdit02Icon,
     Settings02Icon,
     SparklesIcon,
@@ -12,7 +13,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
-import * as FileSystem from 'expo-file-system/legacy'; // FIXED: Changed to legacy import
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
@@ -38,6 +39,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import ChangelogModal from '../../components/ChangelogModal'; // <-- IMPORTED CHANGELOG MODAL
 import EditAvatarModal from '../../components/EditAvatarModal';
 import EditDisplayModal from '../../components/EditDisplayModal';
 import JobCard from '../../components/JobCard';
@@ -104,6 +106,7 @@ export default function ProfileScreen() {
     const [loadingMessage, setLoadingMessage] = useState('Updating...');
     const [modalVisible, setModalVisible] = useState(false);
     const [avatarModalVisible, setAvatarModalVisible] = useState(false);
+    const [changelogModalVisible, setChangelogModalVisible] = useState(false); // <-- CHANGELOG STATE
     
     const [visibleDetailKeys, setVisibleDetailKeys] = useState<string[]>(DEFAULT_VISIBLE_KEYS);
     
@@ -287,7 +290,6 @@ export default function ProfileScreen() {
         return 'User';
     })();
 
-    // Defaulting to "Free Plan" for the UI. Can be made dynamic from backend later.
     const userPlan = "Free Plan"; 
 
     return (
@@ -298,13 +300,28 @@ export default function ProfileScreen() {
             
             <EditDisplayModal visible={modalVisible} onClose={() => setModalVisible(false)} selectedKeys={visibleDetailKeys} onSave={handleSaveDisplayConfig} />
             <EditAvatarModal visible={avatarModalVisible} onClose={() => setAvatarModalVisible(false)} onPickImage={pickAvatar} onRemoveImage={removeAvatar} />
+            <ChangelogModal visible={changelogModalVisible} onClose={() => setChangelogModalVisible(false)} />
             
             <TabHeader 
                 title="Profile"
                 rightElement={
-                    <TouchableOpacity onPress={() => router.push('/settings')} style={[styles.settingsButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                        <HugeiconsIcon icon={Settings02Icon} size={22} color={theme.colors.text} />
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
+                        {/* CHANGELOG BUTTON */}
+                        <TouchableOpacity 
+                            onPress={() => setChangelogModalVisible(true)} 
+                            style={[styles.settingsButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+                        >
+                            <HugeiconsIcon icon={Note05Icon} size={22} color={theme.colors.text} />
+                        </TouchableOpacity>
+
+                        {/* SETTINGS BUTTON */}
+                        <TouchableOpacity 
+                            onPress={() => router.push('/settings')} 
+                            style={[styles.settingsButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+                        >
+                            <HugeiconsIcon icon={Settings02Icon} size={22} color={theme.colors.text} />
+                        </TouchableOpacity>
+                    </View>
                 }
             />
 
@@ -334,7 +351,6 @@ export default function ProfileScreen() {
                         <View style={{ alignItems: 'center', marginTop: 16 }}>
                             <Text style={[styles.nameText, { color: theme.colors.text }]}>{displayName}</Text>
                             
-                            {/* NEW: Interactive Plan Badge */}
                             <TouchableOpacity 
                                 activeOpacity={0.7} 
                                 onPress={() => router.push('/settings/plan')}
@@ -386,7 +402,7 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-    settingsButton: { padding: 10, borderRadius: 99, borderWidth: 1 },
+    settingsButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
     scrollContent: { paddingBottom: 120 },
     
     profileSection: { alignItems: 'center', paddingVertical: 32, paddingHorizontal: 24 },

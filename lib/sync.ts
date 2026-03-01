@@ -48,7 +48,7 @@ const uploadFileToSupabase = async (localUri: string, userId: string, bucket: st
 };
 
 // --- SYNC PUSH (Local Queue -> Cloud) ---
-export const syncPush = async (userId: string) => {
+export const syncPush = async (userId: string, progressCallback?: (progress: number) => void) => {
   try {
     const db = await getDB();
 
@@ -63,7 +63,10 @@ export const syncPush = async (userId: string) => {
       'SELECT * FROM sync_queue WHERE status IN ("PENDING", "FAILED") ORDER BY created_at ASC'
     ) as any[];
 
-    if (queueItems.length === 0) return { success: true, count: 0, failedCount: 0 };
+    if (queueItems.length === 0) {
+        if (progressCallback) progressCallback(100);
+        return { success: true, count: 0, failedCount: 0 };
+    }
 
     const state = await NetInfo.fetch();
     if (state.isConnected === false) return { success: false, error: "No internet connection" };
@@ -72,7 +75,8 @@ export const syncPush = async (userId: string) => {
     let failedCount = 0;
     const batchGroups: Record<string, { tableName: string, action: string, items: any[], payloads: any[] }> = {};
 
-    for (const item of queueItems) {
+    for (let index = 0; index < queueItems.length; index++) {
+      const item = queueItems[index];
       const { id, table_name, row_id, action, data } = item;
       let payload: any = data ? JSON.parse(data) : {};
 
@@ -98,10 +102,8 @@ export const syncPush = async (userId: string) => {
           if ("is_read" in payload) delete payload.is_read;
         }
         
-        // FIX: Supabase 'notifications' table strictly expects a BigInt timestamp
         if (table_name === "notifications") {
           if (payload.date) {
-             // Convert ISO string to BigInt milliseconds
              if (typeof payload.date === 'string') {
                  payload.date = new Date(payload.date).getTime();
              }
@@ -110,7 +112,6 @@ export const syncPush = async (userId: string) => {
           }
         }
 
-        // FIX: Sanitize empty strings to null for foreign keys and timestamp columns
         if (payload.job_id === "") payload.job_id = null;
 
         if (table_name === "attendance") {
@@ -150,7 +151,6 @@ export const syncPush = async (userId: string) => {
         const groupKey = `${table_name}_${action}`;
         if (!batchGroups[groupKey]) batchGroups[groupKey] = { tableName: table_name, action, items: [], payloads: [] };
         
-        // Exclude empty payload updates
         if (action === "UPDATE" && Object.keys(payload).length === 0) {
             await db.runAsync(`DELETE FROM sync_queue WHERE id = ?`, [id]);
             continue;
@@ -165,6 +165,9 @@ export const syncPush = async (userId: string) => {
         failedCount++;
         continue;
       }
+      
+      // PRE-FLIGHT PROGRESS (0% to 50% of the Push phase)
+      if (progressCallback) progressCallback(Math.floor((index / queueItems.length) * 50));
     }
 
     // --- 5. Fix Execution Order for RLS dependencies ---
@@ -174,6 +177,8 @@ export const syncPush = async (userId: string) => {
         const indexB = SYNC_ORDER.indexOf(batchGroups[b].tableName);
         return (indexA === -1 ? 99 : indexA) - (indexB === -1 ? 99 : indexB);
     });
+
+    let keysProcessed = 0;
 
     for (const key of orderedKeys) {
         const { tableName, action, items, payloads } = batchGroups[key];
@@ -242,7 +247,13 @@ export const syncPush = async (userId: string) => {
             }
             failedCount += items.length;
         }
+        
+        keysProcessed++;
+        // UPLOAD PROGRESS (50% to 100% of the Push phase)
+        if (progressCallback) progressCallback(50 + Math.floor((keysProcessed / orderedKeys.length) * 50));
     }
+    
+    if (progressCallback) progressCallback(100);
     return { success: true, count: successCount, failedCount };
   } catch (e) {
     return { success: false, error: e };
@@ -273,7 +284,7 @@ const fetchAllRows = async (query: any): Promise<any[]> => {
   return allData;
 };
 
-export const syncPull = async (userId: string) => {
+export const syncPull = async (userId: string, progressCallback?: (progress: number) => void) => {
   try {
     const db = await getDB();
     const state = await NetInfo.fetch();
@@ -283,6 +294,7 @@ export const syncPull = async (userId: string) => {
     const lastSyncedAt = result?.value || "1970-01-01T00:00:00.000Z";
     let conflicts = 0;
 
+    // STEP 1: Jobs (16%)
     const jobsData = await fetchAllRows(
       supabase.from('job_positions').select('*').eq('user_id', userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`)
     );
@@ -293,7 +305,9 @@ export const syncPull = async (userId: string) => {
       );
       if (isConflict) conflicts++;
     }
+    if (progressCallback) progressCallback(16);
 
+    // STEP 2: Profile (33%)
     const { data: profileData } = await supabase.from('profiles').select('*').eq('id', userId).gt('updated_at', lastSyncedAt).maybeSingle();
     if (profileData) {
        const existing: any = await db.getFirstAsync("SELECT local_avatar_path FROM profiles WHERE id = ?", [userId]);
@@ -302,7 +316,9 @@ export const syncPull = async (userId: string) => {
          [profileData.id, profileData.email || "", profileData.first_name || "", profileData.last_name || "", profileData.middle_name || "", profileData.title || "", profileData.professional_suffix || "", profileData.current_job_id, profileData.full_name || "", profileData.avatar_url, existing?.local_avatar_path || null, profileData.is_onboarded ? 1 : 0, profileData.updated_at]
        );
     }
+    if (progressCallback) progressCallback(33);
 
+    // STEP 3: Attendance (50%)
     const attendanceData = await fetchAllRows(
       supabase.from("attendance").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`)
     );
@@ -313,7 +329,9 @@ export const syncPull = async (userId: string) => {
       );
       if (isConflict) conflicts++;
     }
+    if (progressCallback) progressCallback(50);
 
+    // STEP 4: Tasks/Accomplishments (66%)
     const taskData = await fetchAllRows(
       supabase.from("accomplishments").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`)
     );
@@ -324,12 +342,13 @@ export const syncPull = async (userId: string) => {
       );
       if (isConflict) conflicts++;
     }
+    if (progressCallback) progressCallback(66);
     
+    // STEP 5: Saved Reports (83%)
     const reportsData = await fetchAllRows(
       supabase.from("saved_reports").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`)
     );
     for (const row of reportsData) {
-      // Supabase may not have is_read column; preserve local is_read when pulling
       let isRead = 0;
       if (typeof row.is_read !== "undefined" && row.is_read != null) {
         isRead = row.is_read ? 1 : 0;
@@ -343,7 +362,9 @@ export const syncPull = async (userId: string) => {
       );
       if (isConflict) conflicts++;
     }
+    if (progressCallback) progressCallback(83);
 
+    // STEP 6: Notifications (100%)
     const notifData = await fetchAllRows(
       supabase.from("notifications").select("*").eq("user_id", userId).or(`updated_at.gt.${lastSyncedAt},created_at.gt.${lastSyncedAt}`)
     );
@@ -354,9 +375,11 @@ export const syncPull = async (userId: string) => {
       );
       if (isConflict) conflicts++;
     }
+    if (progressCallback) progressCallback(100);
 
     const newSyncTime = new Date().toISOString();
     await db.runAsync("INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)", ["last_synced_at", newSyncTime]);
+    
     return { success: true, conflictCount: conflicts };
   } catch (e) {
     console.error("[Sync] Pull Error:", e);

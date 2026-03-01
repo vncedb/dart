@@ -2,7 +2,7 @@ import {
     Cancel01Icon,
     CheckmarkCircle02Icon,
     Download01Icon,
-    Share01Icon,
+    Share08Icon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -218,7 +218,7 @@ export default function ImageViewer({ visible, imageUri, onClose }: ImageViewerP
                             </TouchableOpacity>
                             <View style={styles.headerActions}>
                                 <TouchableOpacity onPress={handleShare} style={styles.headerBtn} activeOpacity={0.7}>
-                                    <HugeiconsIcon icon={Share01Icon} size={22} color="#fff" />
+                                    <HugeiconsIcon icon={Share08Icon} size={22} color="#fff" />
                                 </TouchableOpacity>
                                 <TouchableOpacity
                                     onPress={handleSave}

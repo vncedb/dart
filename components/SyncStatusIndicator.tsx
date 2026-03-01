@@ -1,24 +1,20 @@
 // filepath: components/SyncStatusIndicator.tsx
 import { Alert01Icon, CheckmarkCircle02Icon, CloudUploadIcon, NoInternetIcon, RefreshIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
+import { format } from 'date-fns';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
-import Reanimated, { useAnimatedStyle, withTiming } from 'react-native-reanimated';
+import Reanimated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { useAppTheme } from '../constants/theme';
 import { useSync } from '../context/SyncContext';
 
 export default function SyncStatusIndicator() {
   const theme = useAppTheme();
-  const { syncStatus, pendingCount, failedCount, conflictCount, isOffline } = useSync();
+  const { syncStatus, syncProgress, pendingCount, failedCount, conflictCount, isOffline, lastSyncedAt } = useSync();
   const spinValue = useRef(new Animated.Value(0)).current;
 
-  // Track the visibility state
-  const isVisible = !(syncStatus === 'idle' && pendingCount === 0 && !isOffline && failedCount === 0 && conflictCount === 0);
-
-  // Keep content mounted even while fading out so it doesn't abruptly disappear
   const [renderedContent, setRenderedContent] = useState<any>(null);
 
-  // FIX: Added spinValue to dependency array
   useEffect(() => {
     if (syncStatus === 'syncing') {
       Animated.loop(
@@ -32,30 +28,38 @@ export default function SyncStatusIndicator() {
 
   const spin = spinValue.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
 
-  // FIX: Wrapped in useCallback to safely pass it to the useEffect dependency array below
   const getStatusContent = useCallback(() => {
     if (isOffline) {
-        return { icon: NoInternetIcon, text: `Offline`, color: theme.colors.textSecondary, spin: false };
+        return { icon: NoInternetIcon, text: `Offline - Data stored locally`, color: theme.colors.textSecondary, spin: false };
     }
     if (syncStatus === 'syncing') {
-        return { icon: RefreshIcon, text: 'Syncing', color: theme.colors.primary, spin: true };
+        return { icon: RefreshIcon, text: `Syncing with cloud (${syncProgress}%)`, color: theme.colors.primary, spin: true };
     }
     if (conflictCount > 0) {
-        return { icon: Alert01Icon, text: `${conflictCount} conflicts`, color: theme.colors.warning, spin: false };
+        return { icon: Alert01Icon, text: `${conflictCount} sync conflicts`, color: theme.colors.warning, spin: false };
     }
     if (failedCount >= 5) {
-        return { icon: Alert01Icon, text: `${failedCount} failed`, color: theme.colors.danger, spin: false };
+        return { icon: Alert01Icon, text: `${failedCount} uploads failed`, color: theme.colors.danger, spin: false };
     }
     if (pendingCount > 0) {
-        return { icon: CloudUploadIcon, text: `${pendingCount} pending`, color: theme.colors.textSecondary, spin: false };
+        return { icon: CloudUploadIcon, text: `${pendingCount} pending upload`, color: theme.colors.textSecondary, spin: false };
     }
-    if (syncStatus === 'success') {
-        return { icon: CheckmarkCircle02Icon, text: `Synced`, color: theme.colors.success, spin: false };
+    
+    // FORMAT: "Last Sync: 03-01 11:34 PM"
+    if (lastSyncedAt) {
+        try {
+            const formattedDate = format(new Date(lastSyncedAt), 'MM-dd hh:mm a');
+            const color = syncStatus === 'success' ? theme.colors.success : theme.colors.textSecondary;
+            return { icon: CheckmarkCircle02Icon, text: `Last Sync: ${formattedDate}`, color: color, spin: false };
+        } catch {
+            return { icon: CheckmarkCircle02Icon, text: `Fully synced`, color: theme.colors.success, spin: false };
+        }
     }
-    return null;
-  }, [isOffline, syncStatus, conflictCount, failedCount, pendingCount, theme.colors]);
+    
+    // Default state if never synced before
+    return { icon: CheckmarkCircle02Icon, text: `All changes saved locally`, color: theme.colors.textSecondary, spin: false };
+  }, [isOffline, syncStatus, syncProgress, conflictCount, failedCount, pendingCount, lastSyncedAt, theme.colors]);
 
-  // FIX: Added getStatusContent to dependency array
   useEffect(() => {
     const content = getStatusContent();
     if (content) {
@@ -63,58 +67,42 @@ export default function SyncStatusIndicator() {
     }
   }, [getStatusContent]);
 
-  // Smoothly animate the container's physical layout to avoid overlapping
-  const animatedStyle = useAnimatedStyle(() => {
-    return {
-      height: withTiming(isVisible ? 26 : 0, { duration: 300 }),
-      opacity: withTiming(isVisible ? 1 : 0, { duration: 300 }),
-      marginTop: withTiming(isVisible ? 4 : 0, { duration: 300 }),
-      borderWidth: withTiming(isVisible ? 1 : 0, { duration: 300 }),
-      paddingHorizontal: withTiming(isVisible ? 10 : 0, { duration: 300 }),
-    };
-  });
+  if (!renderedContent) return null;
 
   return (
     <Reanimated.View 
-        style={[
-            styles.container, 
-            animatedStyle,
-            { backgroundColor: theme.colors.card, borderColor: theme.colors.border }
-        ]}
+        entering={FadeIn.duration(400)}
+        exiting={FadeOut.duration(300)}
+        style={styles.container}
     >
-      {renderedContent && (
-        <View style={styles.innerContent}>
-            {renderedContent.spin ? (
-                <Animated.View style={{ transform: [{ rotate: spin }] }}>
-                    <HugeiconsIcon icon={renderedContent.icon} size={12} color={renderedContent.color} />
-                </Animated.View>
-            ) : (
-                <HugeiconsIcon icon={renderedContent.icon} size={12} color={renderedContent.color} />
-            )}
-            <Text style={[styles.text, { color: renderedContent.color }]} numberOfLines={1}>
-                {renderedContent.text}
-            </Text>
-        </View>
-      )}
+      <View style={styles.innerContent}>
+          {renderedContent.spin ? (
+              <Animated.View style={{ transform: [{ rotate: spin }] }}>
+                  <HugeiconsIcon icon={renderedContent.icon} size={14} color={renderedContent.color} />
+              </Animated.View>
+          ) : (
+              <HugeiconsIcon icon={renderedContent.icon} size={14} color={renderedContent.color} />
+          )}
+          <Text style={[styles.text, { color: renderedContent.color }]} numberOfLines={1}>
+              {renderedContent.text}
+          </Text>
+      </View>
     </Reanimated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row', 
+    marginTop: 6,
     alignItems: 'center', 
     justifyContent: 'center', 
-    borderRadius: 100, 
-    alignSelf: 'flex-end', 
-    overflow: 'hidden', 
     zIndex: 10
   },
   innerContent: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4
+    gap: 6
   },
-  text: { fontSize: 11, fontFamily: 'Nunito_700Bold' }
+  text: { fontSize: 12, fontFamily: 'Nunito_600SemiBold', opacity: 0.8 }
 });

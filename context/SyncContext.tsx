@@ -11,6 +11,7 @@ type SyncStatus = 'idle' | 'syncing' | 'success' | 'error';
 
 type SyncContextType = {
   syncStatus: SyncStatus;
+  syncProgress: number; 
   lastSyncedAt: string | null;
   pendingCount: number;
   failedCount: number;
@@ -21,6 +22,7 @@ type SyncContextType = {
 
 const SyncContext = createContext<SyncContextType>({
   syncStatus: 'idle',
+  syncProgress: 0,
   lastSyncedAt: null,
   pendingCount: 0,
   failedCount: 0,
@@ -34,6 +36,7 @@ export const useSync = () => useContext(SyncContext);
 export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
   const { user } = useAuth();
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
+  const [syncProgress, setSyncProgress] = useState<number>(0);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
   const [failedCount, setFailedCount] = useState(0);
@@ -59,8 +62,7 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
     return () => unsub();
   }, []);
 
-  useEffect(() => {
-    const loadSettings = async () => {
+  const loadSettings = useCallback(async () => {
       try {
         const db = await getDB();
         const res: any = await db.getFirstAsync('SELECT value FROM app_settings WHERE key = ?', ['last_synced_at']);
@@ -68,12 +70,14 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
       } catch {
         // Safe to ignore on fresh installs
       }
-    };
+  }, []);
+
+  useEffect(() => {
     loadSettings();
     updatePendingCount();
     const interval = setInterval(updatePendingCount, 30000);
     return () => clearInterval(interval);
-  }, [updatePendingCount]);
+  }, [updatePendingCount, loadSettings]);
 
   const triggerSync = useCallback(async (): Promise<boolean> => {
     if (!user || isSyncing.current) return false;
@@ -89,18 +93,26 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
 
     try {
       setSyncStatus('syncing');
+      setSyncProgress(5); // Start Progress
       
-      // FIX: Pass user ID to bypass RLS violations
-      const pushRes = await syncPush(user.id);
+      const pushRes = await syncPush(user.id, (progress) => {
+         // Map push progress from 5% to 50%
+         setSyncProgress(5 + Math.floor(progress * 0.45));
+      });
       
       setFailedCount(pushRes.failedCount || 0);
+      setSyncProgress(50); // Halfway
       
-      const pullResult = await syncPull(user.id);
+      const pullResult = await syncPull(user.id, (progress) => {
+         // Map pull progress from 50% to 100%
+         setSyncProgress(50 + Math.floor(progress * 0.5));
+      });
       
       if (pullResult.success) {
-        const db = await getDB();
-        const res: any = await db.getFirstAsync('SELECT value FROM app_settings WHERE key = ?', ['last_synced_at']);
-        if (res?.value) setLastSyncedAt(res.value);
+        setSyncProgress(100);
+        
+        // Reload `lastSyncedAt` immediately after pull so the UI text updates
+        await loadSettings();
         
         if (pullResult.conflictCount && pullResult.conflictCount > 0) {
             setConflictCount(pullResult.conflictCount);
@@ -113,25 +125,33 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
 
         setSyncStatus('success');
         updatePendingCount();
-        resetTimerRef.current = setTimeout(() => setSyncStatus('idle'), 3000);
+        resetTimerRef.current = setTimeout(() => {
+          setSyncStatus('idle');
+          setSyncProgress(0);
+        }, 5000);
         return true;
       } else {
         setSyncStatus('error');
-        resetTimerRef.current = setTimeout(() => setSyncStatus('idle'), 3000);
+        resetTimerRef.current = setTimeout(() => {
+          setSyncStatus('idle');
+          setSyncProgress(0);
+        }, 3000);
         return false;
       }
 
     } catch (error) {
       console.error("[SyncContext] Critical Sync Error:", error);
       setSyncStatus('error');
-      resetTimerRef.current = setTimeout(() => setSyncStatus('idle'), 3000);
+      resetTimerRef.current = setTimeout(() => {
+        setSyncStatus('idle');
+        setSyncProgress(0);
+      }, 3000);
       return false;
     } finally {
       isSyncing.current = false;
     }
-  }, [user, isOffline, updatePendingCount]);
+  }, [user, isOffline, updatePendingCount, loadSettings]);
 
-  // Clean up timeout on unmount
   useEffect(() => {
     return () => { if (resetTimerRef.current) clearTimeout(resetTimerRef.current); };
   }, []);
@@ -168,7 +188,7 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
   }, [user, triggerSync]);
 
   return (
-    <SyncContext.Provider value={{ syncStatus, lastSyncedAt, pendingCount, failedCount, conflictCount, isOffline, triggerSync }}>
+    <SyncContext.Provider value={{ syncStatus, syncProgress, lastSyncedAt, pendingCount, failedCount, conflictCount, isOffline, triggerSync }}>
       {children}
     </SyncContext.Provider>
   );

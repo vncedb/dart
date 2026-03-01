@@ -1,7 +1,6 @@
 // filepath: app/notifications.tsx
 import {
     ArrowRight01Icon,
-    CheckmarkBadge01Icon,
     CheckmarkCircle02Icon,
     Clock01Icon,
     Delete02Icon,
@@ -16,11 +15,20 @@ import { HugeiconsIcon } from '@hugeicons/react-native';
 import { format, formatDistanceToNow } from 'date-fns';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BackHandler, Dimensions, FlatList, Animated as RNAnimated, ScrollView, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import {
+    BackHandler,
+    Dimensions,
+    FlatList,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
+} from 'react-native';
 import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
 import Animated, {
     Easing,
-    LinearTransition,
     runOnJS,
     useAnimatedStyle,
     useSharedValue,
@@ -29,12 +37,16 @@ import Animated, {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActionMenu from '../components/ActionMenu';
-import BannerAdComponent from '../components/BannerAdComponent'; // <-- ADDED AD COMPONENT
-import Footer from '../components/Footer';
+import BannerAdComponent from '../components/BannerAdComponent';
 import Header from '../components/Header';
 import { useAppTheme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
-import { deleteNotificationLocal, getNotificationsLocal, markAllNotificationsReadLocal, markNotificationReadLocal } from '../lib/database';
+import {
+    deleteNotificationLocal,
+    getNotificationsLocal,
+    markAllNotificationsReadLocal,
+    markNotificationReadLocal
+} from '../lib/database';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -70,7 +82,6 @@ const getIconTheme = (item: NotificationItem, theme: any) => {
 const NotificationRow = ({
     item,
     theme,
-    onMarkAsRead,
     onDeleteNotification,
     onPressItem,
     openRowId,
@@ -84,111 +95,88 @@ const NotificationRow = ({
         }
     }, [openRowId, item.id]);
 
-    const handleMarkAsReadLocal = () => {
-        swipeableRef.current?.close();
-        if (onMarkAsRead) onMarkAsRead(item.id);
-    };
-
     const handleDeleteLocal = () => {
         swipeableRef.current?.close();
         if (onDeleteNotification) onDeleteNotification(item.id);
     };
 
-    // Gmail-style Auto-Trigger
-    const handleSwipeOpen = (direction: 'left' | 'right') => {
-        if (direction === 'left' && !item.read) {
-            handleMarkAsReadLocal();
-        } else if (direction === 'right') {
-            handleDeleteLocal();
-        }
-    };
-
-    const renderLeftActions = (progress: any, dragX: any) => {
-        if (item.read) return null;
-        const scale = dragX.interpolate({ inputRange: [0, 60], outputRange: [0.5, 1], extrapolate: 'clamp' });
+    const renderRightActions = () => {
         return (
-            <View style={[styles.gmailAction, { backgroundColor: theme.colors.success, alignItems: 'flex-start', paddingLeft: 24 }]}>
-                <RNAnimated.View style={{ transform: [{ scale }] }}>
-                    <HugeiconsIcon icon={CheckmarkBadge01Icon} size={26} color="#FFF" />
-                </RNAnimated.View>
-            </View>
-        );
-    };
-
-    const renderRightActions = (progress: any, dragX: any) => {
-        const scale = dragX.interpolate({ inputRange: [-60, 0], outputRange: [1, 0.5], extrapolate: 'clamp' });
-        return (
-            <View style={[styles.gmailAction, { backgroundColor: theme.colors.danger, alignItems: 'flex-end', paddingRight: 24 }]}>
-                <RNAnimated.View style={{ transform: [{ scale }] }}>
-                    <HugeiconsIcon icon={Delete02Icon} size={26} color="#FFF" />
-                </RNAnimated.View>
+            <View style={styles.rightActionContainer}>
+                <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={handleDeleteLocal}
+                    style={[styles.squareDeleteBtn, { backgroundColor: theme.colors.danger }]}
+                >
+                    <HugeiconsIcon icon={Delete02Icon} size={22} color="#FFF" />
+                </TouchableOpacity>
             </View>
         );
     };
 
     const rawDate = item.date || item.created_at || Date.now();
     const formattedDate = formatDistanceToNow(new Date(rawDate), { addSuffix: true });
+    const { icon, color, bg } = getIconTheme(item, theme);
 
     return (
-        <Animated.View layout={LinearTransition.springify().damping(16)}>
-            <Swipeable
-                ref={swipeableRef}
-                friction={1.5}
-                leftThreshold={80} // Increased threshold for deliberate swipe action
-                rightThreshold={80} // Increased threshold for deliberate swipe action
-                overshootLeft={true} // Allow overshooting for smooth Gmail feel
-                overshootRight={true} // Allow overshooting for smooth Gmail feel
-                onSwipeableWillOpen={() => {
-                    if (openRowId !== item.id) setOpenRowId(item.id);
-                }}
-                onSwipeableOpen={handleSwipeOpen}
-                renderLeftActions={item.read ? undefined : renderLeftActions}
-                renderRightActions={renderRightActions}
-                containerStyle={{ backgroundColor: theme.colors.background }}
+        <Swipeable
+            ref={swipeableRef}
+            friction={1.5}
+            rightThreshold={40}
+            overshootRight={false} 
+            onSwipeableWillOpen={() => {
+                if (openRowId !== item.id) setOpenRowId(item.id);
+            }}
+            renderRightActions={renderRightActions}
+            containerStyle={{ overflow: 'visible', backgroundColor: 'transparent' }} 
+        >
+            <TouchableOpacity
+                activeOpacity={0.8}
+                onPress={() => onPressItem(item)}
+                style={[
+                    styles.card,
+                    {
+                        backgroundColor: theme.colors.card,
+                        borderColor: item.read ? theme.colors.border : theme.colors.primary + '40',
+                    }
+                ]}
             >
-                <TouchableOpacity
-                    activeOpacity={0.7}
-                    onPress={() => onPressItem(item)}
-                    style={[
-                        styles.itemContainer,
-                        {
-                            backgroundColor: item.read ? theme.colors.background : theme.colors.primary + '05',
-                            borderBottomColor: theme.colors.border
-                        }
-                    ]}
-                >
-                    <View style={styles.itemContent}>
-                        <View style={styles.unreadDotContainer}>
-                            <View style={[styles.unreadDot, { backgroundColor: item.read ? 'transparent' : theme.colors.primary }]} />
-                        </View>
+                {!item.read && (
+                    <View style={[styles.unreadBadge, { backgroundColor: theme.colors.primary }]} />
+                )}
+                
+                <View style={[styles.iconBox, { backgroundColor: bg }]}>
+                    <HugeiconsIcon icon={icon} size={18} color={color} />
+                </View>
 
-                        <View style={styles.textBlock}>
-                            <View style={styles.itemHeader}>
-                                <Text 
-                                    numberOfLines={1} 
-                                    style={[
-                                        styles.itemTitle, 
-                                        { color: theme.colors.text },
-                                        item.read ? styles.itemTitleRead : styles.itemTitleUnread
-                                    ]}
-                                >
-                                    {item.title}
-                                </Text>
-                                <Text style={[styles.itemDate, { color: theme.colors.textSecondary }]}>
-                                    {formattedDate}
-                                </Text>
-                            </View>
-                            <Text 
-                                numberOfLines={2} 
-                                style={[styles.itemBody, { color: theme.colors.textSecondary }]}
-                            >
-                                {item.body}
-                            </Text>
-                        </View>
+                <View style={styles.textBlock}>
+                    <View style={styles.itemHeader}>
+                        <Text
+                            numberOfLines={1}
+                            style={[
+                                styles.itemTitle,
+                                { color: theme.colors.text },
+                                item.read ? styles.itemTitleRead : styles.itemTitleUnread
+                            ]}
+                        >
+                            {item.title}
+                        </Text>
+                        <Text style={[styles.itemDate, { color: theme.colors.textSecondary }]}>
+                            {formattedDate}
+                        </Text>
                     </View>
-                </TouchableOpacity>
-            </Swipeable>
-        </Animated.View>
+                    <Text
+                        numberOfLines={1}
+                        style={[
+                            styles.itemBody, 
+                            { color: theme.colors.textSecondary, opacity: item.read ? 0.8 : 1 }
+                        ]}
+                    >
+                        {item.body}
+                    </Text>
+                </View>
+            </TouchableOpacity>
+        </Swipeable>
     );
 };
 
@@ -210,7 +198,8 @@ export default function NotificationsScreen() {
 
     const unreadCount = notifications.filter(n => !n.read).length;
 
-    const loadData = async () => {
+    // FIX: Wrapped in useCallback and properly included in dependency array
+    const loadData = useCallback(async () => {
         try {
             if (!user) return;
             const data = await getNotificationsLocal(user.id);
@@ -218,11 +207,11 @@ export default function NotificationsScreen() {
         } catch (e) {
             console.log('Err loading notifs', e);
         }
-    };
+    }, [user]);
 
     useFocusEffect(useCallback(() => {
         loadData();
-    }, []));
+    }, [loadData]));
 
     const handleMenuOpen = () => {
         if (moreIconRef.current) {
@@ -246,6 +235,7 @@ export default function NotificationsScreen() {
         try {
             await deleteNotificationLocal(id);
             setNotifications(prev => prev.filter(n => n.id !== id));
+            if (selectedItem?.id === id) handleCloseDetail();
         } catch (error) {
             console.log("Error deleting notification", error);
         }
@@ -275,12 +265,6 @@ export default function NotificationsScreen() {
         });
     }, [bodyTranslateX]);
 
-    const handleActionPress = (action: string) => {
-        if (action === 'generate_report') {
-            router.push('/reports/generate');
-        }
-    };
-
     useFocusEffect(
         useCallback(() => {
             const onBackPress = () => {
@@ -303,7 +287,7 @@ export default function NotificationsScreen() {
             <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} />
 
             <Header
-                title={selectedItem ? "Details" : "Notifications"}
+                title={selectedItem ? "Notification Details" : "Notifications"} 
                 onBack={selectedItem ? handleCloseDetail : () => router.back()}
                 rightElement={
                     !selectedItem && unreadCount > 0 ? (
@@ -319,14 +303,7 @@ export default function NotificationsScreen() {
             <ActionMenu
                 visible={menuVisible}
                 onClose={() => setMenuVisible(false)}
-                actions={[
-                    { 
-                        label: "Mark all as read", 
-                        icon: TickDouble01Icon, 
-                        onPress: handleMarkAllRead, 
-                        color: theme.colors.primary 
-                    }
-                ]}
+                actions={[{ label: "Mark all as read", icon: TickDouble01Icon, onPress: handleMarkAllRead, color: theme.colors.primary }]}
                 anchor={menuAnchor}
             />
 
@@ -343,7 +320,6 @@ export default function NotificationsScreen() {
                                     <NotificationRow
                                         item={item}
                                         theme={theme}
-                                        onMarkAsRead={handleMarkAsRead}
                                         onDeleteNotification={handleDeleteNotification}
                                         onPressItem={handleSelectNotification}
                                         openRowId={openRowId}
@@ -374,48 +350,51 @@ export default function NotificationsScreen() {
                         {/* ---------------- DETAIL VIEW (Right) ---------------- */}
                         <View style={styles.detailScreen}>
                             {currentItem && (
-                                <>
+                                <View style={{ flex: 1 }}>
                                     <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.detailScrollContent}>
                                         
-                                        <View style={styles.heroSection}>
-                                            <View style={[styles.heroIconBox, { backgroundColor: getIconTheme(currentItem, theme).bg }]}>
-                                                <HugeiconsIcon icon={getIconTheme(currentItem, theme).icon} size={28} color={getIconTheme(currentItem, theme).color} />
-                                            </View>
-                                            <View style={{ flex: 1 }}>
-                                                <Text style={[styles.heroDate, { color: theme.colors.text }]} numberOfLines={2}>
+                                        <View style={[styles.detailCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.primary + '30' }]}>
+                                            
+                                            <View style={styles.detailCenteredLayout}>
+                                                <View style={[styles.detailIconBox, { backgroundColor: getIconTheme(currentItem, theme).bg }]}>
+                                                    <HugeiconsIcon icon={getIconTheme(currentItem, theme).icon} size={28} color={getIconTheme(currentItem, theme).color} />
+                                                </View>
+                                                
+                                                {/* FIX: Removed invalid textAlign prop from Text, passed via style */}
+                                                <Text style={[styles.detailTitle, { color: theme.colors.text, textAlign: 'center' }]} numberOfLines={2}>
                                                     {currentItem.title}
                                                 </Text>
-                                                <Text style={[styles.heroDay, { color: theme.colors.textSecondary }]}>
-                                                    {format(new Date(currentItem.date || currentItem.created_at || Date.now()), "EEEE, MMM d, yyyy • h:mm a")}
+                                                
+                                                <Text style={[styles.detailDate, { color: theme.colors.primary }]}>
+                                                    {format(new Date(currentItem.date || currentItem.created_at || Date.now()), "MMMM d, yyyy • h:mm a")}
                                                 </Text>
                                             </View>
-                                        </View>
 
-                                        <View style={[styles.detailCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                                            <Text style={[styles.detailBody, { color: theme.colors.text }]}>
+                                            <View style={[styles.detailDivider, { backgroundColor: theme.colors.border }]} />
+                                            
+                                            <Text style={[styles.detailBodyText, { color: theme.colors.text }]}>
                                                 {currentItem.body}
                                             </Text>
+
+                                            {(currentItem.type === 'report_ready' || currentItem.title?.toLowerCase().includes("report's ready")) && (
+                                                <TouchableOpacity
+                                                    activeOpacity={0.8}
+                                                    onPress={() => router.push('/reports/generate')}
+                                                    style={[styles.primaryActionBtn, { backgroundColor: theme.colors.primary, shadowColor: theme.colors.primary }]}
+                                                >
+                                                    <Text style={styles.primaryActionBtnText}>Generate Report</Text>
+                                                    <HugeiconsIcon icon={ArrowRight01Icon} size={18} color="#FFF" />
+                                                </TouchableOpacity>
+                                            )}
+
                                         </View>
                                     </ScrollView>
 
-                                    {(currentItem.type === 'report_ready' || currentItem.title?.toLowerCase().includes("report's ready")) && (
-                                        <Footer>
-                                            <TouchableOpacity
-                                                activeOpacity={0.8}
-                                                onPress={() => handleActionPress('generate_report')}
-                                                style={[styles.primaryActionBtn, { backgroundColor: theme.colors.primary, shadowColor: theme.colors.primary }]}
-                                            >
-                                                <Text style={styles.primaryActionBtnText}>Generate Report</Text>
-                                                <HugeiconsIcon icon={ArrowRight01Icon} size={20} color="#FFF" />
-                                            </TouchableOpacity>
-                                        </Footer>
-                                    )}
-
-                                    {/* ADDED AD COMPONENT AT THE BOTTOM OF REPORT DETAILS */}
-                                    <View style={{ width: '100%' }}>
+                                    {/* Ad Component properly anchored at the absolute bottom */}
+                                    <View style={styles.bannerAdContainer}>
                                         <BannerAdComponent />
                                     </View>
-                                </>
+                                </View>
                             )}
                         </View>
 
@@ -434,22 +413,29 @@ const styles = StyleSheet.create({
     listScreen: { width: SCREEN_WIDTH, flex: 1 },
     detailScreen: { width: SCREEN_WIDTH, flex: 1 },
 
-    // List Styles
-    listContent: { flexGrow: 1 },
-    itemContainer: { paddingVertical: 20, paddingHorizontal: 24, borderBottomWidth: 1 },
-    itemContent: { flexDirection: 'row', alignItems: 'flex-start' },
-    unreadDotContainer: { width: 18, paddingTop: 6 },
-    unreadDot: { width: 8, height: 8, borderRadius: 4 },
+    // Adjusted List Styles (Smaller Fonts & Icons)
+    listContent: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 40 },
+    card: { 
+        flexDirection: 'row', 
+        alignItems: 'center', 
+        padding: 16, 
+        borderRadius: 20, 
+        marginBottom: 10,
+        borderWidth: 1,
+    },
+    unreadBadge: { position: 'absolute', top: 14, right: 14, width: 8, height: 8, borderRadius: 4 },
+    iconBox: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
     textBlock: { flex: 1 },
     itemHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-    itemTitle: { fontSize: 16, flex: 1, marginRight: 12, letterSpacing: -0.2 },
+    itemTitle: { fontSize: 15, flex: 1, marginRight: 16, letterSpacing: -0.2 },
     itemTitleUnread: { fontFamily: 'Nunito_800ExtraBold' },
-    itemTitleRead: { fontFamily: 'Nunito_600SemiBold', opacity: 0.8 },
-    itemDate: { fontSize: 12, fontFamily: 'Nunito_500Medium' },
-    itemBody: { fontSize: 14, fontFamily: 'Nunito_500Medium', lineHeight: 22 },
-    
-    // Gmail-Style Swipe Actions (Refined)
-    gmailAction: { flex: 1, justifyContent: 'center' },
+    itemTitleRead: { fontFamily: 'Nunito_600SemiBold', opacity: 0.9 },
+    itemDate: { fontSize: 11, fontFamily: 'Nunito_600SemiBold', opacity: 0.6 },
+    itemBody: { fontSize: 13, fontFamily: 'Nunito_500Medium', lineHeight: 18 },
+
+    // Square Delete Swipe Action
+    rightActionContainer: { width: 68, height: '100%', justifyContent: 'center', alignItems: 'flex-end', paddingBottom: 10, backgroundColor: 'transparent' },
+    squareDeleteBtn: { width: 50, height: 50, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 4 },
 
     // Empty & Footer
     footerContainer: { paddingVertical: 32, paddingHorizontal: 40, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, opacity: 0.4 },
@@ -460,17 +446,20 @@ const styles = StyleSheet.create({
     emptyTitle: { fontSize: 20, fontFamily: 'Nunito_700Bold', marginBottom: 8 },
     emptySubtitle: { fontSize: 15, fontFamily: 'Nunito_500Medium', textAlign: 'center', lineHeight: 22, paddingHorizontal: 20 },
 
-    // Detail View Styles
-    detailScrollContent: { paddingHorizontal: 24, paddingTop: 32, paddingBottom: 40 },
-    heroSection: { flexDirection: "row", alignItems: "center", marginBottom: 32, gap: 16 },
-    heroIconBox: { width: 56, height: 56, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-    heroDate: { fontSize: 22, fontFamily: 'Nunito_700Bold', letterSpacing: -0.5, marginBottom: 4 },
-    heroDay: { fontSize: 13, fontFamily: 'Nunito_600SemiBold', textTransform: 'uppercase', letterSpacing: 1 },
-    
-    detailCard: { padding: 24, borderRadius: 24, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.03, shadowRadius: 10, elevation: 2 },
-    detailBody: { fontSize: 16, fontFamily: 'Nunito_500Medium', lineHeight: 26 },
+    // Refined Detail View Styles
+    detailScrollContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 24 },
+    detailCard: { padding: 24, borderRadius: 28, borderWidth: 1 },
+    detailCenteredLayout: { alignItems: 'center', marginBottom: 20 },
+    detailIconBox: { width: 64, height: 64, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+    detailTitle: { fontSize: 18, fontFamily: 'Nunito_800ExtraBold', letterSpacing: -0.2, marginBottom: 6 },
+    detailDate: { fontSize: 12, fontFamily: 'Nunito_700Bold', opacity: 0.8, letterSpacing: 0.5 },
+    detailDivider: { height: 1, width: '100%', marginBottom: 20, opacity: 0.5 },
+    detailBodyText: { fontSize: 14, fontFamily: 'Nunito_500Medium', lineHeight: 22, letterSpacing: 0.2, textAlign: 'center', marginBottom: 24 },
 
-    // Footer Actions
-    primaryActionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, paddingVertical: 16, paddingHorizontal: 32, borderRadius: 20, width: '100%', shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.25, shadowRadius: 12, elevation: 6 },
-    primaryActionBtnText: { color: '#FFF', fontSize: 16, fontFamily: 'Nunito_700Bold' }
+    // Primary Action Button
+    primaryActionBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, paddingVertical: 14, borderRadius: 14, width: '100%', marginTop: 8 },
+    primaryActionBtnText: { color: '#FFF', fontSize: 14, fontFamily: 'Nunito_700Bold' },
+
+    // Ad Container
+    bannerAdContainer: { width: '100%', paddingVertical: 10, backgroundColor: 'transparent' }
 });
