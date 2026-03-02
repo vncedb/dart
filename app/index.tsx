@@ -1,3 +1,4 @@
+// filepath: app/index.tsx
 import { Mail01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -21,6 +22,7 @@ import { useAuth } from '../context/AuthContext';
 import { queueSyncItem, saveProfileLocal } from '../lib/database';
 import { getDB } from '../lib/db-client';
 import { supabase } from '../lib/supabase';
+import { syncPull } from '../lib/sync';
 
 GoogleSignin.configure({
     webClientId: '668715947282-h8h20h74tdtmj47efrkj9m7vjp8o39du.apps.googleusercontent.com',
@@ -36,6 +38,7 @@ export default function Index() {
   const rootNavigationState = useRootNavigationState();
 
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("Connecting...");
   const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
   useEffect(() => {
@@ -104,6 +107,7 @@ export default function Index() {
 
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
+    setLoadingMessage("Connecting...");
     try {
         await GoogleSignin.hasPlayServices();
         const userInfo = await GoogleSignin.signIn();
@@ -119,6 +123,14 @@ export default function Index() {
 
             if (data?.user) {
                 const isDeviceOnboarded = await checkAppRegistration(data.user);
+                
+                // Fetch data before proceeding
+                setLoadingMessage("Getting your data...");
+                try {
+                    await syncPull(data.user.id);
+                } catch(e) {}
+                setLoadingMessage("Success!");
+
                 setTimeout(() => {
                     setGoogleLoading(false);
                     setTimeout(() => {
@@ -162,7 +174,7 @@ export default function Index() {
       <View className={`absolute inset-0 ${isDark ? 'bg-slate-950/90' : 'bg-slate-50/90'}`} />
       <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
       <ModernAlert {...alertConfig} />
-      <LoadingOverlay visible={googleLoading} message="Connecting..." />
+      <LoadingOverlay visible={googleLoading} message={loadingMessage} />
 
       <SafeAreaView className="flex-1 px-8">
         <View className="items-center justify-center flex-1 w-full">
@@ -193,7 +205,6 @@ export default function Index() {
             </View>
         </View>
 
-        {/* ACTIONS */}
         <View className="w-full gap-4 pb-6">
             <View>
                 <ScaleButton onPress={() => router.push('/auth')} disabled={googleLoading}>

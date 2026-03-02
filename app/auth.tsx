@@ -35,6 +35,7 @@ import OtpVerificationModal from '../components/OtpVerificationModal';
 import { queueSyncItem, saveProfileLocal } from '../lib/database';
 import { getDB } from '../lib/db-client';
 import { supabase } from '../lib/supabase';
+import { syncPull } from '../lib/sync';
 
 const Tooltip = ({ message, isDark }: { message: string, isDark: boolean }) => (
     <View className="absolute right-0 z-50 w-64 mt-2 top-full">
@@ -62,6 +63,7 @@ export default function AuthScreen() {
 
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("");
   const [successMode, setSuccessMode] = useState(false);
   
   const [email, setEmail] = useState('');
@@ -173,9 +175,19 @@ export default function AuthScreen() {
       }
   };
 
-  const onLoginSuccess = (isDeviceOnboarded: boolean) => {
+  const onLoginSuccess = async (isDeviceOnboarded: boolean, userId: string) => {
       setLoading(true); 
+      setLoadingMessage("Getting your data..."); 
+      
+      try {
+          // Explicitly pull all data before routing to prevent SQLite lock crash
+          await syncPull(userId);
+      } catch (e) {
+          console.error("Failed to fetch initial sync data", e);
+      }
+      
       setSuccessMode(true); 
+      setLoadingMessage("Success!");
       
       setTimeout(() => {
           setLoading(false);
@@ -219,17 +231,15 @@ export default function AuthScreen() {
             } else {
                 if (data.user) {
                     const isDeviceOnboarded = await checkAppRegistration(data.user);
-                    onLoginSuccess(isDeviceOnboarded);
+                    await onLoginSuccess(isDeviceOnboarded, data.user.id);
                 } else {
                     setLoading(false);
                 }
             }
         } 
         else if (authMode === 'signup') {
-            // BUG FIX: changed .single() to .maybeSingle() to prevent crashing on new signups
             const { data: existingProfile } = await supabase.from('profiles').select('id').eq('email', email).maybeSingle();
             
-            // SMART ERROR HANDLING FOR OAUTH CONFLICTS
             if (existingProfile) {
                 setLoading(false);
                 setAlertConfig({
@@ -255,7 +265,7 @@ export default function AuthScreen() {
             } else {
                 if (session && user) {
                      const isDeviceOnboarded = await checkAppRegistration(user);
-                     onLoginSuccess(isDeviceOnboarded); 
+                     await onLoginSuccess(isDeviceOnboarded, user.id); 
                 } else {
                     setLoading(false); 
                     setShowOtp(true);
@@ -268,10 +278,6 @@ export default function AuthScreen() {
     }
   };
 
-  let loadingMessage = "";
-  if (successMode) loadingMessage = "Success!";
-  else loadingMessage = authMode === 'login' ? "Signing In..." : "Creating Account...";
-
   return (
     <TouchableWithoutFeedback onPress={() => { Keyboard.dismiss(); setVisibleTooltip(null); }}>
       <ImageBackground source={require('../assets/images/intro/bgimage.jpeg')} className="flex-1" blurRadius={5}>
@@ -279,7 +285,7 @@ export default function AuthScreen() {
         <ModernToast visible={toastVisible} message="Success!" type="success" />
         <ModernAlert {...alertConfig} />
         
-        <LoadingOverlay visible={loading} message={loadingMessage} />
+        <LoadingOverlay visible={loading} message={loadingMessage || (authMode === 'login' ? "Signing In..." : "Creating Account...")} />
         
         <OtpVerificationModal 
             visible={showOtp} 
@@ -292,7 +298,7 @@ export default function AuthScreen() {
                     supabase.functions.invoke('send-email', { body: { email: session.user.email, type: 'WELCOME' } });
                     const isDeviceOnboarded = await checkAppRegistration(session.user);
                     setShowOtp(false);
-                    setTimeout(() => { onLoginSuccess(isDeviceOnboarded); }, 300);
+                    setTimeout(async () => { await onLoginSuccess(isDeviceOnboarded, session.user.id); }, 300);
                     return true;
                 }
                 setShowOtp(false);

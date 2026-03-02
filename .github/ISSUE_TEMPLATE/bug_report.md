@@ -22,7 +22,7 @@ A clear and concise description of what you expected to happen.
 ## 📱 Environment details
  - **OS / Device:** [e.g. iOS 17 / iPhone 15 Pro]
  - **Expo Version:** [e.g. 54.0.0]
- - **App Version:** [e.g. 1.0.2-dev]
+ - **App Version:** [e.g. 1.0.3]
 
 ## 📸 Screenshots / Video
 If applicable, add screenshots or a screen recording to help explain your problem.

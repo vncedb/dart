@@ -284,6 +284,23 @@ export const deleteJobLocal = async (id: string) => {
   await queueSyncItem("job_positions", id, "DELETE");
 };
 
+/** Clears all user data from local DB. Call on sign out so the next user gets a clean slate. */
+export const clearLocalUserData = async () => {
+  try {
+    const db = await getDB();
+    await db.runAsync('DELETE FROM attendance');
+    await db.runAsync('DELETE FROM accomplishments');
+    await db.runAsync('DELETE FROM saved_reports');
+    await db.runAsync('DELETE FROM job_positions');
+    await db.runAsync('DELETE FROM profiles');
+    await db.runAsync('DELETE FROM notifications');
+    await db.runAsync('DELETE FROM sync_queue');
+    await db.runAsync('INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)', ['last_synced_at', '1970-01-01T00:00:00.000Z']);
+  } catch (e) {
+    console.error('[DB] clearLocalUserData error:', e);
+  }
+};
+
 // --- ATTENDANCE & TRACKING ---
 export const saveAttendanceLocal = async (attendance: any) => {
   const db = await getDB();

@@ -1,11 +1,10 @@
-// filepath: vncedb/dart/dart-8346f6d6d3ba6721214d0c5b9d4684d9a2a9874e/context/AuthContext.tsx
+// filepath: context/AuthContext.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { Session, User } from '@supabase/supabase-js';
 import * as Notifications from 'expo-notifications';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { syncPull } from '../lib/sync';
 import { clearAttendanceNotification } from '../utils/NotificationService';
 
 const APP_SETTINGS_KEY = 'appSettings';
@@ -136,15 +135,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       listenerTookOver = true;
-
-      if (event === 'SIGNED_IN' && newSession?.user) {
-         setIsLoading(true);
-         try {
-             await syncPull(newSession.user.id);
-         } catch (e) {
-             console.error("[Auth] Initial hydration failed:", e);
-         }
-      }
 
       setSession(newSession);
       setUser(newSession?.user ?? null);

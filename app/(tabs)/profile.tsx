@@ -14,11 +14,11 @@ import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
 import * as FileSystem from 'expo-file-system/legacy';
+import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
-    Image,
     Platform,
     RefreshControl,
     ScrollView,
@@ -335,7 +335,7 @@ export default function ProfileScreen() {
                             <View style={styles.avatarMainContainer}>
                                 <View style={[styles.avatarWrapper, { borderColor: theme.colors.primary, backgroundColor: theme.colors.card }]}>
                                     {avatarSource && !imageError ? (
-                                        <Image key={avatarSource.uri} source={avatarSource} style={styles.avatar} resizeMode="cover" onError={() => setImageError(true)} />
+                                        <Image key={avatarSource.uri} source={avatarSource} style={styles.avatar} contentFit="cover" onError={() => setImageError(true)} />
                                     ) : (
                                         <View style={[StyleSheet.absoluteFill, styles.avatarPlaceholder, { backgroundColor: theme.colors.card }]}>
                                             <HugeiconsIcon icon={UserCircleIcon} size={64} color={theme.colors.textSecondary} />

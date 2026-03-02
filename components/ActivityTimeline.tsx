@@ -9,12 +9,12 @@ import {
     RefreshIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
+import { Image } from 'expo-image';
 import { format } from 'date-fns';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
     ActivityIndicator,
     Dimensions,
-    Image,
     ScrollView,
     StyleSheet,
     Text,
@@ -30,7 +30,7 @@ const ActivityImageContent = ({ uri, theme }: { uri: string, theme: any }) => {
     const handleRetry = () => { setStatus('loading'); setKey(prev => prev + 1); };
     return (
         <>
-            <Image key={key} source={{ uri }} style={[StyleSheet.absoluteFill, { opacity: status === 'success' ? 1 : 0 }]} resizeMode="cover" onLoad={() => setStatus('success')} onError={() => setStatus('error')} />
+            <Image key={key} source={{ uri }} style={[StyleSheet.absoluteFill, { opacity: status === 'success' ? 1 : 0 }]} contentFit="cover" onLoad={() => setStatus('success')} onError={() => setStatus('error')} />
             {status === 'loading' && (
                 <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center' }]}>
                     <ActivityIndicator size="small" color={theme.colors.primary} />

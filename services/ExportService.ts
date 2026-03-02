@@ -33,7 +33,7 @@ export const ExportService = {
         if ((profiles as any)?.local_avatar_path) await attachFile((profiles as any).local_avatar_path);
 
         const exportObj = {
-          metadata: { exportDate: new Date().toISOString(), appVersion: '1.0.2-dev', userId },
+          metadata: { exportDate: new Date().toISOString(), appVersion: '1.0.3', userId },
           data: { attendance, accomplishments, reports, jobs, profiles, notifications },
           files: fileData
         };
