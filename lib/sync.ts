@@ -7,6 +7,29 @@ import { supabase } from "./supabase";
 
 const MAX_RETRIES = 5;
 
+// --- GLOBAL SYNC LOCK ---
+let isSyncing = false;
+
+export const performFullSync = async (userId: string, progressCallback?: (progress: number) => void) => {
+  if (isSyncing) return { success: false, message: "Sync already in progress" };
+  isSyncing = true;
+  try {
+    if (progressCallback) progressCallback(10);
+    const pushRes = await syncPush(userId, (p) => progressCallback?.(10 + Math.floor(p * 0.4)));
+    
+    if (progressCallback) progressCallback(50);
+    const pullRes = await syncPull(userId, (p) => progressCallback?.(50 + Math.floor(p * 0.5)));
+
+    return { success: true, push: pushRes, pull: pullRes };
+  } catch (error) {
+    console.error("[Sync] Full sync failed", error);
+    return { success: false, error };
+  } finally {
+    isSyncing = false;
+    if (progressCallback) progressCallback(100);
+  }
+};
+
 // --- FILE HELPERS ---
 const getPathFromUrl = (url: string) => {
   if (!url) return null;
@@ -55,7 +78,7 @@ const uploadFileToSupabase = async (localUri: string, userId: string, bucket: st
   const fileInfo = await FileSystem.getInfoAsync(localUri);
   if (!fileInfo.exists) {
       console.warn(`[Sync] File physically missing on device: ${localUri}`);
-      return null; // Return null so the main loop can decide to skip it
+      return null; 
   }
 
   const ext = localUri.split(".").pop()?.toLowerCase() || 'jpg';
@@ -151,7 +174,10 @@ export const syncPush = async (userId: string, progressCallback?: (progress: num
 
         if (table_name === "saved_reports") {
           if ("file_path" in payload) delete payload.file_path;
-          if ("is_read" in payload) delete payload.is_read;
+          
+          if ("is_read" in payload) {
+             payload.is_read = payload.is_read === 1 || payload.is_read === true;
+          }
         }
         
         if (table_name === "notifications") {
@@ -179,7 +205,6 @@ export const syncPush = async (userId: string, progressCallback?: (progress: num
             if (!payload.updated_at) payload.updated_at = new Date().toISOString();
         }
 
-        // --- ATOMIC REQUIREMENT: FAIL ROW IF ANY IMAGE FAILS ---
         if (table_name === "accomplishments" && payload.image_url && action !== "DELETE") {
             let imagesArray: string[] = [];
             
@@ -196,22 +221,18 @@ export const syncPush = async (userId: string, progressCallback?: (progress: num
             if (imagesArray.length > 0) {
                 let updatedImages: string[] = [];
                 let hasChanges = false;
-                let uploadFailed = false;
 
                 for (const uri of imagesArray) {
                     if (uri && uri.startsWith("file://")) {
                         const remoteUrl = await uploadFileToSupabase(uri, payload.user_id || "unknown", "entry-images", "entries");
                         
-                        // If it returns null, the file was missing locally (user deleted it). We skip it to avoid permanent deadlocks.
                         if (remoteUrl === null) {
                             hasChanges = true; 
                         } 
-                        // If remoteUrl is a string, it succeeded.
                         else if (typeof remoteUrl === 'string') {
                             updatedImages.push(remoteUrl);
                             hasChanges = true;
                         } 
-                        // If it threw an error inside uploadFileToSupabase, it's caught below and fails the row.
                     } else {
                         updatedImages.push(uri);
                     }
@@ -251,8 +272,6 @@ export const syncPush = async (userId: string, progressCallback?: (progress: num
         batchGroups[groupKey].payloads.push(payload);
 
       } catch (err: any) {
-        // THIS CATCHES THE IMAGE UPLOAD ERROR AND ABORTS THE ROW FROM SYNCING. 
-        // The DB item correctly remains is_synced = 0.
         console.error(`[Sync] Pre-flight/Upload failed for queue id ${id}:`, err);
         await db.runAsync(`UPDATE sync_queue SET retry_count = retry_count + 1, status = 'FAILED' WHERE id = ?`, [id]);
         failedCount++;
@@ -359,15 +378,20 @@ export const syncPush = async (userId: string, progressCallback?: (progress: num
 
 const safeUpsert = async (db: any, table: string, id: string, sql: string, params: any[]): Promise<boolean> => {
   try {
+    const pendingDelete: any = await db.getFirstAsync(
+      `SELECT id FROM sync_queue WHERE table_name = ? AND row_id = ? AND action = 'DELETE'`, 
+      [table, id]
+    );
+    if (pendingDelete) return true;
+
     const local: any = await db.getFirstAsync(`SELECT is_synced FROM ${table} WHERE id = ?`, [id]);
     if (local && local.is_synced === 0) return true; 
   } catch { /* ignore */ }
+  
   await db.runAsync(sql, params);
   return false;
 };
 
-// FIX: Infinite Loop Bug on 50%
-// Replaced `.range()` loop mutation with a single safe massive fetch limit.
 const fetchAllRows = async (query: any): Promise<any[]> => {
   const { data, error } = await query.limit(5000);
   if (error) throw error;

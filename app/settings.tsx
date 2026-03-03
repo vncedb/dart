@@ -24,7 +24,7 @@ import {
     Image,
     Linking,
     ScrollView,
-    Share, // <-- ADDED SHARE API
+    Share,
     StatusBar,
     StyleSheet,
     Switch,
@@ -52,6 +52,9 @@ import { useSync } from '../context/SyncContext';
 import { checkForUpdate } from '../lib/updateCheck';
 import { ExportService } from '../services/ExportService';
 
+// --- NEW SYNC IMPORT ---
+import { performFullSync } from '../lib/sync';
+
 type ThemeOption = 'system' | 'light' | 'dark';
 
 export default function SettingsScreen() {
@@ -59,7 +62,7 @@ export default function SettingsScreen() {
     const theme = useAppTheme();
     const { signOut, user } = useAuth();
     const { colorScheme } = useColorScheme();
-    const { triggerSync, syncStatus, pendingCount, failedCount } = useSync();
+    const { triggerSync, pendingCount, failedCount } = useSync();
 
     const [soundEnabled, setSoundEnabled] = useState(true);
     const [themePreference, setThemePreference] = useState<ThemeOption>('system');
@@ -69,24 +72,23 @@ export default function SettingsScreen() {
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
     const [hasUpdate, setHasUpdate] = useState(false);
 
+    // Swap Sync State
+    const [isManualSyncing, setIsManualSyncing] = useState(false);
     const syncButtonRotation = useSharedValue(0);
-    const isSyncing = syncStatus === 'syncing';
 
     const providers = user?.app_metadata?.providers || [];
     const hasGoogle = providers.includes('google');
-
     const isMounted = useRef(true);
-
     const dangerColor = theme.colors.danger || '#ef4444';
 
     useEffect(() => {
-        if (isSyncing) {
+        if (isManualSyncing) {
             syncButtonRotation.value = withRepeat(withTiming(360, { duration: 1000 }), -1);
         } else {
             cancelAnimation(syncButtonRotation);
             syncButtonRotation.value = withTiming(0);
         }
-    }, [isSyncing, syncButtonRotation]);
+    }, [isManualSyncing, syncButtonRotation]);
 
     const syncButtonStyle = useAnimatedStyle(() => ({
         transform: [{ rotate: `${syncButtonRotation.value}deg` }],
@@ -148,18 +150,11 @@ export default function SettingsScreen() {
         Linking.openURL('mailto:dev.vncedb@gmail.com?subject=DART Support Request');
     };
 
-    // --- NEW SHARE FUNCTION ---
     const handleShareApp = async () => {
         try {
-            // Replace this with your actual Linktree, Carrd page, Expo EAS link, or Google Drive APK link
             const downloadLink = "https://dart-projectvdb.carrd.co/"; 
-            
             const message = `Hey! I'm using DART (Daily Accomplishment Report Tools) to track my hours and generate reports easily.\n\nDownload the app here: ${downloadLink}`;
-            
-            await Share.share({
-                message: message,
-                title: 'Share DART App',
-            });
+            await Share.share({ message: message, title: 'Share DART App' });
         } catch (error) {
             console.log('Error sharing app:', error);
         }
@@ -171,11 +166,44 @@ export default function SettingsScreen() {
         setLoadingMessage("Packaging your data...");
         try {
             await ExportService.exportAllData(user.id);
-        } catch (e) {
+        } catch {
             setAlertConfig({ visible: true, type: 'error', title: 'Export Failed', message: 'Could not export your data at this time.', confirmText: 'OK', onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) });
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const handleManualSync = async () => {
+        if (!user || isManualSyncing) return;
+        setIsManualSyncing(true);
+        
+        try {
+            const res = await performFullSync(user.id);
+            
+            if (res.success) {
+                triggerSync(); 
+            } else {
+                setAlertConfig({ 
+                    visible: true, 
+                    type: 'error', 
+                    title: 'Sync Failed', 
+                    message: (res.error as any)?.message || 'A network error occurred.', 
+                    confirmText: 'OK', 
+                    onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) 
+                });
+            }
+        } catch (err: any) {
+            setAlertConfig({ 
+                visible: true, 
+                type: 'error', 
+                title: 'Sync Function Missing', 
+                message: 'Please ensure performFullSync is exported in lib/sync.ts', 
+                confirmText: 'OK', 
+                onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) 
+            });
+        }
+        
+        setIsManualSyncing(false);
     };
 
     const handleSignOut = () => {
@@ -204,7 +232,6 @@ export default function SettingsScreen() {
             <ModernAlert {...alertConfig} />
             <LoadingOverlay visible={isLoading} message={loadingMessage} />
 
-            {/* ADDED SHARE BUTTON TO HEADER RIGHT ELEMENT */}
             <Header 
                 title="Settings" 
                 rightElement={
@@ -240,7 +267,7 @@ export default function SettingsScreen() {
                             </View>
 
                             <TouchableOpacity 
-                                onPress={() => triggerSync()} 
+                                onPress={handleManualSync} 
                                 style={[styles.syncBtn, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
                             >
                                 <Animated.View style={syncButtonStyle}>
@@ -318,7 +345,7 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-    headerShareBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }, // ADDED SHARE BTN STYLE
+    headerShareBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }, 
     sectionTitle: { fontSize: 12, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase', opacity: 0.7 },
     card: { borderRadius: 24, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
     

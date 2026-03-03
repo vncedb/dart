@@ -42,6 +42,7 @@ import Button from "../../components/Button";
 import Footer from "../../components/Footer";
 import Header from "../../components/Header";
 import ImageViewer from "../../components/ImageViewer";
+import LoadingOverlay from "../../components/LoadingOverlay";
 import ModernAlert from "../../components/ModernAlert";
 import SelectDropdown from "../../components/SelectDropdown";
 import SignatureModal from "../../components/SignatureModal";
@@ -60,22 +61,23 @@ export default function GenerateReportScreen() {
 
   // --- Data State ---
   const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
   const [reportCount, setReportCount] = useState(0);
   const [periodLabel, setPeriodLabel] = useState("");
   const [previewImages, setPreviewImages] = useState<string[]>([]);
 
-  // --- Config State ---
+  // --- Config State (Default Toggled ON) ---
   const [formatType, setFormatType] = useState<"pdf" | "xlsx">("pdf");
   const [paperSize, setPaperSize] = useState<"Letter" | "A4" | "Legal">("Letter");
   const [reportStyle, setReportStyle] = useState<"corporate" | "creative" | "minimal">("corporate");
   const [dateFormat, setDateFormat] = useState("MM/dd/yyyy");
   const [timeFormat, setTimeFormat] = useState("exact_hm");
 
-  // Toggles
   const [includeDocs, setIncludeDocs] = useState(true);
-  const [includeDay, setIncludeDay] = useState(false);
+  const [includeDay, setIncludeDay] = useState(true);
   const [includeDept, setIncludeDept] = useState(true);
   const [includeSecondarySignee, setIncludeSecondarySignee] = useState(false);
+  const [columns, setColumns] = useState({ time: true, duration: true, activities: true });
 
   // --- Meta State ---
   const [customName, setCustomName] = useState("");
@@ -92,7 +94,6 @@ export default function GenerateReportScreen() {
   const [sigModalVisible, setSigModalVisible] = useState(false);
   const [activeSigner, setActiveSigner] = useState<"primary" | "secondary">("primary");
 
-  const [columns, setColumns] = useState({ time: true, duration: true, activities: true });
   const [initialSettings, setInitialSettings] = useState<string>("");
   const [shouldSaveSettings, setShouldSaveSettings] = useState(false);
   const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
@@ -100,22 +101,17 @@ export default function GenerateReportScreen() {
   const [activeImage, setActiveImage] = useState<string | null>(null);
 
   const today = new Date();
-  
-  // --- GUARD BYPASS FLAG ---
-  // Tracks if the user intentionally moved forward so the router.dismissAll doesn't trigger the unsaved guard
   const isProceeding = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
-      // Re-enable the guard whenever this screen comes back into focus
       isProceeding.current = false;
+      setGenerating(false); 
     }, [])
   );
 
-  // --- NAVIGATION GUARD ---
   useEffect(() => {
     const unsubscribe = navigation.addListener("beforeRemove", (e) => {
-      // If we are actively navigating to the preview screen, bypass the guard completely
       if (isProceeding.current) return;
 
       const currentSettings = JSON.stringify({
@@ -145,7 +141,6 @@ export default function GenerateReportScreen() {
     signature, customName, customTitle, companyName, department, secondaryName, secondaryTitle, secondarySignature
   ]);
 
-  // --- INITIALIZATION ---
   useEffect(() => {
     let isMounted = true;
     const init = async () => {
@@ -218,7 +213,7 @@ export default function GenerateReportScreen() {
             dateFormat: settingsRes ? JSON.parse(settingsRes).dateFormat : "MM/dd/yyyy",
             timeFormat: settingsRes ? JSON.parse(settingsRes).timeFormat : "exact_hm",
             includeDocs: settingsRes ? JSON.parse(settingsRes).includeDocs : true,
-            includeDay: settingsRes ? JSON.parse(settingsRes).includeDay : false,
+            includeDay: settingsRes ? JSON.parse(settingsRes).includeDay : true,
             includeDept: settingsRes ? JSON.parse(settingsRes).includeDept : true,
             includeSecondarySignee: sInc,
             columns: settingsRes ? JSON.parse(settingsRes).columns : { time: true, duration: true, activities: true },
@@ -233,9 +228,9 @@ export default function GenerateReportScreen() {
 
         if (startDate && endDate) {
           setPeriodLabel(`${format(new Date(startDate as string), "MMM d")} - ${format(new Date(endDate as string), "MMM d, yyyy")}`);
-          items = await ReportService.getReportRange(userId, job?.id, startDate as string, endDate as string);
+          items = await ReportService.getReportRange(userId, job?.id || null, startDate as string, endDate as string);
         } else if (date) {
-          setPeriodLabel(format(new Date(date as string), "MMMM d, yyyy"));
+          setPeriodLabel(format(new Date(date as string), "MMM dd, yyyy"));
           const res = await ReportService.getDailyReport(userId, date as string);
           items = { attendance: res.attendance ? [res.attendance] : [], tasks: res.tasks };
         }
@@ -285,6 +280,8 @@ export default function GenerateReportScreen() {
       return;
     }
 
+    setGenerating(true);
+
     if (shouldSaveSettings && hasSettingsChanged()) {
       try {
         const settingsToSave = {
@@ -297,7 +294,6 @@ export default function GenerateReportScreen() {
       } catch (e) { console.log("Failed to save settings"); }
     }
 
-    // Flag that we are proceeding properly to disable the guard
     isProceeding.current = true;
 
     router.push({
@@ -346,6 +342,7 @@ export default function GenerateReportScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={["top", "bottom"]}>
       <Header title="Generate Report" />
       <ModernAlert {...alertConfig} />
+      <LoadingOverlay visible={generating} message="Generating Report..." />
       
       <SignatureModal 
         visible={sigModalVisible} 
@@ -481,7 +478,6 @@ export default function GenerateReportScreen() {
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>DETAILS & AUTHORIZATION</Text>
               
-              {/* PRIMARY DETAILS */}
               <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 20, marginBottom: 16 }]}>
                 <Text style={[styles.subSectionTitle, { color: theme.colors.text }]}>Company Information</Text>
                 {renderInputRow("Organization Name", Building04Icon, companyName, setCompanyName, "Company/Organization")}
@@ -530,7 +526,6 @@ export default function GenerateReportScreen() {
                 )}
               </View>
 
-              {/* SECONDARY SIGNEE */}
               <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 20 }]}>
                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: includeSecondarySignee ? 24 : 0 }}>
                     <View style={{ flex: 1 }}>
@@ -598,7 +593,7 @@ export default function GenerateReportScreen() {
       </View>
 
       <Footer>
-        <Button title="Generate Report" onPress={handleProceed} variant="primary" icon={<HugeiconsIcon icon={ArrowRight01Icon} size={20} color="#fff" />} style={{ width: "100%" }} />
+        <Button title="Generate Report" onPress={handleProceed} variant="primary" icon={<HugeiconsIcon icon={ArrowRight01Icon} size={20} color="#fff" />} style={{ width: "100%" }} disabled={generating} />
       </Footer>
     </SafeAreaView>
   );

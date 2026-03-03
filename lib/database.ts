@@ -20,7 +20,8 @@ export const initDatabase = async () => {
       status TEXT, 
       remarks TEXT, 
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      is_synced INTEGER DEFAULT 0
+      is_synced INTEGER DEFAULT 0,
+      deleted_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS accomplishments (
@@ -33,7 +34,8 @@ export const initDatabase = async () => {
       image_url TEXT, 
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      is_synced INTEGER DEFAULT 0
+      is_synced INTEGER DEFAULT 0,
+      deleted_at TEXT
     );
     
     CREATE TABLE IF NOT EXISTS saved_reports (
@@ -48,7 +50,8 @@ export const initDatabase = async () => {
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       is_synced INTEGER DEFAULT 0,
       is_read INTEGER DEFAULT 0,
-      period_key TEXT
+      period_key TEXT,
+      deleted_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS notifications (
@@ -60,16 +63,16 @@ export const initDatabase = async () => {
       is_read INTEGER DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      is_synced INTEGER DEFAULT 0
+      is_synced INTEGER DEFAULT 0,
+      deleted_at TEXT
     );
 
-    -- The core of the Offline-First architecture
     CREATE TABLE IF NOT EXISTS sync_queue (
       id INTEGER PRIMARY KEY AUTOINCREMENT, 
       table_name TEXT NOT NULL, 
       row_id TEXT NOT NULL, 
-      action TEXT NOT NULL, -- 'INSERT', 'UPDATE', 'DELETE'
-      data TEXT, -- JSON payload of the row
+      action TEXT NOT NULL, 
+      data TEXT, 
       status TEXT DEFAULT 'PENDING', 
       retry_count INTEGER DEFAULT 0, 
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -91,7 +94,8 @@ export const initDatabase = async () => {
       local_avatar_path TEXT, 
       is_onboarded INTEGER DEFAULT 0,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      is_synced INTEGER DEFAULT 0
+      is_synced INTEGER DEFAULT 0,
+      deleted_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS job_positions (
@@ -109,7 +113,8 @@ export const initDatabase = async () => {
         break_schedule TEXT, 
         created_at TEXT DEFAULT CURRENT_TIMESTAMP, 
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        is_synced INTEGER DEFAULT 0
+        is_synced INTEGER DEFAULT 0,
+        deleted_at TEXT
     );
     CREATE VIRTUAL TABLE IF NOT EXISTS accomplishments_fts USING fts5(
         id UNINDEXED, 
@@ -133,7 +138,7 @@ export const initDatabase = async () => {
     END;
   `);
 
-  // 2. Run Migrations (Safe column additions for existing users)
+  // 2. Run Migrations (Safe column additions)
   const addColumn = async (table: string, col: string, type: string) => {
     try {
       await database.execAsync(`ALTER TABLE ${table} ADD COLUMN ${col} ${type};`);
@@ -143,6 +148,11 @@ export const initDatabase = async () => {
       }
     }
   };
+
+  const tables = ["profiles", "job_positions", "attendance", "accomplishments", "saved_reports", "notifications"];
+  for (const table of tables) {
+      await addColumn(table, "deleted_at", "TEXT");
+  }
 
   await addColumn("sync_queue", "retry_count", "INTEGER DEFAULT 0");
   await addColumn("sync_queue", "created_at", "TEXT"); 
@@ -176,7 +186,6 @@ export const initDatabase = async () => {
   await addColumn("notifications", "is_read", "INTEGER DEFAULT 0");
   await addColumn("attendance", "title", "TEXT");
 
-  // 3. Create Indexes for fast querying
   await database.execAsync(`
     CREATE INDEX IF NOT EXISTS idx_attendance_user_date ON attendance(user_id, date);
     CREATE INDEX IF NOT EXISTS idx_sync_queue_status ON sync_queue(status);
@@ -184,7 +193,6 @@ export const initDatabase = async () => {
     CREATE INDEX IF NOT EXISTS idx_notifications_created ON notifications(created_at);
   `);
 
-  // FIX: Clean up zombie items that got stuck during previous bugs
   await database.execAsync(`
     UPDATE sync_queue SET status = 'FAILED' WHERE retry_count >= 5 AND status = 'PENDING';
   `);
@@ -200,44 +208,38 @@ export const generateUUID = () => {
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
 };
 
-// Feature 3: Search Function
 export const searchAccomplishments = async (userId: string, query: string, limit: number = 20) => {
   if (!query.trim()) return [];
   const db = await getDB();
-  // Using FTS MATCH operator
   const sql = `
     SELECT a.*, snippet(accomplishments_fts, 1, '<b>', '</b>', '...', 64) as snippet_desc 
     FROM accomplishments_fts fts
     JOIN accomplishments a ON a.id = fts.id
-    WHERE accomplishments_fts MATCH ? AND a.user_id = ?
+    WHERE accomplishments_fts MATCH ? AND a.user_id = ? AND a.deleted_at IS NULL
     ORDER BY a.date DESC
     LIMIT ?
   `;
-  // Sanitize query for FTS MATCH
   const sanitizedQuery = query.replace(/[^a-zA-Z0-9 ]/g, '') + '*';
   return await db.getAllAsync(sql, [sanitizedQuery, userId, limit]);
 };
 
-// --- SYNC ENGINE QUEUE ---
 export const queueSyncItem = async (tableName: string, rowId: string, action: string, data: any = null) => {
   const db = await getDB();
   if (!rowId) return;
   try {
-    // Mark local row as dirty
     if (["attendance", "accomplishments", "saved_reports", "notifications", "profiles", "job_positions"].includes(tableName)) {
       try {
         await db.runAsync(`UPDATE ${tableName} SET is_synced = 0 WHERE id = ?`, [rowId]);
       } catch (e: any) {
-        if (!e.message?.includes('no such column')) console.warn(`[Sync Queue] Unexpected error marking ${tableName} dirty:`, e);
+        if (!e.message?.includes('no such column')) console.warn(`[Sync Queue] Error marking dirty:`, e);
       }
     }
-    // Queue the payload for the background sync engine
     await db.runAsync(
       `INSERT INTO sync_queue (table_name, row_id, action, data, status, retry_count) VALUES (?, ?, ?, ?, 'PENDING', 0)`,
       [tableName, rowId, action, data ? JSON.stringify(data) : null],
     );
   } catch (error) {
-    console.error(`[Sync Queue] Error queuing ${action} for ${tableName}:`, error);
+    console.error(`[Sync Queue] Error:`, error);
   }
 };
 
@@ -273,21 +275,23 @@ export const saveJobLocal = async (job: any) => {
   await queueSyncItem("job_positions", job.id, "UPSERT", job);
 };
 
+// SOFT DELETE
 export const deleteJobLocal = async (id: string) => {
   const db = await getDB();
+  const now = new Date().toISOString();
   await db.runAsync(`UPDATE profiles SET current_job_id = NULL WHERE current_job_id = ?`, [id]);
   const job: any = await db.getFirstAsync("SELECT user_id FROM job_positions WHERE id = ?", [id]);
   if (job && job.user_id) {
-    await queueSyncItem("profiles", job.user_id, "UPDATE", { current_job_id: null });
+    await queueSyncItem("profiles", job.user_id, "UPDATE", { current_job_id: null, updated_at: now });
   }
-  await db.runAsync("DELETE FROM job_positions WHERE id = ?", [id]);
-  await queueSyncItem("job_positions", id, "DELETE");
+  await db.runAsync("UPDATE job_positions SET deleted_at = ?, is_synced = 0, updated_at = ? WHERE id = ?", [now, now, id]);
+  await queueSyncItem("job_positions", id, "UPDATE", { deleted_at: now, updated_at: now });
 };
 
-/** Clears all user data from local DB. Call on sign out so the next user gets a clean slate. */
 export const clearLocalUserData = async () => {
   try {
     const db = await getDB();
+    // Hard deletes are fine here because this is local device sign out
     await db.runAsync('DELETE FROM attendance');
     await db.runAsync('DELETE FROM accomplishments');
     await db.runAsync('DELETE FROM saved_reports');
@@ -341,10 +345,12 @@ export const markReportReadLocal = async (id: string) => {
   await queueSyncItem("saved_reports", id, "UPDATE", { is_read: true, updated_at: now });
 };
 
+// SOFT DELETE
 export const deleteReportLocal = async (id: string) => {
   const db = await getDB();
-  await db.runAsync("DELETE FROM saved_reports WHERE id = ?", [id]);
-  await queueSyncItem("saved_reports", id, "DELETE");
+  const now = new Date().toISOString();
+  await db.runAsync("UPDATE saved_reports SET deleted_at = ?, is_synced = 0, updated_at = ? WHERE id = ?", [now, now, id]);
+  await queueSyncItem("saved_reports", id, "UPDATE", { deleted_at: now, updated_at: now });
 };
 
 export const renameReportLocal = async (id: string, newTitle: string, newPath?: string) => {
@@ -360,7 +366,7 @@ export const renameReportLocal = async (id: string, newTitle: string, newPath?: 
 
 export const checkReportTitleExists = async (title: string, fileType: string, userId: string) => {
   const db = await getDB();
-  const res: any = await db.getFirstAsync("SELECT COUNT(*) as count FROM saved_reports WHERE user_id = ? AND title = ? AND file_type = ?", [userId, title, fileType]);
+  const res: any = await db.getFirstAsync("SELECT COUNT(*) as count FROM saved_reports WHERE user_id = ? AND title = ? AND file_type = ? AND deleted_at IS NULL", [userId, title, fileType]);
   return (res?.count || 0) > 0;
 };
 
@@ -378,7 +384,7 @@ export const saveNotificationLocal = async (notif: any) => {
 export const getNotificationsLocal = async (userId: string) => {
   const db = await getDB();
   try {
-    const rows = await db.getAllAsync(`SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`, [userId]);
+    const rows = await db.getAllAsync(`SELECT * FROM notifications WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 50`, [userId]);
     return rows.map((r: any) => ({ id: r.id, title: r.title, body: r.body, read: !!r.is_read, date: new Date(r.created_at).getTime(), type: r.type }));
   } catch (e: any) {
     if (e.message?.includes('no such column')) return [];
@@ -386,10 +392,12 @@ export const getNotificationsLocal = async (userId: string) => {
   }
 };
 
+// SOFT DELETE
 export const deleteNotificationLocal = async (id: string) => {
   const db = await getDB();
-  await db.runAsync("DELETE FROM notifications WHERE id = ?", [id]);
-  await queueSyncItem("notifications", id, "DELETE");
+  const now = new Date().toISOString();
+  await db.runAsync("UPDATE notifications SET deleted_at = ?, is_synced = 0, updated_at = ? WHERE id = ?", [now, now, id]);
+  await queueSyncItem("notifications", id, "UPDATE", { deleted_at: now, updated_at: now });
 };
 
 export const markNotificationReadLocal = async (id: string) => {
@@ -403,7 +411,7 @@ export const markAllNotificationsReadLocal = async (userId: string) => {
   const db = await getDB();
   const now = new Date().toISOString();
   await db.withTransactionAsync(async () => {
-    const unread: any[] = await db.getAllAsync(`SELECT id FROM notifications WHERE user_id = ? AND is_read = 0`, [userId]);
+    const unread: any[] = await db.getAllAsync(`SELECT id FROM notifications WHERE user_id = ? AND is_read = 0 AND deleted_at IS NULL`, [userId]);
     await db.runAsync(`UPDATE notifications SET is_read = 1, is_synced = 0, updated_at = ? WHERE user_id = ? AND is_read = 0`, [now, userId]);
     for (const item of unread) {
       await queueSyncItem('notifications', item.id, 'UPDATE', { is_read: true, updated_at: now });
@@ -411,19 +419,16 @@ export const markAllNotificationsReadLocal = async (userId: string) => {
   });
 };
 
-// --- UNREAD COUNTS ---
 export const getUnreadReportsCount = async (userId: string) => {
   if (!userId) return 0;
   try {
     const db = await getDB();
     const res: any = await db.getFirstAsync(
-      "SELECT COUNT(*) as count FROM saved_reports WHERE user_id = ? AND is_read = 0", 
+      "SELECT COUNT(*) as count FROM saved_reports WHERE user_id = ? AND is_read = 0 AND deleted_at IS NULL", 
       [userId]
     );
     return res?.count || 0;
   } catch (e: any) {
-    if (e.message?.includes('no such column')) return 0;
-    console.error("[DB] Error getting unread reports:", e);
     return 0;
   }
 };

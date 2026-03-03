@@ -1,971 +1,399 @@
 // filepath: app/reports/saved-reports.tsx
-import {
-  Cancel01Icon,
-  Delete02Icon,
-  Download01Icon,
-  File02Icon,
-  MoreVerticalCircle01Icon,
-  PencilEdit02Icon,
-  Search01Icon,
-  Share01Icon,
-  Tick02Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react-native";
-import * as FileSystem from "expo-file-system/legacy";
-import * as IntentLauncher from "expo-intent-launcher";
-import { useFocusEffect, useRouter } from "expo-router";
-import * as Sharing from "expo-sharing";
-import React, { useCallback, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  BackHandler,
-  Dimensions,
-  FlatList,
-  GestureResponderEvent,
-  Image,
-  Keyboard,
-  LayoutAnimation,
-  Platform,
-  RefreshControl,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { ArrowDown01Icon, ArrowUp01Icon, Delete02Icon, File02Icon, Group01Icon, MoreVerticalIcon, Pdf01Icon, Search01Icon, Share08Icon, Xls01Icon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react-native';
+import { endOfWeek, format, getWeek, startOfWeek } from 'date-fns';
+import { useFocusEffect } from 'expo-router';
+import * as Sharing from 'expo-sharing';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Image, SectionList, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import ActionMenu from "../../components/ActionMenu";
-import BannerAdComponent from "../../components/BannerAdComponent"; // <-- ADDED AD COMPONENT
-import FloatingAlert, {
-  AlertPosition,
-  AlertType,
-} from "../../components/FloatingAlert";
-import Header from "../../components/Header";
-import InputModal from "../../components/InputModal";
-import LoadingOverlay from "../../components/LoadingOverlay";
-import ModernAlert from "../../components/ModernAlert";
-import { useAppTheme } from "../../constants/theme";
-import { FontFamily, Typography } from "../../constants/typography";
-import { useAuth } from "../../context/AuthContext";
-import { useSync } from "../../context/SyncContext";
-import {
-  deleteReportLocal,
-  markReportReadLocal,
-  queueSyncItem,
-  renameReportLocal,
-  saveReportLocal,
-} from "../../lib/database";
-import { getDB } from "../../lib/db-client";
+import ActionMenu from '../../components/ActionMenu';
+import FilePropertiesModal from '../../components/FilePropertiesModal';
+import Header from '../../components/Header';
+import ModernAlert from '../../components/ModernAlert';
+import { useAppTheme } from '../../constants/theme';
+import { useAuth } from '../../context/AuthContext';
+import { queueSyncItem } from '../../lib/database';
+import { getDB } from '../../lib/db-client';
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+// Local custom icons
+const iconPdf = require('../../assets/icons/custom-icons/pdf.png');
+const iconXlsx = require('../../assets/icons/custom-icons/xlsx.png');
+
+const formatBytes = (bytes: number, decimals = 2) => {
+    if (!+bytes) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+};
 
 export default function SavedReportsScreen() {
-  const theme = useAppTheme();
-  const router = useRouter();
-  const { user } = useAuth();
-  
-  const { triggerSync } = useSync();
-
-  const [reports, setReports] = useState<any[]>([]);
-  const [filteredReports, setFilteredReports] = useState<any[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isSearching, setIsSearching] = useState(false);
-
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [openingId, setOpeningId] = useState<string | null>(null);
-
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
-  const [menuVisible, setMenuVisible] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<any>(null);
-  const [menuAnchor, setMenuAnchor] = useState<
-    { x: number; y: number } | undefined
-  >(undefined);
-
-  const [renameModalVisible, setRenameModalVisible] = useState(false);
-  const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
-  const [floatingAlert, setFloatingAlert] = useState<{
-    visible: boolean;
-    message: string;
-    type: AlertType;
-    position: AlertPosition;
-    actionLabel?: string;
-    onAction?: () => void;
-    duration?: number;
-  }>({ visible: false, message: "", type: "success", position: "bottom" });
-
-  const deletedItemRef = useRef<any>(null);
-  const deleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const searchInputRef = useRef<TextInput>(null);
-
-  const fetchReports = useCallback(async () => {
-    try {
-      if (!user) return;
-      const db = await getDB();
-      const data = await db.getAllAsync(
-        "SELECT * FROM saved_reports WHERE user_id = ? ORDER BY created_at DESC",
-        [user.id],
-      );
-      setReports(data as any[]);
-      if (!searchQuery) {
-        setFilteredReports(data as any[]);
-      } else {
-        setFilteredReports(
-          (data as any[]).filter((r) =>
-            r.title.toLowerCase().includes(searchQuery.toLowerCase()),
-          ),
-        );
-      }
-    } catch {
-      /* ignored */
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [searchQuery, user]);
-
-  useFocusEffect(
-    useCallback(() => {
-      fetchReports();
-    }, [fetchReports]),
-  );
-
-  useFocusEffect(
-    useCallback(() => {
-      const onBackPress = () => {
-        if (selectionMode) {
-          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-          setSelectionMode(false);
-          setSelectedIds(new Set());
-          return true;
-        }
-        if (isSearching) {
-          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-          setIsSearching(false);
-          setSearchQuery("");
-          setFilteredReports(reports);
-          Keyboard.dismiss();
-          return true;
-        }
-        return false;
-      };
-
-      const subscription = BackHandler.addEventListener(
-        "hardwareBackPress",
-        onBackPress
-      );
-
-      return () => subscription.remove();
-    }, [selectionMode, isSearching, reports])
-  );
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await triggerSync(); 
-    fetchReports();
-  };
-
-  const handleSearch = (text: string) => {
-    setSearchQuery(text);
-    if (text) {
-      setFilteredReports(
-        reports.filter((r) =>
-          r.title.toLowerCase().includes(text.toLowerCase()),
-        ),
-      );
-    } else {
-      setFilteredReports(reports);
-    }
-  };
-
-  const toggleSearch = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    if (isSearching) {
-      setIsSearching(false);
-      setSearchQuery("");
-      setFilteredReports(reports);
-      Keyboard.dismiss();
-    } else {
-      setIsSearching(true);
-      setTimeout(() => searchInputRef.current?.focus(), 100);
-    }
-  };
-
-  const formatSize = (bytes: number) => {
-    if (bytes === 0) return "0 B";
-    const k = 1024;
-    const sizes = ["B", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
-  };
-
-  const renderHeaderTitle = () => {
-    if (isSearching) {
-      return (
-        <View style={styles.searchHeaderContainer}>
-          <TextInput
-            ref={searchInputRef}
-            value={searchQuery}
-            onChangeText={handleSearch}
-            placeholder="Search reports..."
-            placeholderTextColor={theme.colors.textSecondary}
-            textAlignVertical="center"
-            style={[
-              styles.searchInput,
-              { color: theme.colors.text, backgroundColor: theme.colors.card },
-            ]}
-          />
-        </View>
-      );
-    }
-    if (selectionMode) {
-      return `${selectedIds.size} Selected`;
-    }
-    return "Saved Reports";
-  };
-
-  const renderLeftElement = () => {
-    if (isSearching) return null;
-    if (selectionMode) {
-      return (
-        <TouchableOpacity
-          onPress={cancelSelection}
-          style={styles.headerIconButton}
-        >
-          <HugeiconsIcon
-            icon={Cancel01Icon}
-            size={24}
-            color={theme.colors.text}
-          />
-        </TouchableOpacity>
-      );
-    }
-    return null;
-  };
-
-  const renderRightElement = () => {
-    if (isSearching) {
-      return (
-        <TouchableOpacity onPress={toggleSearch} style={styles.headerIconButton}>
-          <HugeiconsIcon
-            icon={Cancel01Icon}
-            size={24}
-            color={theme.colors.text}
-          />
-        </TouchableOpacity>
-      );
-    }
-    if (selectionMode) {
-      return (
-        <TouchableOpacity
-          onPress={handleBulkDelete}
-          style={styles.headerIconButton}
-        >
-          <HugeiconsIcon
-            icon={Delete02Icon}
-            size={24}
-            color={theme.colors.danger}
-          />
-        </TouchableOpacity>
-      );
-    }
-    return (
-      <TouchableOpacity onPress={toggleSearch} style={styles.headerIconButton}>
-        <HugeiconsIcon icon={Search01Icon} size={24} color={theme.colors.text} />
-      </TouchableOpacity>
-    );
-  };
-
-  const handleMenu = (event: GestureResponderEvent, item: any) => {
-    const { pageY, locationY } = event.nativeEvent;
-    const anchorX = SCREEN_WIDTH - 20;
-    const anchorY = pageY - locationY + 32;
-    setMenuAnchor({ x: anchorX, y: anchorY });
-    setSelectedItem(item);
-    setMenuVisible(true);
-  };
-
-  const toggleSelection = (id: string) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    const newSet = new Set(selectedIds);
-    if (newSet.has(id)) {
-      newSet.delete(id);
-      if (newSet.size === 0) setSelectionMode(false);
-    } else {
-      newSet.add(id);
-    }
-    setSelectedIds(newSet);
-  };
-
-  const activateSelection = (id: string) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setSelectionMode(true);
-    setSelectedIds(new Set([id]));
-    setIsSearching(false);
-  };
-
-  const cancelSelection = () => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setSelectionMode(false);
-    setSelectedIds(new Set());
-  };
-
-  const isItemPdf = (item: any) => {
-    return item?.file_type?.toLowerCase().includes("pdf") || item?.file_path?.toLowerCase().endsWith(".pdf");
-  };
-
-  const prepareFileLocal = async (item: any) => {
-    const safeFilename = item.title.replace(/[^a-zA-Z0-9 _-]/g, "_");
-    const isPdf = isItemPdf(item);
-    const ext = isPdf ? "pdf" : "xlsx";
-    const expectedPath = `${FileSystem.documentDirectory}reports/${safeFilename}.${ext}`;
-
-    if (item.file_path && item.file_path.startsWith("file://")) {
-      const dbFileInfo = await FileSystem.getInfoAsync(item.file_path);
-      if (dbFileInfo.exists && dbFileInfo.size > 0) return item.file_path;
-    }
-
-    const expectedInfo = await FileSystem.getInfoAsync(expectedPath);
-    if (expectedInfo.exists) {
-      if (expectedInfo.size > 0) {
-        if (item.file_path !== expectedPath) {
-          const db = await getDB();
-          await db.runAsync(
-            "UPDATE saved_reports SET file_path = ? WHERE id = ?",
-            [expectedPath, item.id],
-          );
-        }
-        return expectedPath;
-      } else {
-        await FileSystem.deleteAsync(expectedPath, { idempotent: true });
-      }
-    }
-
-    if (!item.remote_url)
-      throw new Error("File missing locally and no remote URL.");
-
-    setFloatingAlert({
-      visible: true,
-      message: "Downloading file...",
-      type: "info",
-      position: "top",
-    });
-
-    await FileSystem.makeDirectoryAsync(
-      `${FileSystem.documentDirectory}reports/`,
-      { intermediates: true },
-    );
-
-    const { uri } = await FileSystem.downloadAsync(
-      item.remote_url,
-      expectedPath,
-    );
+    const theme = useAppTheme();
+    const { user } = useAuth();
     
-    const downloadedInfo = await FileSystem.getInfoAsync(uri);
-    if (!downloadedInfo.exists || downloadedInfo.size === 0) {
-        throw new Error("Downloaded file is corrupted or empty.");
-    }
+    const [reports, setReports] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
-    try {
-      const db = await getDB();
-      await db.runAsync(
-        "UPDATE saved_reports SET file_path = ? WHERE id = ?",
-        [uri, item.id],
-      );
-      fetchReports();
-    } catch {
-      /* ignore */
-    }
+    // Modals & Menus State
+    const [groupBy, setGroupBy] = useState<'period' | 'month' | 'week'>('month');
+    const [groupMenuVisible, setGroupMenuVisible] = useState(false);
+    const [groupMenuAnchor, setGroupMenuAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
+    const groupIconRef = useRef<View>(null);
 
-    setFloatingAlert((prev) => ({ ...prev, visible: false }));
-    return uri;
-  };
+    const [fileFilter, setFileFilter] = useState<'all' | 'pdf' | 'xlsx'>('all');
+    const [filterMenuVisible, setFilterMenuVisible] = useState(false);
+    const [filterMenuAnchor, setFilterMenuAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
+    const filterIconRef = useRef<View>(null);
 
-  const openReport = async (item: any) => {
-    if (openingId) return;
-    setOpeningId(item.id);
+    const [menuVisible, setMenuVisible] = useState(false);
+    const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
+    const [selectedReport, setSelectedReport] = useState<any>(null);
+    const [propertiesModalVisible, setPropertiesModalVisible] = useState(false);
 
-    try {
-      if (item.is_read === 0 || item.is_read === false || item.is_read == null) {
-        await markReportReadLocal(item.id);
-        const updateRead = (r: any) =>
-          r.id === item.id ? { ...r, is_read: 1 } : r;
-        setReports((prev) => prev.map(updateRead));
-        setFilteredReports((prev) => prev.map(updateRead));
-      }
-
-      const uri = await prepareFileLocal(item);
-      const isPdf = isItemPdf(item);
-      const mimeType = isPdf 
-        ? "application/pdf" 
-        : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-
-      if (Platform.OS === "android") {
+    const fetchReports = useCallback(async () => {
+        if (!user) return;
         try {
-            const contentUri = await FileSystem.getContentUriAsync(uri);
-            await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
-              data: contentUri,
-              flags: 1,
-              type: mimeType,
-            });
-        } catch (error) { 
-            console.warn("Intent Launcher fallback:", error);
-            await Sharing.shareAsync(uri, { mimeType, dialogTitle: item.title });
-        }
-      } else {
-        await Sharing.shareAsync(uri, {
-          UTI: isPdf ? "com.adobe.pdf" : "com.microsoft.excel.xls",
-          mimeType,
-          dialogTitle: item.title,
-        });
-      }
-    } catch (e) {
-      console.log("Open Error", e);
-      setFloatingAlert({
-        visible: true,
-        message: "Could not open file.",
-        type: "error",
-        position: "top",
-      });
-    } finally {
-      setOpeningId(null);
-    }
-  };
-
-  const handleShare = async () => {
-    setMenuVisible(false);
-    if (!selectedItem) return;
-    try {
-      if (selectedItem.is_read === 0 || selectedItem.is_read === false || selectedItem.is_read == null) {
-        await markReportReadLocal(selectedItem.id);
-        const updateRead = (r: any) => r.id === selectedItem.id ? { ...r, is_read: 1 } : r;
-        setReports((prev) => prev.map(updateRead));
-        setFilteredReports((prev) => prev.map(updateRead));
-      }
-      const uriToShare = await prepareFileLocal(selectedItem);
-      await Sharing.shareAsync(uriToShare, { dialogTitle: selectedItem.title });
-    } catch {
-      setFloatingAlert({
-        visible: true,
-        message: "File not available to share.",
-        type: "warning",
-        position: "top",
-      });
-    }
-  };
-
-  const finalizeDeletion = async (item: any) => {
-    try {
-      if (item.file_path && item.file_path.startsWith("file://")) {
-        const fileInfo = await FileSystem.getInfoAsync(item.file_path);
-        if (fileInfo.exists) {
-          await FileSystem.deleteAsync(item.file_path, { idempotent: true });
-        }
-      }
-      if (item.remote_url) {
-        await queueSyncItem("saved_reports", item.id, "DELETE", {
-          remote_url: item.remote_url,
-        });
-        await triggerSync();
-      }
-    } catch {
-      /* ignore */
-    }
-  };
-
-  const performUndo = async () => {
-    const itemToRestore = deletedItemRef.current;
-    if (!itemToRestore) return;
-    if (deleteTimerRef.current) {
-      clearTimeout(deleteTimerRef.current);
-      deleteTimerRef.current = null;
-    }
-    try {
-      setFloatingAlert((prev) => ({ ...prev, visible: false }));
-      await saveReportLocal(itemToRestore);
-      deletedItemRef.current = null;
-      fetchReports();
-      setTimeout(() => {
-        setFloatingAlert({
-          visible: true,
-          message: "Report restored.",
-          type: "success",
-          position: "top",
-        });
-      }, 300);
-    } catch {
-      setFloatingAlert({
-        visible: true,
-        message: "Failed to restore.",
-        type: "error",
-        position: "top",
-      });
-    }
-  };
-
-  const handleBulkDelete = () => {
-    if (selectedIds.size === 0) return;
-    setAlertConfig({
-      visible: true,
-      type: "confirm",
-      title: "Delete Reports",
-      message: `Are you sure you want to delete ${selectedIds.size} selected items?`,
-      confirmText: "Delete",
-      cancelText: "Cancel",
-      onConfirm: async () => {
-        setAlertConfig((prev: any) => ({ ...prev, visible: false }));
-        setIsDeleting(true);
-        try {
-          const ids = Array.from(selectedIds);
-          for (const id of ids) {
-            const item = reports.find((r) => r.id === id);
-            if (item) {
-              await deleteReportLocal(id);
-              if (item.file_path && item.file_path.startsWith("file://")) {
-                const fileInfo = await FileSystem.getInfoAsync(item.file_path);
-                if (fileInfo.exists)
-                  await FileSystem.deleteAsync(item.file_path, {
-                    idempotent: true,
-                  });
-              }
-              if (item.remote_url) {
-                await queueSyncItem("saved_reports", id, "DELETE", {
-                  remote_url: item.remote_url,
-                });
-              }
-            }
-          }
-          triggerSync();
-          await fetchReports();
-          cancelSelection();
-          setFloatingAlert({
-            visible: true,
-            message: "Reports deleted.",
-            type: "success",
-            position: "bottom",
-          });
-        } catch {
-          setFloatingAlert({
-            visible: true,
-            message: "Failed to delete reports.",
-            type: "error",
-            position: "top",
-          });
+            const db = await getDB();
+            const data = await db.getAllAsync('SELECT * FROM saved_reports WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC', [user.id]);
+            
+            // Mark all unread reports as read
+            await db.runAsync('UPDATE saved_reports SET is_read = 1 WHERE user_id = ? AND is_read = 0 AND deleted_at IS NULL', [user.id]);
+            
+            setReports(data as any[]);
+        } catch (error) {
+            console.error('Failed to fetch saved reports', error);
         } finally {
-          setIsDeleting(false);
+            setLoading(false);
         }
-      },
-      onCancel: () =>
-        setAlertConfig((prev: any) => ({ ...prev, visible: false })),
-    });
-  };
+    }, [user]);
 
-  const handleDelete = () => {
-    setMenuVisible(false);
-    setAlertConfig({
-      visible: true,
-      type: "confirm",
-      title: "Delete Report",
-      message: "Are you sure you want to delete this report?",
-      confirmText: "Delete",
-      cancelText: "Cancel",
-      onConfirm: async () => {
-        setAlertConfig((prev: any) => ({ ...prev, visible: false }));
-        if (!selectedItem) return;
-        setIsDeleting(true);
-        const itemToDelete = { ...selectedItem };
-        deletedItemRef.current = itemToDelete;
+    useFocusEffect(useCallback(() => { fetchReports(); }, [fetchReports]));
+
+    const filteredReports = useMemo(() => {
+        if (fileFilter === 'all') return reports;
+        if (fileFilter === 'pdf') return reports.filter(r => r.file_type === 'pdf' || r.file_type === 'application/pdf');
+        if (fileFilter === 'xlsx') return reports.filter(r => r.file_type === 'xlsx' || r.file_type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        return reports;
+    }, [reports, fileFilter]);
+
+    const groupedReports = useMemo(() => {
+        if (!filteredReports.length) return [];
+        
+        const groups: Record<string, any[]> = {};
+        
+        filteredReports.forEach(report => {
+            const metaStr = report.metadata || '{}';
+            let meta: any = {};
+            try { meta = JSON.parse(metaStr); } catch { }
+            
+            const targetDate = meta.startDate ? new Date(meta.startDate) : new Date(report.created_at);
+            let key = '';
+            
+            if (groupBy === 'month') {
+                key = format(targetDate, 'MMMM yyyy');
+            } else if (groupBy === 'week') {
+                const start = startOfWeek(targetDate, { weekStartsOn: 1 });
+                const end = endOfWeek(targetDate, { weekStartsOn: 1 });
+                key = `Week ${getWeek(targetDate)} (${format(start, 'MMM d')} - ${format(end, 'MMM d')})`;
+            } else if (groupBy === 'period') {
+                const month = format(targetDate, 'MMMM');
+                const year = targetDate.getFullYear();
+                if (targetDate.getDate() <= 15) {
+                    key = `1st Cutoff ${month} ${year}`;
+                } else {
+                    key = `2nd Cutoff ${month} ${year}`;
+                }
+            }
+            
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(report);
+        });
+        
+        return Object.keys(groups).map(key => ({ title: key, data: groups[key] }));
+    }, [filteredReports, groupBy]);
+
+    // Menus
+    const openGroupMenu = () => {
+        if (groupIconRef.current) {
+            groupIconRef.current.measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
+                setGroupMenuAnchor({ x: pageX + width, y: pageY + height });
+                setGroupMenuVisible(true);
+            });
+        }
+    };
+
+    const openFilterMenu = () => {
+        if (filterIconRef.current) {
+            filterIconRef.current.measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
+                setFilterMenuAnchor({ x: pageX, y: pageY + height });
+                setFilterMenuVisible(true);
+            });
+        }
+    };
+
+    const openMenu = (event: any, report: any) => {
+        event.target.measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
+            setMenuAnchor({ x: pageX + width, y: pageY + height });
+            setSelectedReport(report);
+            setMenuVisible(true);
+        });
+    };
+
+    const handleShare = async (report: any) => {
+        setMenuVisible(false);
         try {
-          await deleteReportLocal(itemToDelete.id);
-          await fetchReports();
-          setIsDeleting(false);
-          const duration = 4000;
-          deleteTimerRef.current = setTimeout(() => {
-            finalizeDeletion(itemToDelete);
-            deletedItemRef.current = null;
-          }, duration);
-          setFloatingAlert({
-            visible: true,
-            message: "Report deleted.",
-            type: "success",
-            position: "bottom",
-            actionLabel: "Undo",
-            onAction: performUndo,
-            duration: duration,
-          });
-        } catch {
-          setIsDeleting(false);
-          setFloatingAlert({
-            visible: true,
-            message: "Delete failed.",
-            type: "error",
-            position: "top",
-          });
+            const isAvailable = await Sharing.isAvailableAsync();
+            if (isAvailable && report.file_path) {
+                await Sharing.shareAsync(report.file_path, { dialogTitle: 'Share File' });
+            } else {
+                setAlertConfig({ visible: true, type: 'error', title: 'Share Failed', message: 'File is missing or sharing is unavailable.', confirmText: 'OK', onConfirm: () => setAlertConfig({ visible: false }) });
+            }
+        } catch (error) { console.log(error); }
+    };
+
+    const handleDelete = (report: any) => {
+        setMenuVisible(false);
+        setAlertConfig({
+            visible: true, type: 'warning', title: 'Delete File', message: 'Are you sure you want to permanently delete this file?',
+            confirmText: 'Delete', cancelText: 'Cancel',
+            onConfirm: async () => {
+                setAlertConfig({ visible: false });
+                try {
+                    const db = await getDB();
+                    const now = new Date().toISOString();
+                    await db.runAsync('UPDATE saved_reports SET deleted_at = ?, is_synced = 0 WHERE id = ?', [now, report.id]);
+                    await queueSyncItem('saved_reports', report.id, 'UPDATE', { deleted_at: now });
+                    fetchReports();
+                } catch (error) { console.log(error); }
+            },
+            onCancel: () => setAlertConfig({ visible: false })
+        });
+    };
+
+    const renderItem = ({ item }: { item: any }) => {
+        const isPdf = item.file_type === 'pdf' || item.file_type === 'application/pdf';
+        const fileIcon = isPdf ? iconPdf : iconXlsx;
+        const iconBg = isPdf ? theme.colors.danger + '12' : theme.colors.success + '12';
+        
+        const isUnread = !item.is_read || item.is_read === 0;
+
+        const metaStr = item.metadata || '{}';
+        let meta: any = {};
+        try { meta = JSON.parse(metaStr); } catch { }
+        
+        const reportDateStr = meta.reportDate || format(new Date(item.created_at), 'MMM dd, yyyy');
+
+        let styleType = 'Sheet';
+        let pillColor = { bg: '#16a34a15', text: '#16a34a' }; 
+
+        if (isPdf) {
+            if (item.title.includes('Corporate')) {
+                styleType = 'Corporate';
+                pillColor = { bg: '#2563eb15', text: '#2563eb' };
+            } else if (item.title.includes('Creative')) {
+                styleType = 'Creative';
+                pillColor = { bg: '#4f46e515', text: '#4f46e5' };
+            } else if (item.title.includes('Minimal')) {
+                styleType = 'Minimal';
+                pillColor = { bg: '#17171715', text: '#171717' };
+            } else {
+                styleType = 'PDF';
+                pillColor = { bg: '#ef444415', text: '#ef4444' }; 
+            }
         }
-      },
-      onCancel: () =>
-        setAlertConfig((prev: any) => ({ ...prev, visible: false })),
-    });
-  };
+        
+        return (
+            <TouchableOpacity 
+                activeOpacity={0.7} 
+                onPress={() => handleShare(item)} 
+                style={[styles.fileCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+            >
+                <View style={[styles.iconContainer, { backgroundColor: iconBg }]}>
+                    <Image source={fileIcon} style={styles.fileIcon} resizeMode="contain" />
+                </View>
 
-  const saveRename = async (newName: string) => {
-    if (!selectedItem) return;
-    try {
-      const isPdf = isItemPdf(selectedItem);
-      const ext = isPdf ? "pdf" : "xlsx";
+                <View style={styles.fileDetails}>
+                    <Text 
+                        style={[
+                            styles.fileName, 
+                            { color: isUnread ? theme.colors.text : theme.colors.textSecondary }
+                        ]} 
+                        numberOfLines={1} 
+                        ellipsizeMode="tail"
+                    >
+                        {item.title}
+                    </Text>
+                    
+                    <View style={styles.fileMetaRow}>
+                        <View style={[styles.tagBadge, { backgroundColor: pillColor.bg }]}>
+                            <Text style={[styles.tagText, { color: pillColor.text }]}>{styleType}</Text>
+                        </View>
 
-      let cleanName = newName.trim();
-      if (cleanName.toLowerCase().endsWith('.pdf') || cleanName.toLowerCase().endsWith('.xlsx')) {
-         cleanName = cleanName.substring(0, cleanName.lastIndexOf('.'));
-      }
+                        <Text style={[styles.fileMetaText, { color: theme.colors.textSecondary }]}>
+                            {reportDateStr}
+                        </Text>
+                        <View style={[styles.metaDot, { backgroundColor: theme.colors.textSecondary }]} />
+                        <Text style={[styles.fileMetaText, { color: theme.colors.textSecondary }]}>
+                            {formatBytes(item.file_size)}
+                        </Text>
+                    </View>
+                </View>
 
-      const safeName = cleanName.replace(/[^a-zA-Z0-9 _-]/g, "_");
-      const newFileName = `${safeName}.${ext}`;
-      const reportsDir = `${FileSystem.documentDirectory}reports/`;
-      const newPath = `${reportsDir}${newFileName}`;
-      const oldPath = selectedItem.file_path;
-
-      if (oldPath && oldPath.startsWith("file://") && oldPath !== newPath) {
-        const fileInfo = await FileSystem.getInfoAsync(oldPath);
-        if (fileInfo.exists) {
-           await FileSystem.makeDirectoryAsync(reportsDir, { intermediates: true });
-           await FileSystem.moveAsync({ from: oldPath, to: newPath });
-        }
-      }
-
-      await renameReportLocal(selectedItem.id, cleanName, newPath);
-      await queueSyncItem("saved_reports", selectedItem.id, "UPDATE", {
-        title: cleanName,
-      });
-      await triggerSync();
-      
-      setRenameModalVisible(false);
-      fetchReports();
-    } catch (e) {
-      console.error(e);
-      setFloatingAlert({
-        visible: true,
-        message: "Failed to rename report.",
-        type: "error",
-        position: "top",
-      });
-    }
-  };
-
-  const renderItem = ({ item }: { item: any }) => {
-    const isPdf = isItemPdf(item);
-    const isUnread = item.is_read === 0 || item.is_read === false || item.is_read == null;
-    const isOpening = openingId === item.id;
-    const isSelected = selectedIds.has(item.id);
+                <View style={styles.actionZone}>
+                    {isUnread && <View style={[styles.unreadDot, { backgroundColor: theme.colors.primary }]} />}
+                    <TouchableOpacity onPress={(event) => openMenu(event, item)} hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }} style={styles.moreBtn}>
+                        <HugeiconsIcon icon={MoreVerticalIcon} size={22} color={theme.colors.textSecondary} />
+                    </TouchableOpacity>
+                </View>
+            </TouchableOpacity>
+        );
+    };
 
     return (
-      <TouchableOpacity
-        onPress={() =>
-          selectionMode ? toggleSelection(item.id) : openReport(item)
-        }
-        onLongPress={() => !selectionMode && activateSelection(item.id)}
-        activeOpacity={0.7}
-        disabled={isOpening}
-        style={[
-          styles.card,
-          {
-            backgroundColor: isSelected
-              ? theme.colors.primary + "10"
-              : theme.colors.card,
-            borderColor: isSelected
-              ? theme.colors.primary
-              : theme.colors.border,
-          },
-        ]}
-      >
-        <View
-          style={[
-            styles.iconBox,
-            { backgroundColor: isPdf ? "#D9151910" : "#107C4110" },
-          ]}
-        >
-          {isOpening ? (
-            <ActivityIndicator
-              size="small"
-              color={isPdf ? "#D91519" : "#107C41"}
-            />
-          ) : (
-            <Image
-                source={isPdf 
-                    ? require("../../assets/icons/custom-icons/pdf.png") 
-                    : require("../../assets/icons/custom-icons/xlsx.png")
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
+            <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} />
+            <ModernAlert {...alertConfig} />
+
+            {/* File Properties Modal */}
+            {propertiesModalVisible && selectedReport && (
+                <FilePropertiesModal
+                    visible={propertiesModalVisible}
+                    onClose={() => setPropertiesModalVisible(false)}
+                    report={selectedReport}
+                />
+            )}
+            
+            <Header 
+                title="Saved Reports" 
+                rightElement={
+                    <View ref={groupIconRef} collapsable={false}>
+                        <TouchableOpacity onPress={openGroupMenu} style={{ padding: 8, marginRight: -8 }}>
+                            <HugeiconsIcon icon={Group01Icon} size={24} color={theme.colors.text} />
+                        </TouchableOpacity>
+                    </View>
                 }
-                style={{ width: 24, height: 24 }}
-                resizeMode="contain"
             />
-          )}
-        </View>
 
-        <View style={{ flex: 1, gap: 4 }}>
-          <View style={styles.titleRow}>
-            <Text
-              numberOfLines={1}
-              style={[
-                styles.cardTitle,
-                {
-                  color: theme.colors.text,
-                  fontFamily: isUnread ? FontFamily.extrabold : FontFamily.semibold,
-                },
-              ]}
-            >
-              {item.title}
-            </Text>
-            {isUnread && (
-              <View
-                style={[
-                  styles.unreadDot,
-                  { backgroundColor: theme.colors.primary },
+            {/* Action Menu for File Configuration */}
+            <ActionMenu
+                visible={menuVisible}
+                onClose={() => setMenuVisible(false)}
+                anchor={menuAnchor}
+                actions={[
+                    { label: 'Properties', icon: File02Icon, color: theme.colors.text, onPress: () => { setMenuVisible(false); setTimeout(() => setPropertiesModalVisible(true), 150); } },
+                    { label: 'Share File', icon: Share08Icon, color: theme.colors.text, onPress: () => handleShare(selectedReport) },
+                    { label: 'Delete File', icon: Delete02Icon, color: theme.colors.danger, destructive: true, onPress: () => handleDelete(selectedReport) }
                 ]}
-              />
-            )}
-          </View>
+            />
 
-          <View style={styles.metaRow}>
-            <Text
-              style={[styles.metaText, { color: theme.colors.textSecondary }]}
-            >
-              {new Date(item.created_at).toLocaleDateString()}
-            </Text>
-            <Text
-              style={[styles.metaText, { color: theme.colors.textSecondary }]}
-            >
-              •
-            </Text>
-            <Text
-              style={[styles.metaText, { color: theme.colors.textSecondary }]}
-            >
-              {formatSize(item.file_size)}
-            </Text>
-            {!item.file_path && item.remote_url && (
-              <HugeiconsIcon
-                icon={Download01Icon}
-                size={12}
-                color={theme.colors.primary}
-                style={{ marginLeft: 4 }}
-              />
-            )}
-          </View>
-        </View>
+            {/* Action Menu for Grouping Selection */}
+            <ActionMenu
+                visible={groupMenuVisible}
+                onClose={() => setGroupMenuVisible(false)}
+                anchor={groupMenuAnchor}
+                actions={[
+                    { label: 'Group by Period', isActive: groupBy === 'period', color: groupBy === 'period' ? theme.colors.primary : theme.colors.text, onPress: () => { setGroupBy('period'); setGroupMenuVisible(false); } },
+                    { label: 'Group by Month', isActive: groupBy === 'month', color: groupBy === 'month' ? theme.colors.primary : theme.colors.text, onPress: () => { setGroupBy('month'); setGroupMenuVisible(false); } },
+                    { label: 'Group by Week', isActive: groupBy === 'week', color: groupBy === 'week' ? theme.colors.primary : theme.colors.text, onPress: () => { setGroupBy('week'); setGroupMenuVisible(false); } }
+                ]}
+            />
 
-        {selectionMode ? (
-          <View style={{ padding: 4 }}>
-            {isSelected ? (
-              <HugeiconsIcon
-                icon={Tick02Icon}
-                size={24}
-                color={theme.colors.primary}
-              />
+            {/* Action Menu for Filtering Selection */}
+            <ActionMenu
+                visible={filterMenuVisible}
+                onClose={() => setFilterMenuVisible(false)}
+                anchor={filterMenuAnchor}
+                actions={[
+                    { label: 'All Files', isActive: fileFilter === 'all', color: fileFilter === 'all' ? theme.colors.primary : theme.colors.text, onPress: () => { setFileFilter('all'); setFilterMenuVisible(false); } },
+                    { label: 'PDF Documents', icon: Pdf01Icon, isActive: fileFilter === 'pdf', color: fileFilter === 'pdf' ? theme.colors.primary : theme.colors.text, onPress: () => { setFileFilter('pdf'); setFilterMenuVisible(false); } },
+                    { label: 'Excel Spreadsheets', icon: Xls01Icon, isActive: fileFilter === 'xlsx', color: fileFilter === 'xlsx' ? theme.colors.primary : theme.colors.text, onPress: () => { setFileFilter('xlsx'); setFilterMenuVisible(false); } },
+                ]}
+            />
+
+            {loading ? (
+                <View style={styles.center}>
+                    <ActivityIndicator size="large" color={theme.colors.primary} />
+                </View>
             ) : (
-              <View
-                style={[
-                  styles.checkbox,
-                  { borderColor: theme.colors.textSecondary },
-                ]}
-              />
+                <SectionList
+                    sections={groupedReports}
+                    keyExtractor={(item) => item.id}
+                    renderItem={renderItem}
+                    renderSectionHeader={({ section: { title } }) => (
+                        <View style={[styles.sectionHeader, { backgroundColor: theme.colors.background }]}>
+                            <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>{title}</Text>
+                        </View>
+                    )}
+                    contentContainerStyle={styles.listContent}
+                    showsVerticalScrollIndicator={false}
+                    stickySectionHeadersEnabled={true}
+                    ListHeaderComponent={
+                        reports.length > 0 ? (
+                            <View style={styles.listHeader}>
+                                <View ref={filterIconRef} collapsable={false}>
+                                    <TouchableOpacity onPress={openFilterMenu} style={styles.filterBtn}>
+                                        <Text style={[styles.listHeaderTitle, { color: theme.colors.textSecondary }]}>
+                                            {fileFilter === 'all' ? 'ALL FILES' : fileFilter === 'pdf' ? 'PDF FILES' : 'EXCEL FILES'}
+                                        </Text>
+                                        <HugeiconsIcon icon={filterMenuVisible ? ArrowUp01Icon : ArrowDown01Icon} size={16} color={theme.colors.textSecondary} />
+                                    </TouchableOpacity>
+                                </View>
+                                <Text style={[styles.listHeaderCount, { color: theme.colors.textSecondary }]}>
+                                    {filteredReports.length} {filteredReports.length === 1 ? 'item' : 'items'}
+                                </Text>
+                            </View>
+                        ) : null
+                    }
+                    ListEmptyComponent={
+                        <View style={styles.emptyContainer}>
+                            <View style={[styles.emptyIconContainer, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                                <HugeiconsIcon icon={Search01Icon} size={32} color={theme.colors.textSecondary} />
+                            </View>
+                            <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Files Found</Text>
+                            <Text style={[styles.emptySubtitle, { color: theme.colors.textSecondary }]}>Generated reports will appear here for easy access and sharing.</Text>
+                        </View>
+                    }
+                />
             )}
-          </View>
-        ) : (
-          <TouchableOpacity
-            onPress={(e) => handleMenu(e, item)}
-            hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-            style={{ padding: 4 }}
-          >
-            <HugeiconsIcon
-              icon={MoreVerticalCircle01Icon}
-              size={20}
-              color={theme.colors.icon}
-            />
-          </TouchableOpacity>
-        )}
-      </TouchableOpacity>
+        </SafeAreaView>
     );
-  };
-
-  return (
-    <SafeAreaView
-      style={{ flex: 1, backgroundColor: theme.colors.background }}
-      edges={["top"]}
-    >
-      <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} />
-      <ModernAlert {...alertConfig} />
-      <LoadingOverlay visible={isDeleting} message="Deleting..." />
-
-      <FloatingAlert
-        visible={floatingAlert.visible}
-        message={floatingAlert.message}
-        type={floatingAlert.type}
-        position={floatingAlert.position}
-        actionLabel={floatingAlert.actionLabel}
-        onAction={floatingAlert.onAction}
-        onHide={() => setFloatingAlert((prev) => ({ ...prev, visible: false }))}
-        duration={floatingAlert.duration}
-      />
-
-      <Header
-        title={renderHeaderTitle()}
-        leftElement={renderLeftElement()}
-        rightElement={renderRightElement()}
-      />
-
-      <InputModal
-        visible={renameModalVisible}
-        onClose={() => setRenameModalVisible(false)}
-        onConfirm={saveRename}
-        title="Rename Report"
-        initialValue={selectedItem?.title || ""}
-        placeholder="Enter report name"
-        confirmLabel="Save"
-      />
-
-      <ActionMenu
-        visible={menuVisible}
-        onClose={() => setMenuVisible(false)}
-        anchor={menuAnchor}
-        actions={[
-          { label: "Share", icon: Share01Icon, onPress: handleShare },
-          {
-            label: "Rename",
-            icon: PencilEdit02Icon,
-            onPress: () => {
-              setMenuVisible(false);
-              setRenameModalVisible(true);
-            },
-          },
-          {
-            label: "Delete",
-            icon: Delete02Icon,
-            onPress: handleDelete,
-            color: theme.colors.danger,
-            destructive: true,
-          },
-        ]}
-      />
-
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-        </View>
-      ) : (
-        <FlatList
-          data={filteredReports}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{ padding: 20, paddingBottom: 100 }}
-          renderItem={renderItem}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              tintColor={theme.colors.primary}
-            />
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-                <View style={[styles.emptyIconContainer, { backgroundColor: theme.dark ? '#1F2937' : '#F3F4F6' }]}>
-                    <HugeiconsIcon icon={File02Icon} size={36} color={theme.colors.textSecondary} />
-                </View>
-                
-                <View style={styles.emptyTextContainer}>
-                    <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>
-                        No Saved Reports
-                    </Text>
-                    <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
-                        Generated PDF and Excel reports will appear here for easy sharing and printing.
-                    </Text>
-                </View>
-            </View>
-          }
-        />
-      )}
-      
-      {/* ADDED AD COMPONENT AT THE BOTTOM OF THE SCREEN */}
-      <BannerAdComponent />
-
-    </SafeAreaView>
-  );
 }
 
 const styles = StyleSheet.create({
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 16,
-    marginBottom: 12,
-    borderWidth: 1,
-    gap: 14,
-  },
-  iconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  titleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  cardTitle: {
-    ...Typography.h4,
-    flex: 1,
-  },
-  unreadDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  metaText: {
-    ...Typography.small,
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-  },
-  
-  // Clean Empty State
-  emptyContainer: { alignItems: 'center', marginTop: 80, paddingHorizontal: 24 },
-  emptyIconContainer: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
-  emptyTextContainer: { alignItems: 'center', marginBottom: 8 },
-  emptyTitle: { fontFamily: 'Nunito_800ExtraBold', fontSize: 22, marginBottom: 10, textAlign: 'center', letterSpacing: -0.3 },
-  emptyDescription: { fontFamily: 'Nunito_500Medium', fontSize: 15, lineHeight: 24, textAlign: 'center', opacity: 0.9, paddingHorizontal: 8 },
+    center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    listContent: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 100 },
+    
+    listHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingHorizontal: 4 },
+    filterBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    listHeaderTitle: { fontSize: 13, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 0.5 },
+    listHeaderCount: { fontSize: 13, fontFamily: 'Nunito_700Bold' },
 
-  searchHeaderContainer: {
-    flex: 1,
-    width: "100%",
-    justifyContent: "center", 
-    height: "100%", 
-  },
-  searchInput: {
-    height: 40, 
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    fontSize: 16,
-    width: "100%",
-    paddingVertical: 0, 
-  },
-  headerIconButton: {
-    padding: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+    sectionHeader: { paddingVertical: 12, marginBottom: 8 },
+    sectionTitle: { fontSize: 11, fontFamily: 'Nunito_800ExtraBold', textTransform: 'uppercase', letterSpacing: 1 },
+
+    fileCard: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, marginBottom: 12, borderRadius: 16, borderWidth: 1, height: 86 },
+    iconContainer: { width: 48, height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
+    fileIcon: { width: 26, height: 26 },
+    
+    fileDetails: { flex: 1, justifyContent: 'center', paddingRight: 8 },
+    fileName: { fontSize: 15, fontFamily: 'Nunito_700Bold', letterSpacing: -0.2, marginBottom: 8 },
+    
+    fileMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    tagBadge: { paddingHorizontal: 6, paddingVertical: 4, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
+    tagText: { fontSize: 9, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 0.5 },
+    fileMetaText: { fontSize: 12, fontFamily: 'Nunito_700Bold' },
+    metaDot: { width: 3, height: 3, borderRadius: 1.5, opacity: 0.5 },
+    
+    actionZone: { flexDirection: 'row', alignItems: 'center', paddingLeft: 4 },
+    unreadDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
+    moreBtn: { padding: 4 },
+
+    emptyContainer: { alignItems: 'center', marginTop: 100, paddingHorizontal: 30 },
+    emptyIconContainer: { width: 72, height: 72, borderRadius: 24, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
+    emptyTitle: { fontSize: 20, fontFamily: 'Nunito_800ExtraBold', marginBottom: 8, letterSpacing: -0.3 },
+    emptySubtitle: { fontSize: 14, fontFamily: 'Nunito_500Medium', textAlign: 'center', lineHeight: 22 }
 });

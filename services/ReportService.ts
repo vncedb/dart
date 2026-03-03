@@ -1,4 +1,4 @@
-// services/ReportService.ts
+// filepath: services/ReportService.ts
 import { addDays, endOfWeek, format, getWeek, startOfWeek, subDays } from 'date-fns';
 import * as FileSystem from 'expo-file-system';
 import { generateUUID, getUnreadReportsCount, queueSyncItem, saveReportLocal } from '../lib/database';
@@ -9,30 +9,31 @@ import { generateReport } from '../utils/reportGenerator';
 export const ReportService = {
   getActiveJob: async (userId: string) => {
     const db = await getDB();
-    const profile: any = await db.getFirstAsync('SELECT current_job_id, full_name, title FROM profiles WHERE id = ?', [userId]);
+    const profile: any = await db.getFirstAsync('SELECT current_job_id, full_name, title FROM profiles WHERE id = ? AND deleted_at IS NULL', [userId]);
     if (!profile?.current_job_id) return null;
     
-    const job: any = await db.getFirstAsync('SELECT * FROM job_positions WHERE id = ?', [profile.current_job_id]);
+    const job: any = await db.getFirstAsync('SELECT * FROM job_positions WHERE id = ? AND deleted_at IS NULL', [profile.current_job_id]);
     if (!job) return null;
     return { ...job, userName: profile.full_name, userTitle: profile.title };
   },
 
   getDailyReport: async (userId: string, date: string) => {
     const db = await getDB();
-    const attendance = await db.getFirstAsync('SELECT * FROM attendance WHERE user_id = ? AND date = ?', [userId, date]);
-    const tasks = await db.getAllAsync('SELECT * FROM accomplishments WHERE user_id = ? AND date = ?', [userId, date]);
+    const attendance = await db.getFirstAsync('SELECT * FROM attendance WHERE user_id = ? AND date = ? AND deleted_at IS NULL', [userId, date]);
+    const tasks = await db.getAllAsync('SELECT * FROM accomplishments WHERE user_id = ? AND date = ? AND deleted_at IS NULL', [userId, date]);
     return { attendance, tasks: tasks || [] };
   },
 
-  getReportRange: async (userId: string, jobId: string, startDate: string, endDate: string) => {
+  getReportRange: async (userId: string, jobId: string | null, startDate: string, endDate: string) => {
     const db = await getDB();
+    // Removed strict job_id requirement here to ensure offline/batch records are caught
     const attendance = await db.getAllAsync(
-      'SELECT * FROM attendance WHERE user_id = ? AND job_id = ? AND date >= ? AND date <= ? ORDER BY date ASC', 
-      [userId, jobId, startDate, endDate]
+      'SELECT * FROM attendance WHERE user_id = ? AND date >= ? AND date <= ? AND deleted_at IS NULL ORDER BY date ASC', 
+      [userId, startDate, endDate]
     );
     const tasks = await db.getAllAsync(
-      'SELECT * FROM accomplishments WHERE user_id = ? AND job_id = ? AND date >= ? AND date <= ?', 
-      [userId, jobId, startDate, endDate]
+      'SELECT * FROM accomplishments WHERE user_id = ? AND date >= ? AND date <= ? AND deleted_at IS NULL', 
+      [userId, startDate, endDate]
     );
     return { attendance, tasks };
   },
@@ -40,14 +41,20 @@ export const ReportService = {
   deleteReportDay: async (userId: string, jobId: string, date: string) => {
     const db = await getDB();
     await db.withTransactionAsync(async () => {
-      const att: any = await db.getFirstAsync('SELECT id FROM attendance WHERE user_id = ? AND job_id = ? AND date = ?', [userId, jobId, date]);
-      const tasks: any[] = await db.getAllAsync('SELECT id, image_url FROM accomplishments WHERE user_id = ? AND job_id = ? AND date = ?', [userId, jobId, date]);
+      const att: any = await db.getFirstAsync('SELECT id FROM attendance WHERE user_id = ? AND date = ? AND deleted_at IS NULL', [userId, date]);
+      const tasks: any[] = await db.getAllAsync('SELECT id FROM accomplishments WHERE user_id = ? AND date = ? AND deleted_at IS NULL', [userId, date]);
 
-      if (att) await queueSyncItem('attendance', att.id, 'DELETE');
-      for (const t of tasks) await queueSyncItem('accomplishments', t.id, 'DELETE', { image_url: t.image_url }); 
+      const now = new Date().toISOString();
 
-      await db.runAsync('DELETE FROM attendance WHERE user_id = ? AND job_id = ? AND date = ?', [userId, jobId, date]);
-      await db.runAsync('DELETE FROM accomplishments WHERE user_id = ? AND job_id = ? AND date = ?', [userId, jobId, date]);
+      if (att) {
+         await db.runAsync('UPDATE attendance SET deleted_at = ?, is_synced = 0, updated_at = ? WHERE id = ?', [now, now, att.id]);
+         await queueSyncItem('attendance', att.id, 'UPDATE', { deleted_at: now, updated_at: now });
+      }
+
+      for (const t of tasks) {
+         await db.runAsync('UPDATE accomplishments SET deleted_at = ?, is_synced = 0, updated_at = ? WHERE id = ?', [now, now, t.id]);
+         await queueSyncItem('accomplishments', t.id, 'UPDATE', { deleted_at: now, updated_at: now }); 
+      }
     });
   },
 
@@ -55,7 +62,6 @@ export const ReportService = {
     return await getUnreadReportsCount(userId);
   },
 
-  // --- AUTO GENERATION LOGIC ---
   checkAndGenerateAutoReports: async (userId: string) => {
     try {
         const job = await ReportService.getActiveJob(userId);
@@ -66,7 +72,7 @@ export const ReportService = {
         
         const lastCheckRes: any = await db.getFirstAsync("SELECT value FROM app_settings WHERE key = 'last_auto_report_check'");
         const lastCheckDateStr = lastCheckRes?.value;
-        const startDate = lastCheckDateStr ? new Date(lastCheckDateStr) : subDays(new Date(), 30); // Max lookback 30 days
+        const startDate = lastCheckDateStr ? new Date(lastCheckDateStr) : subDays(new Date(), 30);
         const today = new Date();
 
         let currentDate = new Date(startDate);
@@ -116,7 +122,7 @@ export const ReportService = {
         }
 
         for (const [key, period] of periodsToGenerate.entries()) {
-            const existing = await db.getFirstAsync('SELECT id FROM saved_reports WHERE user_id = ? AND period_key = ?', [userId, period.key]);
+            const existing = await db.getFirstAsync('SELECT id FROM saved_reports WHERE user_id = ? AND period_key = ? AND deleted_at IS NULL', [userId, period.key]);
             if (!existing) {
                 const { attendance, tasks } = await ReportService.getReportRange(userId, job.id, period.start, period.end);
                 if ((!attendance || attendance.length === 0) && (!tasks || tasks.length === 0)) continue; 

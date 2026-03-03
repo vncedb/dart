@@ -135,8 +135,14 @@ export const generateReport = async ({
             return { ...task, images: processedImages.filter(Boolean) };
         }));
         
-        const displayDate = day.date.replace(/\n/g, '<br/><span style="font-size: 8px; font-weight: 500; color: #666; text-transform: uppercase;">');
-        const finalDate = displayDate.includes('<br/>') ? displayDate + '</span>' : displayDate;
+        let finalDate = day.date;
+        if (style === 'minimal') {
+            // Force pure single line for monochrome minimal
+            finalDate = finalDate.replace(/\n/g, ' ').replace(/<[^>]*>/g, '');
+        } else {
+            const displayDate = finalDate.replace(/\n/g, '<br/><span style="font-size: 8px; font-weight: 500; color: #666; text-transform: uppercase;">');
+            finalDate = displayDate.includes('<br/>') ? displayDate + '</span>' : displayDate;
+        }
 
         return { ...day, summary: processedTasks, date: finalDate };
     }));
@@ -274,11 +280,12 @@ export const generateReport = async ({
             .time-label { color: ${t.secondary}; font-weight: 700; font-size: 8px; text-transform: uppercase; margin-right: 4px; }
             .time-val { font-weight: 600; }
 
-            /* New Signatures Wrapper Layout */
+            /* Perfectly Centered Signatures Layout */
             .signatures-wrapper {
                 display: flex;
-                justify-content: flex-start;
-                gap: 60px;
+                justify-content: center;
+                align-items: center;
+                gap: 80px;
                 margin-top: 50px;
                 page-break-inside: avoid;
             }

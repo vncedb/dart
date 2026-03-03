@@ -1,10 +1,11 @@
 // filepath: app/(tabs)/reports.tsx
 import {
+  Clock01Icon,
   File02Icon,
   FileVerifiedIcon,
   Message01Icon,
-  PlusSignIcon,
   Search01Icon,
+  Task01Icon,
   WifiOff01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
@@ -27,7 +28,6 @@ import ActionMenu from "../../components/ActionMenu";
 import DatePicker from "../../components/DatePicker";
 import FloatingAlert from "../../components/FloatingAlert";
 import LoadingScreen from "../../components/LoadingScreen";
-import ModernAlert from "../../components/ModernAlert";
 import ReportFilterBar from "../../components/ReportFilterBar";
 import ReportFilterModal, { DateRange } from "../../components/ReportFilterModal";
 import ReportItem from "../../components/ReportItem";
@@ -64,6 +64,7 @@ export default function ReportsScreen() {
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [markedDates, setMarkedDates] = useState<string[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [activeJob, setActiveJob] = useState<any>(null); // Stored to pass to ReportItem
 
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -75,8 +76,7 @@ export default function ReportsScreen() {
   const [actionMenuVisible, setActionMenuVisible] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
 
-  const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
-  const [floatingAlert, setFloatingAlert] = useState({ visible: false, message: "", type: "success" });
+  const [floatingAlert, setFloatingAlert] = useState({ visible: false, message: "", type: "success" as any });
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   useEffect(() => {
@@ -122,6 +122,7 @@ export default function ReportsScreen() {
       setUnreadCount(count);
 
       const job: any = await ReportService.getActiveJob(userId);
+      setActiveJob(job); // Stored to give ReportItem shift context
       if (!job) {
         setAllSections([]);
         setFilteredSections([]);
@@ -130,12 +131,14 @@ export default function ReportsScreen() {
       }
 
       const payoutType = job.payout_type || "Semi-Monthly";
+      
       const attendance = await db.getAllAsync(
-        "SELECT * FROM attendance WHERE user_id = ? AND job_id = ? ORDER BY date DESC",
+        "SELECT * FROM attendance WHERE user_id = ? AND job_id = ? AND deleted_at IS NULL ORDER BY date DESC",
         [userId, job.id]
       );
+      
       const tasks = await db.getAllAsync(
-        "SELECT * FROM accomplishments WHERE user_id = ? AND job_id = ?",
+        "SELECT * FROM accomplishments WHERE user_id = ? AND job_id = ? AND deleted_at IS NULL",
         [userId, job.id]
       );
 
@@ -158,11 +161,15 @@ export default function ReportsScreen() {
         if (dayAtts.length > 0 && dayAtts.some((a: any) => !a.is_synced || a.is_synced === 0)) synced = false;
         if (taskList.some((t: any) => !t.is_synced || t.is_synced === 0)) synced = false;
 
+        const mappedStatus = dayAtts.length > 0 && dayAtts[dayAtts.length - 1].status 
+          ? dayAtts[dayAtts.length - 1].status.toLowerCase() 
+          : "no-attendance";
+
         return {
           id: dateStr,
           date: dateStr,
           attendances: dayAtts, 
-          status: dayAtts.length > 0 ? dayAtts[dayAtts.length - 1].status : "no-attendance",
+          status: mappedStatus,
           accomplishments: taskList,
           is_synced: synced ? 1 : 0,
         };
@@ -197,7 +204,7 @@ export default function ReportsScreen() {
       } else {
         applyFilter(currentRange, sectionsArray);
       }
-    } catch (error) { 
+    } catch (error: any) { 
       console.log("Fetch Error", error);
     } finally {
       setRefreshing(false);
@@ -229,6 +236,7 @@ export default function ReportsScreen() {
     <ReportItem
       item={item}
       index={index}
+      job={activeJob} // Passing job config
       onPress={() => router.push({ pathname: "/reports/details", params: { date: item.date } })}
     />
   );
@@ -258,7 +266,6 @@ export default function ReportsScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={["top"]}>
       <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} />
       <FloatingAlert visible={floatingAlert.visible} message={floatingAlert.message} type={floatingAlert.type as any} onHide={() => setFloatingAlert({ ...floatingAlert, visible: false })} />
-      <ModernAlert {...alertConfig} />
 
       <ReportFilterModal visible={modalVisible} onClose={() => setModalVisible(false)} availableDates={availableDates} currentRange={currentRange} onSelect={handleRangeSelect as any} />
 
@@ -269,7 +276,16 @@ export default function ReportsScreen() {
         onClose={() => setActionMenuVisible(false)}
         anchor={menuAnchor}
         actions={[
-          { label: "Add Entry", icon: PlusSignIcon, onPress: () => router.push("/reports/add-entry") },
+          { 
+              label: "Add Entry", 
+              icon: Task01Icon, 
+              onPress: () => { setActionMenuVisible(false); router.push("/reports/add-entry"); } 
+          },
+          { 
+              label: "Log Attendance", 
+              icon: Clock01Icon, 
+              onPress: () => { setActionMenuVisible(false); router.push("/reports/add-attendance"); } 
+          },
           { 
               label: "Generate Report", 
               icon: File02Icon, 
@@ -350,8 +366,6 @@ export default function ReportsScreen() {
             />
           </View>
 
-          <View style={[styles.separator, { backgroundColor: theme.colors.border }]} />
-
           <SectionList
             sections={filteredSections}
             keyExtractor={(item) => item.id}
@@ -394,7 +408,6 @@ const styles = StyleSheet.create({
   headerBtn: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   badge: { position: "absolute", top: -6, right: -6, borderRadius: 10, minWidth: 16, height: 16, alignItems: "center", justifyContent: "center", borderWidth: 2 },
   offlineStatus: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 8, borderBottomWidth: 1 },
-  separator: { height: 1, marginHorizontal: 20, opacity: 0.5, marginBottom: 8 },
   sectionHeader: { paddingHorizontal: 20, paddingVertical: 12 },
   sectionTitle: { fontSize: 12, fontFamily: 'Nunito_500Medium', letterSpacing: 0.8, textTransform: "uppercase" },
 

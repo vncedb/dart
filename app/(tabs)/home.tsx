@@ -261,7 +261,6 @@ export default function Home() {
 
     const latestRecord = todaysRecords.length > 0 ? todaysRecords[0] : null;
     
-    // FIX: Tolerate lowercase 'pending' for older rows, but standard is 'Pending'
     const isClockedIn = latestRecord?.status?.toLowerCase() === 'pending' || latestRecord?.status?.toLowerCase() === 'active';
     const isSessionOvertime = latestRecord?.remarks?.includes('Overtime');
     const unreadNotifsCount = notifications.filter(n => !n.read).length;
@@ -459,7 +458,6 @@ export default function Home() {
                 let finalRemarks = latestRecord.remarks || '';
                 if (accumulatedBreakMs > 0) finalRemarks = finalRemarks ? `${finalRemarks} | BreakMs:${accumulatedBreakMs}` : `BreakMs:${accumulatedBreakMs}`;
 
-                // FIX: Used 'Completed' Title Case for Database Constraint
                 const updatedRecord = { ...latestRecord, clock_out: now, status: 'Completed', remarks: finalRemarks };
                 await saveAttendanceLocal(updatedRecord);
                 
@@ -488,8 +486,7 @@ export default function Home() {
                      setOtExpiry(null);
                 }
                 
-                // FIX: Used 'Pending' Title Case for Database Constraint
-                const record = { id: generateUUID(), user_id: user.id, job_id: activeJobId, clock_in: now.toISOString(), date: todayStr, status: 'Pending', remarks };
+                const record = { id: generateUUID(), user_id: user.id, job_id: activeJobId, clock_in: now.toISOString(), date: todayStr, status: 'pending', remarks };
                 await saveAttendanceLocal(record);
                 
                 setAlertMessage(isOvertime ? "Overtime Started!" : "Welcome In!"); 
@@ -566,7 +563,6 @@ export default function Home() {
             let finalRemarks = `Auto-timeout: ${reason}`;
             if (accumulatedBreakMs > 0) finalRemarks += ` | BreakMs:${accumulatedBreakMs}`;
 
-            // FIX: Used 'Completed' Title Case for Database Constraint
             const updatedRecord = { ...latestRecord, clock_out: endIso, status: 'Completed', remarks: finalRemarks };
             await saveAttendanceLocal(updatedRecord);
             
@@ -702,8 +698,9 @@ export default function Home() {
                 setLoading(true); 
                 try { 
                     const db = await getDB(); 
-                    await db.runAsync('DELETE FROM accomplishments WHERE id = ?', [t.id]); 
-                    await queueSyncItem('accomplishments', t.id, 'DELETE'); 
+                    const now = new Date().toISOString();
+                    await db.runAsync('UPDATE accomplishments SET deleted_at = ?, updated_at = ?, is_synced = 0 WHERE id = ?', [now, now, t.id]); 
+                    await queueSyncItem('accomplishments', t.id, 'UPDATE', { deleted_at: now, updated_at: now }); 
                     await loadData(); 
                     triggerSync(); 
                     setAlertMessage("Entry deleted"); setAlertType('success'); setAlertVisible(true); 
@@ -797,9 +794,16 @@ export default function Home() {
                                             <HugeiconsIcon icon={Notification01Icon} size={18} color={theme.colors.text} />
                                             {unreadNotifsCount > 0 && <View style={[styles.badge, { backgroundColor: theme.colors.danger, borderColor: theme.colors.card }]} />}
                                         </TouchableOpacity>
-                                        <TouchableOpacity disabled={!isClockedIn} onPress={() => router.push({ pathname: '/reports/add-entry', params: { jobId: activeJobId } })} style={[styles.iconButton, { backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background }]}>
+                                        
+                                        {/* UNCLICKABLE IF OFFLINE OR NO ACTIVE SESSION -> ONLY ACCEPTS FIXED DATE ADDITIONS */}
+                                        <TouchableOpacity 
+                                            disabled={!isClockedIn} 
+                                            onPress={() => router.push({ pathname: '/reports/add-entry', params: { jobId: activeJobId, fixedDate: 'true' } })} 
+                                            style={[styles.iconButton, { backgroundColor: isClockedIn ? theme.colors.iconBg : theme.colors.background }]}
+                                        >
                                             <HugeiconsIcon icon={PlusSignIcon} size={20} color={isClockedIn ? theme.colors.primary : theme.colors.icon} />
                                         </TouchableOpacity>
+
                                     </View>
                                 </View>
                                 
