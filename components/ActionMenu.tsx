@@ -6,12 +6,13 @@ import { Modal, PanResponder, Platform, StyleSheet, Text, TouchableOpacity, Touc
 import { useAppTheme } from '../constants/theme';
 
 export interface ActionMenuItem {
-    label: string;
+    label?: string;
     icon?: any;
     color?: string;
     destructive?: boolean;
     isActive?: boolean;
-    onPress: () => void;
+    isDivider?: boolean;
+    onPress?: () => void;
 }
 
 interface ActionMenuProps {
@@ -43,6 +44,10 @@ export default function ActionMenu({ visible, onClose, actions, anchor }: Action
     const renderPopoverContent = () => (
         <View style={[styles.popoverContainer, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
             {actions.map((action, index) => {
+                if (action.isDivider) {
+                    return <View key={`div-${index}`} style={{ height: 1, backgroundColor: theme.colors.border, marginVertical: 4 }} />;
+                }
+
                 const color = action.destructive ? theme.colors.danger : (action.color || theme.colors.text);
                 const isActive = action.isActive;
                 return (
@@ -50,10 +55,10 @@ export default function ActionMenu({ visible, onClose, actions, anchor }: Action
                         key={index}
                         style={[
                             styles.popoverItem,
-                            index < actions.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.colors.border },
+                            index < actions.length - 1 && !actions[index+1]?.isDivider && { borderBottomWidth: 1, borderBottomColor: theme.colors.border },
                             isActive && { backgroundColor: theme.colors.primary + '10' }
                         ]}
-                        onPress={() => { action.onPress(); onClose(); }}
+                        onPress={() => { if (action.onPress) action.onPress(); onClose(); }}
                         activeOpacity={0.7}
                     >
                         <View style={styles.menuItemLeft}>
@@ -93,6 +98,10 @@ export default function ActionMenu({ visible, onClose, actions, anchor }: Action
                             
                             <View style={styles.sheetContent}>
                                 {actions.map((action, index) => {
+                                    if (action.isDivider) {
+                                        return <View key={`div-${index}`} style={{ height: 1, backgroundColor: theme.colors.border, marginVertical: 6, opacity: 0.6 }} />;
+                                    }
+
                                     const color = action.destructive ? theme.colors.danger : (action.color || theme.colors.text);
                                     const iconBg = action.destructive ? theme.colors.danger + '10' : (action.isActive ? theme.colors.primary + '10' : theme.colors.background);
                                     
@@ -103,7 +112,7 @@ export default function ActionMenu({ visible, onClose, actions, anchor }: Action
                                                 styles.sheetItem,
                                                 action.isActive && { backgroundColor: theme.colors.primary + '08' }
                                             ]}
-                                            onPress={() => { action.onPress(); onClose(); }}
+                                            onPress={() => { if (action.onPress) action.onPress(); onClose(); }}
                                             activeOpacity={0.7}
                                         >
                                             <View style={styles.menuItemLeft}>
@@ -141,11 +150,11 @@ const styles = StyleSheet.create({
         flex: 1, 
         backgroundColor: 'rgba(0,0,0,0.4)', 
         justifyContent: 'flex-end',
-        paddingHorizontal: 20 // Matches exactly with the marginHorizontal: 20 of ReportItems
+        paddingHorizontal: 20
     },
     
     floatingSheet: { 
-        width: '100%', // Fills the container to perfectly match the 20px padding
+        width: '100%', 
         marginBottom: Platform.OS === 'ios' ? 40 : 24, 
         borderRadius: 24, 
         borderWidth: 1,

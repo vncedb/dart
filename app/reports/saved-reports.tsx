@@ -1,11 +1,11 @@
 // filepath: app/reports/saved-reports.tsx
-import { ArrowDown01Icon, ArrowUp01Icon, Delete02Icon, File02Icon, Group01Icon, MoreVerticalIcon, Pdf01Icon, Search01Icon, Share08Icon, Xls01Icon } from '@hugeicons/core-free-icons';
+import { ArrowDown01Icon, ArrowUp01Icon, Calendar02Icon, Delete02Icon, File01Icon, File02Icon, Files01Icon, FilterHorizontalIcon, MoreVerticalIcon, Pdf01Icon, Search01Icon, Share08Icon, SortByDown01Icon, SortByUp01Icon, TextIcon, Xls01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import { endOfWeek, format, getWeek, startOfWeek } from 'date-fns';
+import { format } from 'date-fns';
 import { useFocusEffect } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Image, SectionList, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActionMenu from '../../components/ActionMenu';
@@ -38,17 +38,20 @@ export default function SavedReportsScreen() {
     const [loading, setLoading] = useState(true);
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
-    // Modals & Menus State
-    const [groupBy, setGroupBy] = useState<'period' | 'month' | 'week'>('month');
-    const [groupMenuVisible, setGroupMenuVisible] = useState(false);
-    const [groupMenuAnchor, setGroupMenuAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
-    const groupIconRef = useRef<View>(null);
+    // Sort Configuration
+    const [sortBy, setSortBy] = useState<'name' | 'date' | 'size'>('date');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+    const [sortMenuVisible, setSortMenuVisible] = useState(false);
+    const [sortMenuAnchor, setSortMenuAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
+    const sortIconRef = useRef<View>(null);
 
+    // Filter Configuration
     const [fileFilter, setFileFilter] = useState<'all' | 'pdf' | 'xlsx'>('all');
     const [filterMenuVisible, setFilterMenuVisible] = useState(false);
     const [filterMenuAnchor, setFilterMenuAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
     const filterIconRef = useRef<View>(null);
 
+    // Action Menu Configuration
     const [menuVisible, setMenuVisible] = useState(false);
     const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
     const [selectedReport, setSelectedReport] = useState<any>(null);
@@ -73,6 +76,7 @@ export default function SavedReportsScreen() {
 
     useFocusEffect(useCallback(() => { fetchReports(); }, [fetchReports]));
 
+    // Apply Filter First
     const filteredReports = useMemo(() => {
         if (fileFilter === 'all') return reports;
         if (fileFilter === 'pdf') return reports.filter(r => r.file_type === 'pdf' || r.file_type === 'application/pdf');
@@ -80,48 +84,30 @@ export default function SavedReportsScreen() {
         return reports;
     }, [reports, fileFilter]);
 
-    const groupedReports = useMemo(() => {
-        if (!filteredReports.length) return [];
-        
-        const groups: Record<string, any[]> = {};
-        
-        filteredReports.forEach(report => {
-            const metaStr = report.metadata || '{}';
-            let meta: any = {};
-            try { meta = JSON.parse(metaStr); } catch { }
-            
-            const targetDate = meta.startDate ? new Date(meta.startDate) : new Date(report.created_at);
-            let key = '';
-            
-            if (groupBy === 'month') {
-                key = format(targetDate, 'MMMM yyyy');
-            } else if (groupBy === 'week') {
-                const start = startOfWeek(targetDate, { weekStartsOn: 1 });
-                const end = endOfWeek(targetDate, { weekStartsOn: 1 });
-                key = `Week ${getWeek(targetDate)} (${format(start, 'MMM d')} - ${format(end, 'MMM d')})`;
-            } else if (groupBy === 'period') {
-                const month = format(targetDate, 'MMMM');
-                const year = targetDate.getFullYear();
-                if (targetDate.getDate() <= 15) {
-                    key = `1st Cutoff ${month} ${year}`;
-                } else {
-                    key = `2nd Cutoff ${month} ${year}`;
-                }
+    // Apply Sort to Filtered Data
+    const sortedReports = useMemo(() => {
+        const sorted = [...filteredReports].sort((a, b) => {
+            let res = 0;
+            if (sortBy === 'name') {
+                res = (a.title || '').localeCompare(b.title || '');
+            } else if (sortBy === 'date') {
+                const dateA = new Date(a.created_at).getTime();
+                const dateB = new Date(b.created_at).getTime();
+                res = dateA - dateB;
+            } else if (sortBy === 'size') {
+                res = (a.file_size || 0) - (b.file_size || 0);
             }
-            
-            if (!groups[key]) groups[key] = [];
-            groups[key].push(report);
+            return sortOrder === 'asc' ? res : -res;
         });
-        
-        return Object.keys(groups).map(key => ({ title: key, data: groups[key] }));
-    }, [filteredReports, groupBy]);
+        return sorted;
+    }, [filteredReports, sortBy, sortOrder]);
 
-    // Menus
-    const openGroupMenu = () => {
-        if (groupIconRef.current) {
-            groupIconRef.current.measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
-                setGroupMenuAnchor({ x: pageX + width, y: pageY + height });
-                setGroupMenuVisible(true);
+    // Menus Openers
+    const openSortMenu = () => {
+        if (sortIconRef.current) {
+            sortIconRef.current.measure((x: number, y: number, width: number, height: number, pageX: number, pageY: number) => {
+                setSortMenuAnchor({ x: pageX + width, y: pageY + height });
+                setSortMenuVisible(true);
             });
         }
     };
@@ -185,26 +171,7 @@ export default function SavedReportsScreen() {
         let meta: any = {};
         try { meta = JSON.parse(metaStr); } catch { }
         
-        const reportDateStr = meta.reportDate || format(new Date(item.created_at), 'MMM dd, yyyy');
-
-        let styleType = 'Sheet';
-        let pillColor = { bg: '#16a34a15', text: '#16a34a' }; 
-
-        if (isPdf) {
-            if (item.title.includes('Corporate')) {
-                styleType = 'Corporate';
-                pillColor = { bg: '#2563eb15', text: '#2563eb' };
-            } else if (item.title.includes('Creative')) {
-                styleType = 'Creative';
-                pillColor = { bg: '#4f46e515', text: '#4f46e5' };
-            } else if (item.title.includes('Minimal')) {
-                styleType = 'Minimal';
-                pillColor = { bg: '#17171715', text: '#171717' };
-            } else {
-                styleType = 'PDF';
-                pillColor = { bg: '#ef444415', text: '#ef4444' }; 
-            }
-        }
+        const reportDateStr = meta.reportDate || item.period_key || format(new Date(item.created_at), 'MMM dd, yyyy');
         
         return (
             <TouchableOpacity 
@@ -229,10 +196,6 @@ export default function SavedReportsScreen() {
                     </Text>
                     
                     <View style={styles.fileMetaRow}>
-                        <View style={[styles.tagBadge, { backgroundColor: pillColor.bg }]}>
-                            <Text style={[styles.tagText, { color: pillColor.text }]}>{styleType}</Text>
-                        </View>
-
                         <Text style={[styles.fileMetaText, { color: theme.colors.textSecondary }]}>
                             {reportDateStr}
                         </Text>
@@ -270,9 +233,9 @@ export default function SavedReportsScreen() {
             <Header 
                 title="Saved Reports" 
                 rightElement={
-                    <View ref={groupIconRef} collapsable={false}>
-                        <TouchableOpacity onPress={openGroupMenu} style={{ padding: 8, marginRight: -8 }}>
-                            <HugeiconsIcon icon={Group01Icon} size={24} color={theme.colors.text} />
+                    <View ref={sortIconRef} collapsable={false}>
+                        <TouchableOpacity onPress={openSortMenu} style={{ padding: 8 }}>
+                            <HugeiconsIcon icon={FilterHorizontalIcon} size={24} color={theme.colors.text} />
                         </TouchableOpacity>
                     </View>
                 }
@@ -290,15 +253,18 @@ export default function SavedReportsScreen() {
                 ]}
             />
 
-            {/* Action Menu for Grouping Selection */}
+            {/* Action Menu for Sorting */}
             <ActionMenu
-                visible={groupMenuVisible}
-                onClose={() => setGroupMenuVisible(false)}
-                anchor={groupMenuAnchor}
+                visible={sortMenuVisible}
+                onClose={() => setSortMenuVisible(false)}
+                anchor={sortMenuAnchor}
                 actions={[
-                    { label: 'Group by Period', isActive: groupBy === 'period', color: groupBy === 'period' ? theme.colors.primary : theme.colors.text, onPress: () => { setGroupBy('period'); setGroupMenuVisible(false); } },
-                    { label: 'Group by Month', isActive: groupBy === 'month', color: groupBy === 'month' ? theme.colors.primary : theme.colors.text, onPress: () => { setGroupBy('month'); setGroupMenuVisible(false); } },
-                    { label: 'Group by Week', isActive: groupBy === 'week', color: groupBy === 'week' ? theme.colors.primary : theme.colors.text, onPress: () => { setGroupBy('week'); setGroupMenuVisible(false); } }
+                    { label: 'Sort by Name', icon: TextIcon, isActive: sortBy === 'name', color: theme.colors.text, onPress: () => setSortBy('name') },
+                    { label: 'Sort by Date', icon: Calendar02Icon, isActive: sortBy === 'date', color: theme.colors.text, onPress: () => setSortBy('date') },
+                    { label: 'Sort by Size', icon: File01Icon, isActive: sortBy === 'size', color: theme.colors.text, onPress: () => setSortBy('size') },
+                    { isDivider: true },
+                    { label: 'Ascending', icon: SortByDown01Icon, isActive: sortOrder === 'asc', color: theme.colors.text, onPress: () => setSortOrder('asc') },
+                    { label: 'Descending', icon: SortByUp01Icon, isActive: sortOrder === 'desc', color: theme.colors.text, onPress: () => setSortOrder('desc') }
                 ]}
             />
 
@@ -308,9 +274,9 @@ export default function SavedReportsScreen() {
                 onClose={() => setFilterMenuVisible(false)}
                 anchor={filterMenuAnchor}
                 actions={[
-                    { label: 'All Files', isActive: fileFilter === 'all', color: fileFilter === 'all' ? theme.colors.primary : theme.colors.text, onPress: () => { setFileFilter('all'); setFilterMenuVisible(false); } },
-                    { label: 'PDF Documents', icon: Pdf01Icon, isActive: fileFilter === 'pdf', color: fileFilter === 'pdf' ? theme.colors.primary : theme.colors.text, onPress: () => { setFileFilter('pdf'); setFilterMenuVisible(false); } },
-                    { label: 'Excel Spreadsheets', icon: Xls01Icon, isActive: fileFilter === 'xlsx', color: fileFilter === 'xlsx' ? theme.colors.primary : theme.colors.text, onPress: () => { setFileFilter('xlsx'); setFilterMenuVisible(false); } },
+                    { label: 'All Files', icon: Files01Icon, isActive: fileFilter === 'all', color: theme.colors.text, onPress: () => { setFileFilter('all'); setFilterMenuVisible(false); } },
+                    { label: 'PDF Documents', icon: Pdf01Icon, isActive: fileFilter === 'pdf', color: theme.colors.danger, onPress: () => { setFileFilter('pdf'); setFilterMenuVisible(false); } },
+                    { label: 'Excel Spreadsheets', icon: Xls01Icon, isActive: fileFilter === 'xlsx', color: theme.colors.success, onPress: () => { setFileFilter('xlsx'); setFilterMenuVisible(false); } },
                 ]}
             />
 
@@ -319,18 +285,12 @@ export default function SavedReportsScreen() {
                     <ActivityIndicator size="large" color={theme.colors.primary} />
                 </View>
             ) : (
-                <SectionList
-                    sections={groupedReports}
+                <FlatList
+                    data={sortedReports}
                     keyExtractor={(item) => item.id}
                     renderItem={renderItem}
-                    renderSectionHeader={({ section: { title } }) => (
-                        <View style={[styles.sectionHeader, { backgroundColor: theme.colors.background }]}>
-                            <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>{title}</Text>
-                        </View>
-                    )}
                     contentContainerStyle={styles.listContent}
                     showsVerticalScrollIndicator={false}
-                    stickySectionHeadersEnabled={true}
                     ListHeaderComponent={
                         reports.length > 0 ? (
                             <View style={styles.listHeader}>
@@ -343,7 +303,7 @@ export default function SavedReportsScreen() {
                                     </TouchableOpacity>
                                 </View>
                                 <Text style={[styles.listHeaderCount, { color: theme.colors.textSecondary }]}>
-                                    {filteredReports.length} {filteredReports.length === 1 ? 'item' : 'items'}
+                                    {sortedReports.length} {sortedReports.length === 1 ? 'item' : 'items'}
                                 </Text>
                             </View>
                         ) : null
@@ -365,26 +325,21 @@ export default function SavedReportsScreen() {
 
 const styles = StyleSheet.create({
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    listContent: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 100 },
+    listContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 100 },
     
     listHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingHorizontal: 4 },
     filterBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     listHeaderTitle: { fontSize: 13, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 0.5 },
     listHeaderCount: { fontSize: 13, fontFamily: 'Nunito_700Bold' },
 
-    sectionHeader: { paddingVertical: 12, marginBottom: 8 },
-    sectionTitle: { fontSize: 11, fontFamily: 'Nunito_800ExtraBold', textTransform: 'uppercase', letterSpacing: 1 },
-
-    fileCard: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, marginBottom: 12, borderRadius: 16, borderWidth: 1, height: 86 },
+    fileCard: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, marginBottom: 12, borderRadius: 16, borderWidth: 1, height: 70 },
     iconContainer: { width: 48, height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
-    fileIcon: { width: 26, height: 26 },
+    fileIcon: { width: 24, height: 24 },
     
     fileDetails: { flex: 1, justifyContent: 'center', paddingRight: 8 },
     fileName: { fontSize: 15, fontFamily: 'Nunito_700Bold', letterSpacing: -0.2, marginBottom: 8 },
     
     fileMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    tagBadge: { paddingHorizontal: 6, paddingVertical: 4, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
-    tagText: { fontSize: 9, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 0.5 },
     fileMetaText: { fontSize: 12, fontFamily: 'Nunito_700Bold' },
     metaDot: { width: 3, height: 3, borderRadius: 1.5, opacity: 0.5 },
     

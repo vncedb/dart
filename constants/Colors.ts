@@ -1,10 +1,3 @@
-/**
- * This file is located in app/constants/Colors.ts
- * Expo Router treats files in app/ as routes, so we must export a default component
- * to suppress the "missing required default export" warning.
- */
-
-// Dummy component to satisfy Expo Router
 export default function ColorsRoute() {
   return null;
 }

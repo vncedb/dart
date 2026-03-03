@@ -1,44 +1,54 @@
 // filepath: app/reports/details.tsx
 import {
-  ArrowLeft02Icon,
-  Calendar03Icon,
-  Cancel01Icon,
-  Clock01Icon,
-  Delete02Icon,
-  File02Icon,
-  MoreVerticalIcon,
-  PencilEdit02Icon,
-  Share01Icon,
-  Task01Icon,
-  Time02Icon,
+    Activity01Icon,
+    Cancel01Icon,
+    Delete02Icon,
+    File02Icon,
+    MoreVerticalIcon,
+    PencilEdit02Icon,
+    PlusSignIcon,
+    Share01Icon,
+    Task01Icon,
+    Time02Icon,
+    Time04Icon,
+    TimeManagementCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import { format, isSameDay, parseISO } from "date-fns";
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  BackHandler,
-  Image,
-  LayoutAnimation,
-  Share,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    BackHandler,
+    Image,
+    LayoutAnimation,
+    Modal,
+    NativeScrollEvent,
+    NativeSyntheticEvent,
+    Platform,
+    ScrollView,
+    Share,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    View
 } from "react-native";
 import Animated, {
-  runOnJS,
-  useAnimatedScrollHandler,
-  useSharedValue,
+    Easing,
+    FadeInDown,
+    FadeOutDown
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import ActionMenu from "../../components/ActionMenu";
 import { AnimatedList } from "../../components/AnimatedList";
 import Button from "../../components/Button";
+import DatePicker from "../../components/DatePicker";
+import FloatingAlert from "../../components/FloatingAlert";
 import Footer from "../../components/Footer";
 import Header from "../../components/Header";
+import IconButton from "../../components/IconButton";
 import ImageViewer from "../../components/ImageViewer";
 import LoadingOverlay from "../../components/LoadingOverlay";
 import ModernAlert from "../../components/ModernAlert";
@@ -46,7 +56,7 @@ import TimePicker from "../../components/TimePicker";
 import { useAppTheme } from "../../constants/theme";
 import { useAuth } from "../../context/AuthContext";
 import { useSync } from "../../context/SyncContext";
-import { generateUUID, queueSyncItem, saveAttendanceLocal } from "../../lib/database";
+import { queueSyncItem, saveAttendanceLocal } from "../../lib/database";
 import { getDB } from "../../lib/db-client";
 
 export default function ReportDetailsScreen() {
@@ -58,7 +68,6 @@ export default function ReportDetailsScreen() {
   const { user } = useAuth();
   const dateStr = date as string;
 
-  const [jobId, setJobId] = useState<string | null>(null);
   const [attendances, setAttendances] = useState<any[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
   const [reportStatus, setReportStatus] = useState("pending");
@@ -67,29 +76,35 @@ export default function ReportDetailsScreen() {
   const [isDirty, setIsDirty] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  
   const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+  const [floatingAlert, setFloatingAlert] = useState({ visible: false, message: "", type: "warning" });
 
   const [menuVisible, setMenuVisible] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
   const moreIconRef = useRef<View>(null);
 
+  const [logModalVisible, setLogModalVisible] = useState(false);
   const [viewerVisible, setViewerVisible] = useState(false);
   const [activeImageUri, setActiveImageUri] = useState<string | null>(null);
 
   const [activePicker, setActivePicker] = useState<{ id: string, type: 'in' | 'out', current: string | null } | null>(null);
 
-  const [isHeaderDate, setIsHeaderDate] = useState(false);
-  const scrollY = useSharedValue(0);
-  const scrollViewRef = useRef<Animated.ScrollView>(null);
-
-  const handleScrollUpdate = (scrolled: boolean) => {
-    if (isHeaderDate !== scrolled) setIsHeaderDate(scrolled);
-  };
-
-  const scrollHandler = useAnimatedScrollHandler((event) => {
-    scrollY.value = event.contentOffset.y;
-    runOnJS(handleScrollUpdate)(event.contentOffset.y > 60);
+  const [activeDate, setActiveDate] = useState<Date>(() => {
+      const [y, m, d] = dateStr.split('-').map(Number);
+      return new Date(y, m - 1, d);
   });
+  
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [isHeaderDate, setIsHeaderDate] = useState(false);
+
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const isScrolled = event.nativeEvent.contentOffset.y > 60;
+    if (isHeaderDate !== isScrolled) {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setIsHeaderDate(isScrolled);
+    }
+  };
 
   const fetchReportDetails = useCallback(async () => {
     if (!user || !dateStr) {
@@ -99,9 +114,6 @@ export default function ReportDetailsScreen() {
 
     try {
       const db = await getDB();
-      const profile: any = await db.getFirstAsync('SELECT current_job_id FROM profiles WHERE id = ?', [user.id]);
-      setJobId(profile?.current_job_id || null);
-
       const dbAtts: any[] = await db.getAllAsync(
         "SELECT * FROM attendance WHERE user_id = ? AND date = ? AND deleted_at IS NULL ORDER BY clock_in ASC",
         [user.id, dateStr]
@@ -126,9 +138,13 @@ export default function ReportDetailsScreen() {
       setAttendances(dbAtts.map(a => ({ ...a, _isDeleted: false, _isModified: false })));
       setTasks(processedTasks);
       setReportStatus(dbAtts.length > 0 ? dbAtts[dbAtts.length - 1].status : "pending");
+      
+      const [y, m, d] = dateStr.split('-').map(Number);
+      setActiveDate(new Date(y, m - 1, d));
+      
       setIsDirty(false);
-    } catch (e) {
-      console.log("Error fetching details:", e);
+    } catch (err) {
+      console.log("Error fetching details:", err);
     } finally {
       setLoading(false);
     }
@@ -144,6 +160,8 @@ export default function ReportDetailsScreen() {
             confirmText: 'Discard', cancelText: 'Keep Editing',
             onConfirm: () => {
                 setAlertConfig({ visible: false });
+                const [y, m, d] = dateStr.split('-').map(Number);
+                setActiveDate(new Date(y, m - 1, d));
                 fetchReportDetails(); 
                 toggleEditMode(false);
             },
@@ -152,7 +170,7 @@ export default function ReportDetailsScreen() {
     } else {
         toggleEditMode(false);
     }
-  }, [isDirty, fetchReportDetails]);
+  }, [isDirty, fetchReportDetails, dateStr]);
 
   useEffect(() => {
       const unsubscribe = navigation.addListener('beforeRemove', (e) => {
@@ -219,66 +237,80 @@ export default function ReportDetailsScreen() {
         const now = new Date().toISOString();
         if (attendances.length > 0) {
             for (const att of attendances) {
-                await db.runAsync("UPDATE attendance SET deleted_at = ?, is_synced = 0 WHERE id = ?", [now, att.id]);
-                await queueSyncItem("attendance", att.id, "UPDATE", { deleted_at: now });
+                const exists: any = await db.getFirstAsync("SELECT * FROM attendance WHERE id = ?", [att.id]);
+                if (exists) {
+                    await db.runAsync("UPDATE attendance SET deleted_at = ?, updated_at = ?, is_synced = 0 WHERE id = ?", [now, now, att.id]);
+                    const payload = { ...exists, deleted_at: now, updated_at: now, is_synced: 0 };
+                    await queueSyncItem("attendance", att.id, "UPDATE", payload);
+                }
             }
         }
         if (tasks.length > 0) {
             for (const acc of tasks) {
-                await db.runAsync("UPDATE accomplishments SET deleted_at = ?, is_synced = 0 WHERE id = ?", [now, acc.id]);
-                await queueSyncItem("accomplishments", acc.id, "UPDATE", { deleted_at: now });
+                const exists: any = await db.getFirstAsync("SELECT * FROM accomplishments WHERE id = ?", [acc.id]);
+                if (exists) {
+                    await db.runAsync("UPDATE accomplishments SET deleted_at = ?, updated_at = ?, is_synced = 0 WHERE id = ?", [now, now, acc.id]);
+                    const payload = { ...exists, deleted_at: now, updated_at: now, is_synced: 0 };
+                    await queueSyncItem("accomplishments", acc.id, "UPDATE", payload);
+                }
             }
         }
         triggerSync();
         router.back();
       }
-    } catch (error) { console.log(error); } finally { setSaving(false); }
+    } catch (err) { console.log(err); } finally { setSaving(false); }
+  };
+
+  const handleTimePress = (id: string, type: 'in' | 'out', current: string | null) => {
+      if (reportStatus === 'pending') {
+          setFloatingAlert({ visible: true, message: "Cannot edit attendance while session is in progress.", type: "warning" });
+          return;
+      }
+      setActivePicker({ id, type, current });
   };
 
   const handleTimeConfirm = (hours: number, minutes: number, period?: "AM" | "PM" | undefined) => {
       if (!activePicker) return;
-      const newDate = new Date(dateStr);
+
+      const targetDateStr = format(activeDate, 'yyyy-MM-dd');
+      const [y, m, d] = targetDateStr.split('-').map(Number);
+      const newDate = new Date(y, m - 1, d);
+      
       let h = hours;
       if (period === 'PM' && h < 12) h += 12;
       if (period === 'AM' && h === 12) h = 0;
       newDate.setHours(h, minutes, 0, 0);
 
+      const session = attendances.find(a => a.id === activePicker.id);
+      if (!session) return;
+
+      if (activePicker.type === 'in') {
+          if (session.clock_out && newDate > new Date(session.clock_out)) {
+              setFloatingAlert({ visible: true, message: "Time In cannot be later than Time Out.", type: "warning" });
+              setActivePicker(null);
+              return;
+          }
+      } else {
+          if (session.clock_in && newDate < new Date(session.clock_in)) {
+              setFloatingAlert({ visible: true, message: "Time Out cannot be earlier than Time In.", type: "warning" });
+              setActivePicker(null);
+              return;
+          }
+      }
+
       setAttendances(prev => prev.map(a => {
           if (a.id === activePicker.id) {
-              const updated = { ...a, _isModified: true };
-              if (activePicker.type === 'in') {
-                  updated.clock_in = newDate.toISOString();
-              } else {
-                  const inDate = updated.clock_in ? new Date(updated.clock_in) : new Date(dateStr);
-                  if (newDate < inDate) newDate.setDate(newDate.getDate() + 1); 
-                  updated.clock_out = newDate.toISOString();
-              }
-              return updated;
+              return {
+                  ...a,
+                  _isModified: true,
+                  clock_in: activePicker.type === 'in' ? newDate.toISOString() : a.clock_in,
+                  clock_out: activePicker.type === 'out' ? newDate.toISOString() : a.clock_out
+              };
           }
           return a;
       }));
       setIsDirty(true);
       setActivePicker(null);
-  };
-
-  const handleAddSession = () => {
-      setMenuVisible(false);
-      if (!user) return;
-      const newId = generateUUID();
-      const placeholderDate = new Date(dateStr);
-      placeholderDate.setHours(8, 0, 0, 0); 
-      
-      setAttendances([...attendances, {
-          id: newId, user_id: user.id, job_id: jobId, date: dateStr,
-          clock_in: placeholderDate.toISOString(), clock_out: null, status: 'pending', remarks: 'Manual Entry',
-          _isDeleted: false, _isModified: true 
-      }]);
-      setIsDirty(true);
-  };
-
-  const handleDeleteAttendance = (id: string) => {
-      setAttendances(prev => prev.map(a => a.id === id ? { ...a, _isDeleted: true } : a));
-      setIsDirty(true);
   };
 
   const handleDeleteTask = (id: string) => {
@@ -290,11 +322,15 @@ export default function ReportDetailsScreen() {
             try {
                 const db = await getDB();
                 const now = new Date().toISOString();
-                await db.runAsync('UPDATE accomplishments SET deleted_at = ?, updated_at = ?, is_synced = 0 WHERE id = ?', [now, now, id]);
-                await queueSyncItem('accomplishments', id, 'UPDATE', { deleted_at: now, updated_at: now });
+                const exists: any = await db.getFirstAsync("SELECT * FROM accomplishments WHERE id = ?", [id]);
+                if (exists) {
+                    await db.runAsync('UPDATE accomplishments SET deleted_at = ?, updated_at = ?, is_synced = 0 WHERE id = ?', [now, now, id]);
+                    const payload = { ...exists, deleted_at: now, updated_at: now, is_synced: 0 };
+                    await queueSyncItem('accomplishments', id, 'UPDATE', payload);
+                }
                 triggerSync();
                 fetchReportDetails();
-            } catch (error) { console.log(error); }
+            } catch (err) { console.log(err); }
             setLoading(false);
         },
         onCancel: () => setAlertConfig({ visible: false })
@@ -306,34 +342,63 @@ export default function ReportDetailsScreen() {
       try {
           const db = await getDB();
           const now = new Date().toISOString();
+          const targetDateStr = format(activeDate, 'yyyy-MM-dd');
 
           for (const att of attendances) {
               if (att._isDeleted) {
-                  const exists = await db.getFirstAsync("SELECT id FROM attendance WHERE id = ?", [att.id]);
+                  const exists: any = await db.getFirstAsync("SELECT * FROM attendance WHERE id = ?", [att.id]);
                   if (exists) {
-                      await db.runAsync("UPDATE attendance SET deleted_at = ?, is_synced = 0 WHERE id = ?", [now, att.id]);
-                      await queueSyncItem("attendance", att.id, "UPDATE", { deleted_at: now });
+                      await db.runAsync("UPDATE attendance SET deleted_at = ?, updated_at = ?, is_synced = 0 WHERE id = ?", [now, now, att.id]);
+                      const payload = { ...exists, deleted_at: now, updated_at: now, is_synced: 0 };
+                      await queueSyncItem("attendance", att.id, "UPDATE", payload);
                   }
-              } else if (att._isModified) {
-                  const exists = await db.getFirstAsync("SELECT id FROM attendance WHERE id = ?", [att.id]);
+              } else if (att._isModified || targetDateStr !== dateStr) {
+                  const exists: any = await db.getFirstAsync("SELECT * FROM attendance WHERE id = ?", [att.id]);
                   if (exists) {
                       await db.runAsync(
-                          "UPDATE attendance SET clock_in = ?, clock_out = ?, status = ?, updated_at = ?, is_synced = 0 WHERE id = ?",
-                          [att.clock_in, att.clock_out, att.clock_out ? 'completed' : 'pending', now, att.id]
+                          "UPDATE attendance SET clock_in = ?, clock_out = ?, status = ?, date = ?, updated_at = ?, is_synced = 0 WHERE id = ?",
+                          [att.clock_in, att.clock_out, att.clock_out ? 'completed' : 'pending', targetDateStr, now, att.id]
                       );
-                      await queueSyncItem("attendance", att.id, "UPDATE", { clock_in: att.clock_in, clock_out: att.clock_out, status: att.clock_out ? 'completed' : 'pending', updated_at: now });
+                      const payload = { 
+                          ...exists, 
+                          clock_in: att.clock_in, 
+                          clock_out: att.clock_out, 
+                          status: att.clock_out ? 'completed' : 'pending', 
+                          date: targetDateStr, 
+                          updated_at: now, 
+                          is_synced: 0 
+                      };
+                      await queueSyncItem("attendance", att.id, "UPDATE", payload);
                   } else {
-                      const newAtt = { id: att.id, user_id: att.user_id, job_id: att.job_id, date: att.date, clock_in: att.clock_in, clock_out: att.clock_out, status: att.clock_out ? 'completed' : 'pending', remarks: att.remarks, updated_at: now };
+                      const newAtt = { id: att.id, user_id: att.user_id, job_id: att.job_id, date: targetDateStr, clock_in: att.clock_in, clock_out: att.clock_out, status: att.clock_out ? 'completed' : 'pending', remarks: att.remarks, updated_at: now };
                       await saveAttendanceLocal(newAtt);
+                  }
+              }
+          }
+
+          if (targetDateStr !== dateStr) {
+              for (const task of tasks) {
+                  if (!task._isDeleted) {
+                      const exists: any = await db.getFirstAsync("SELECT * FROM accomplishments WHERE id = ?", [task.id]);
+                      if (exists) {
+                          await db.runAsync("UPDATE accomplishments SET date = ?, updated_at = ?, is_synced = 0 WHERE id = ?", [targetDateStr, now, task.id]);
+                          const payload = { ...exists, date: targetDateStr, updated_at: now, is_synced: 0 };
+                          await queueSyncItem("accomplishments", task.id, "UPDATE", payload);
+                      }
                   }
               }
           }
 
           setIsDirty(false);
           triggerSync();
-          fetchReportDetails();
+          
+          if (targetDateStr !== dateStr) {
+              router.setParams({ date: targetDateStr });
+          } else {
+              fetchReportDetails();
+          }
           toggleEditMode(false);
-      } catch (error: any) {
+      } catch {
           setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Failed to save session.', confirmText: 'Okay', onConfirm: () => setAlertConfig({ visible: false }) });
       } finally {
           setSaving(false);
@@ -356,7 +421,27 @@ export default function ReportDetailsScreen() {
   const firstSession = visibleAttendances[0];
   const lastSession = visibleAttendances[visibleAttendances.length - 1];
 
-  const dynamicHeaderTitle = isHeaderDate && dateStr ? format(new Date(dateStr), "MMMM d, yyyy") : (isEditMode ? "Edit Session" : "Report Details");
+  const totalMinutes = visibleAttendances.reduce((acc, curr) => {
+      if (curr.clock_in && curr.clock_out) {
+          const start = new Date(curr.clock_in).getTime();
+          const end = new Date(curr.clock_out).getTime();
+          return acc + Math.max(0, (end - start) / 60000);
+      }
+      return acc;
+  }, 0);
+  const workHours = Math.floor(totalMinutes / 60);
+  const workMins = Math.floor(totalMinutes % 60);
+  const workHoursStr = totalMinutes > 0 ? `${workHours}h ${workMins > 0 ? workMins + 'm' : ''}`.trim() : '0h';
+
+  const dynamicHeaderTitle = isEditMode 
+      ? "Edit Report" 
+      : (isHeaderDate ? format(activeDate, "MMMM d, yyyy") : "Report Details");
+      
+  const taskSectionTitle = visibleTasks.length >= 2 ? "Tasks & Activities" : "Task & Activity";
+
+  const hasOutTime = !!lastSession?.clock_out;
+  const outText = hasOutTime ? format(new Date(lastSession.clock_out), 'h:mm a') : (reportStatus === 'pending' ? 'In Progress' : '--:--');
+  const outColor = hasOutTime ? theme.colors.text : (reportStatus === 'pending' ? theme.colors.warning : theme.colors.danger);
 
   const renderTask = (task: any) => {
       const isSingleImage = task.images?.length === 1;
@@ -412,8 +497,71 @@ export default function ReportDetailsScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={["top"]}>
       <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} />
       <ModernAlert {...alertConfig} />
+      
+      <FloatingAlert 
+          visible={floatingAlert.visible} 
+          message={floatingAlert.message} 
+          type={floatingAlert.type as any} 
+          onHide={() => setFloatingAlert(prev => ({ ...prev, visible: false }))} 
+      />
+      
       <LoadingOverlay visible={saving || loading} message={saving ? "Saving Report..." : "Loading..."} />
       <ImageViewer visible={viewerVisible} imageUri={activeImageUri} onClose={() => setViewerVisible(false)} />
+
+      <DatePicker 
+          visible={showDatePicker} 
+          onClose={() => setShowDatePicker(false)} 
+          onSelect={(d) => { setActiveDate(d); setIsDirty(true); setShowDatePicker(false); }} 
+          selectedDate={activeDate} 
+          title="Edit Report Date" 
+      />
+
+      <Modal visible={logModalVisible} transparent animationType="fade" onRequestClose={() => setLogModalVisible(false)}>
+          <TouchableWithoutFeedback onPress={() => setLogModalVisible(false)}>
+              <View style={styles.bottomSheetOverlay}>
+                  <TouchableWithoutFeedback>
+                      <Animated.View 
+                          entering={FadeInDown.duration(250).easing(Easing.out(Easing.quad))} 
+                          exiting={FadeOutDown.duration(200).easing(Easing.in(Easing.quad))} 
+                          style={[styles.floatingSheet, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+                      >
+                          <View style={styles.modalHeader}>
+                              <View style={styles.modalHeaderLeft}>
+                                  <View style={[styles.modalIconBox, { backgroundColor: theme.colors.primary + '15' }]}>
+                                      <HugeiconsIcon icon={TimeManagementCircleIcon} size={20} color={theme.colors.primary} />
+                                  </View>
+                                  <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Session Log</Text>
+                              </View>
+                              <TouchableOpacity onPress={() => setLogModalVisible(false)} style={[styles.modalCloseBtn, { backgroundColor: theme.colors.background }]}>
+                                  <HugeiconsIcon icon={Cancel01Icon} size={20} color={theme.colors.textSecondary} />
+                              </TouchableOpacity>
+                          </View>
+
+                          <ScrollView style={{ maxHeight: 350 }} showsVerticalScrollIndicator={false}>
+                              <View style={styles.modalBody}>
+                                  {visibleAttendances.length > 0 ? (
+                                      visibleAttendances.map((session, idx) => {
+                                          const inTime = session.clock_in ? format(new Date(session.clock_in), 'h:mm a') : '--:--';
+                                          const outTime = session.clock_out ? format(new Date(session.clock_out), 'h:mm a') : 'In Progress';
+                                          return (
+                                              <View key={session.id} style={styles.propertyRow}>
+                                                  <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Session {idx + 1}</Text>
+                                                  <Text style={[styles.value, { color: theme.colors.text }]}>{inTime} - {outTime}</Text>
+                                              </View>
+                                          )
+                                      })
+                                  ) : (
+                                      <Text style={{ color: theme.colors.textSecondary, textAlign: 'center', paddingVertical: 20, fontFamily: 'Nunito_500Medium' }}>
+                                          No sessions recorded.
+                                      </Text>
+                                  )}
+                              </View>
+                          </ScrollView>
+                      </Animated.View>
+                  </TouchableWithoutFeedback>
+              </View>
+          </TouchableWithoutFeedback>
+      </Modal>
 
       <TimePicker 
           visible={!!activePicker} 
@@ -429,28 +577,26 @@ export default function ReportDetailsScreen() {
         title={dynamicHeaderTitle}
         leftElement={
             isEditMode ? (
-                <TouchableOpacity onPress={handleDiscardEdits} style={{ padding: 8, marginLeft: -8 }}>
-                    <HugeiconsIcon icon={ArrowLeft02Icon} size={24} color={theme.colors.text} />
+                <TouchableOpacity onPress={handleDiscardEdits} style={{ paddingLeft: 10, paddingVertical: 10, paddingRight: 8 }} activeOpacity={0.7}>
+                    <HugeiconsIcon icon={Cancel01Icon} size={24} color={theme.colors.text} />
                 </TouchableOpacity>
             ) : undefined
         }
         rightElement={
-          <View ref={moreIconRef} collapsable={false}>
-            <TouchableOpacity onPress={handleMenuOpen} style={styles.headerMoreBtn}>
-              <HugeiconsIcon icon={MoreVerticalIcon} size={24} color={theme.colors.text} />
-            </TouchableOpacity>
-          </View>
+          !isEditMode ? (
+            <View ref={moreIconRef} collapsable={false}>
+              <TouchableOpacity onPress={handleMenuOpen} style={{ padding: 8, marginRight: -8 }}>
+                <HugeiconsIcon icon={MoreVerticalIcon} size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+          ) : <View style={{ width: 40 }} />
         }
       />
 
       <ActionMenu
         visible={menuVisible}
         onClose={() => setMenuVisible(false)}
-        actions={isEditMode ? [
-            { label: 'Add Session', icon: Clock01Icon, color: theme.colors.text, onPress: handleAddSession },
-            { label: 'Add Entry', icon: Task01Icon, color: theme.colors.text, onPress: () => { setMenuVisible(false); router.push({ pathname: '/reports/add-entry', params: { date: dateStr, fixedDate: 'true' } }); } },
-            { label: "Discard Edits", icon: Cancel01Icon, onPress: handleDiscardEdits, color: theme.colors.danger, destructive: true },
-        ] : [
+        actions={[
             { label: "Edit Report", icon: PencilEdit02Icon, onPress: () => toggleEditMode(true), color: theme.colors.text },
             { label: "Share Overview", icon: Share01Icon, onPress: handleShare, color: theme.colors.primary },
             { label: "Generate Document", icon: File02Icon, onPress: () => { setMenuVisible(false); router.push({ pathname: "/reports/generate", params: { date } }); }, color: "#f97316" },
@@ -472,88 +618,82 @@ export default function ReportDetailsScreen() {
         anchor={menuAnchor}
       />
 
-      <Animated.ScrollView
-        ref={scrollViewRef}
+      <ScrollView
         contentContainerStyle={styles.scrollContent}
-        onScroll={scrollHandler}
+        onScroll={handleScroll}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.heroSection}>
-            <View style={[styles.heroIconBox, { backgroundColor: theme.colors.primary + '15' }]}>
-                <HugeiconsIcon icon={Calendar03Icon} size={32} color={theme.colors.primary} />
-            </View>
-            <View>
-                <Text style={[styles.heroDate, { color: theme.colors.text }]}>
-                    {format(new Date(dateStr), "MMMM d, yyyy")}
-                </Text>
+            <TouchableOpacity 
+                disabled={!isEditMode} 
+                activeOpacity={0.7} 
+                onPress={() => setShowDatePicker(true)}
+            >
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Text style={[styles.heroDate, { color: theme.colors.text }]}>
+                        {format(activeDate, "MMMM d, yyyy")}
+                    </Text>
+                    {isEditMode && <HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.primary} style={{ marginLeft: 8, marginBottom: 2 }} />}
+                </View>
                 <Text style={[styles.heroDay, { color: theme.colors.textSecondary }]}>
-                    {format(new Date(dateStr), "EEEE")}
+                    {format(activeDate, "EEEE")}
                 </Text>
-            </View>
+            </TouchableOpacity>
         </View>
 
         <View style={styles.sectionHeader}>
-          <HugeiconsIcon icon={Clock01Icon} size={20} color={theme.colors.text} />
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Attendance Overview</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                <HugeiconsIcon icon={Time04Icon} size={20} color={theme.colors.text} />
+                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Attendance</Text>
+                <View style={[styles.badge, { backgroundColor: theme.colors.primary + '15' }]}>
+                    <Text style={[styles.badgeText, { color: theme.colors.primary }]}>{workHoursStr}</Text>
+                </View>
+            </View>
+            <IconButton 
+                icon={TimeManagementCircleIcon} 
+                onPress={() => setLogModalVisible(true)} 
+                backgroundColor={theme.colors.iconBg} 
+                color={theme.colors.primary} 
+                size={20} 
+            />
         </View>
 
         {visibleAttendances.length > 0 ? (
-            <View style={{ marginBottom: 40 }}>
-                <View style={styles.timeGrid}>
-                    <View style={[styles.timeCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                        <Text style={[styles.timeCardLabel, { color: theme.colors.textSecondary }]}>Earliest In</Text>
-                        <Text style={[styles.timeCardValue, { color: theme.colors.text }]}>
-                            {firstSession?.clock_in ? format(new Date(firstSession.clock_in), 'h:mm a') : '--:--'}
-                        </Text>
-                    </View>
-                    <View style={[styles.timeCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                        <Text style={[styles.timeCardLabel, { color: theme.colors.textSecondary }]}>Latest Out</Text>
-                        <Text style={[styles.timeCardValue, { color: theme.colors.text }]}>
-                            {lastSession?.clock_out ? format(new Date(lastSession.clock_out), 'h:mm a') : 'Now'}
-                        </Text>
-                    </View>
+            <View style={[styles.mainTimeCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                
+                <View style={styles.timeSection}>
+                    <Text style={[styles.timeLabel, { color: theme.colors.textSecondary }]}>TIME IN</Text>
+                    <TouchableOpacity 
+                        disabled={!isEditMode} 
+                        activeOpacity={0.7} 
+                        onPress={() => firstSession && handleTimePress(firstSession.id, 'in', firstSession.clock_in)}
+                    >
+                        <View style={styles.timeValueContainer}>
+                            <Text style={[styles.timeValue, { color: theme.colors.text }]}>
+                                {firstSession?.clock_in ? format(new Date(firstSession.clock_in), 'h:mm a') : '--:--'}
+                            </Text>
+                            {isEditMode && <HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.primary} />}
+                        </View>
+                    </TouchableOpacity>
                 </View>
 
-                <View style={styles.sessionListContainer}>
-                    {visibleAttendances.map((session: any, index: number) => (
-                        <View key={session.id} style={[styles.sessionCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                            <View style={[styles.sessionCardHeader, { borderBottomColor: theme.colors.border }]}>
-                                <View style={[styles.sessionBadge, { backgroundColor: theme.colors.primary + '15' }]}>
-                                    <Text style={[styles.sessionBadgeText, { color: theme.colors.primary }]}>Session {index + 1}</Text>
-                                </View>
-                                {isEditMode && (
-                                    <TouchableOpacity onPress={() => handleDeleteAttendance(session.id)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                                        <HugeiconsIcon icon={Delete02Icon} size={18} color={theme.colors.danger} />
-                                    </TouchableOpacity>
-                                )}
-                            </View>
+                <View style={[styles.verticalDivider, { backgroundColor: theme.colors.border }]} />
 
-                            <View style={styles.sessionCardBody}>
-                                <TouchableOpacity disabled={!isEditMode} activeOpacity={0.7} onPress={() => setActivePicker({ id: session.id, type: 'in', current: session.clock_in })} style={styles.sessionTimeCol}>
-                                    <Text style={[styles.sessionTimeLabel, { color: theme.colors.textSecondary }]}>TIME IN</Text>
-                                    <View style={styles.sessionValueRow}>
-                                        <Text style={[styles.sessionTimeValue, { color: theme.colors.text }]}>
-                                            {session.clock_in ? format(new Date(session.clock_in), 'h:mm a') : '--:--'}
-                                        </Text>
-                                        {isEditMode && <HugeiconsIcon icon={PencilEdit02Icon} size={14} color={theme.colors.primary} />}
-                                    </View>
-                                </TouchableOpacity>
-                                
-                                <View style={[styles.sessionCardDivider, { backgroundColor: theme.colors.border }]} />
-                                
-                                <TouchableOpacity disabled={!isEditMode} activeOpacity={0.7} onPress={() => setActivePicker({ id: session.id, type: 'out', current: session.clock_out })} style={styles.sessionTimeCol}>
-                                    <Text style={[styles.sessionTimeLabel, { color: theme.colors.textSecondary }]}>TIME OUT</Text>
-                                    <View style={styles.sessionValueRow}>
-                                        <Text style={[styles.sessionTimeValue, { color: theme.colors.text }]}>
-                                            {session.clock_out ? format(new Date(session.clock_out), 'h:mm a') : 'Now'}
-                                        </Text>
-                                        {isEditMode && <HugeiconsIcon icon={PencilEdit02Icon} size={14} color={theme.colors.primary} />}
-                                    </View>
-                                </TouchableOpacity>
-                            </View>
+                <View style={styles.timeSection}>
+                    <Text style={[styles.timeLabel, { color: theme.colors.textSecondary }]}>TIME OUT</Text>
+                    <TouchableOpacity 
+                        disabled={!isEditMode} 
+                        activeOpacity={0.7} 
+                        onPress={() => lastSession && handleTimePress(lastSession.id, 'out', lastSession.clock_out)}
+                    >
+                        <View style={styles.timeValueContainer}>
+                            <Text style={[styles.timeValue, { color: outColor }]}>
+                                {outText}
+                            </Text>
+                            {isEditMode && <HugeiconsIcon icon={PencilEdit02Icon} size={16} color={theme.colors.primary} />}
                         </View>
-                    ))}
+                    </TouchableOpacity>
                 </View>
             </View>
         ) : (
@@ -564,11 +704,20 @@ export default function ReportDetailsScreen() {
         )}
 
         <View style={styles.sectionHeader}>
-          <HugeiconsIcon icon={Task01Icon} size={20} color={theme.colors.text} />
-          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Tasks</Text>
-          <View style={[styles.badge, { backgroundColor: theme.colors.primary + '15' }]}>
-            <Text style={[styles.badgeText, { color: theme.colors.primary }]}>{visibleTasks.length}</Text>
-          </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}>
+                <HugeiconsIcon icon={Activity01Icon} size={20} color={theme.colors.text} />
+                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{taskSectionTitle}</Text>
+                <View style={[styles.badge, { backgroundColor: theme.colors.primary + '15' }]}>
+                    <Text style={[styles.badgeText, { color: theme.colors.primary }]}>{visibleTasks.length}</Text>
+                </View>
+            </View>
+            <IconButton 
+                icon={PlusSignIcon} 
+                onPress={() => router.push({ pathname: '/reports/add-entry', params: { date: dateStr, fixedDate: 'true' } })} 
+                backgroundColor={theme.colors.iconBg} 
+                color={theme.colors.primary} 
+                size={20} 
+            />
         </View>
 
         {visibleTasks.length === 0 ? (
@@ -580,7 +729,7 @@ export default function ReportDetailsScreen() {
           <AnimatedList data={visibleTasks} renderItem={renderTask} />
         )}
 
-      </Animated.ScrollView>
+      </ScrollView>
 
       {isEditMode && isDirty && (
           <Footer>
@@ -593,37 +742,46 @@ export default function ReportDetailsScreen() {
 
 const styles = StyleSheet.create({
   scrollContent: { padding: 24, paddingBottom: 120 },
-  headerMoreBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
   
-  heroSection: { flexDirection: "row", alignItems: "center", marginBottom: 40, gap: 16 },
-  heroIconBox: { width: 64, height: 64, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  heroDate: { fontSize: 24, fontFamily: 'Nunito_800ExtraBold', letterSpacing: -0.5, marginBottom: 4 },
-  heroDay: { fontSize: 15, fontFamily: 'Nunito_600SemiBold', textTransform: 'uppercase', letterSpacing: 1 },
+  heroSection: { marginBottom: 32 },
+  heroDate: { fontSize: 24, fontFamily: 'Nunito_800ExtraBold', letterSpacing: -0.5, marginBottom: 2 },
+  heroDay: { fontSize: 14, fontFamily: 'Nunito_600SemiBold', textTransform: 'uppercase', letterSpacing: 1 },
 
-  sectionHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 16 },
-  sectionTitle: { fontSize: 18, fontFamily: 'Nunito_800ExtraBold', flex: 1, letterSpacing: -0.3 },
+  sectionHeader: { flexDirection: "row", alignItems: "center", justifyContent: 'space-between', marginBottom: 16 },
+  sectionTitle: { fontSize: 18, fontFamily: 'Nunito_800ExtraBold', letterSpacing: -0.3, flex: 0 },
   badge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
   badgeText: { fontSize: 13, fontFamily: 'Nunito_700Bold' },
 
-  timeGrid: { flexDirection: "row", gap: 12, marginBottom: 20 },
-  timeCard: { flex: 1, padding: 18, borderRadius: 20, borderWidth: 1 },
-  timeCardLabel: { fontSize: 11, fontFamily: 'Nunito_700Bold', textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 },
-  timeCardValue: { fontSize: 18, fontFamily: 'Nunito_800ExtraBold' },
+  mainTimeCard: { 
+      flexDirection: 'row', 
+      borderRadius: 20, 
+      borderWidth: 1, 
+      padding: 24, 
+      alignItems: 'center',
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.02,
+      shadowRadius: 8,
+      elevation: 1,
+      marginBottom: 40 
+  },
+  timeSection: { flex: 1, paddingVertical: 8 },
+  timeLabel: { fontSize: 11, fontFamily: 'Nunito_700Bold', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 },
+  timeValueContainer: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  timeValue: { fontSize: 20, fontFamily: 'Nunito_800ExtraBold', letterSpacing: -0.5 },
+  verticalDivider: { width: 1, height: '100%', marginHorizontal: 20, opacity: 0.5 },
 
-  sessionListContainer: { gap: 12 },
-  sessionCard: { borderRadius: 20, borderWidth: 1, overflow: 'hidden' },
-  sessionCardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
-  sessionBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-  sessionBadgeText: { fontSize: 11, fontFamily: 'Nunito_800ExtraBold', textTransform: 'uppercase', letterSpacing: 0.5 },
-  sessionCardBody: { flexDirection: 'row', alignItems: 'center', padding: 16 },
-  sessionTimeCol: { flex: 1 },
-  sessionTimeLabel: { fontSize: 11, fontFamily: 'Nunito_600SemiBold', textTransform: 'uppercase', marginBottom: 6, letterSpacing: 0.5 },
-  sessionValueRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  sessionTimeValue: { fontSize: 16, fontFamily: 'Nunito_800ExtraBold' },
-  sessionCardDivider: { width: 1, height: 32, marginHorizontal: 16, opacity: 0.5 },
-
-  emptyState: { alignItems: "center", padding: 40, borderRadius: 24, borderWidth: 1, borderStyle: 'dashed' },
+  emptyState: { 
+      alignItems: "center", 
+      padding: 40, 
+      borderRadius: 20, 
+      borderWidth: 1, 
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.02,
+      shadowRadius: 8,
+      elevation: 1 
+  },
   
   taskCard: { borderRadius: 20, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.02, shadowRadius: 8, elevation: 1, marginBottom: 16, overflow: 'hidden' },
   taskCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', padding: 20, paddingBottom: 16 },
@@ -638,5 +796,17 @@ const styles = StyleSheet.create({
 
   divider: { height: 1, opacity: 0.5 },
   taskFooter: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 20, paddingVertical: 12 },
-  taskTimeText: { fontSize: 13, fontFamily: 'Nunito_600SemiBold' }
+  taskTimeText: { fontSize: 13, fontFamily: 'Nunito_600SemiBold' },
+
+  bottomSheetOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end', paddingHorizontal: 20 },
+  floatingSheet: { width: '100%', marginBottom: Platform.OS === 'ios' ? 40 : 24, borderRadius: 24, borderWidth: 1, padding: 20 },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  modalHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  modalIconBox: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  modalTitle: { fontSize: 18, fontFamily: 'Nunito_800ExtraBold', letterSpacing: -0.3 },
+  modalCloseBtn: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  modalBody: { gap: 2 },
+  propertyRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(150, 150, 150, 0.15)' },
+  label: { fontSize: 14, fontFamily: 'Nunito_600SemiBold', flex: 1 },
+  value: { fontSize: 14, fontFamily: 'Nunito_700Bold', maxWidth: '65%', textAlign: 'right', lineHeight: 20 },
 });

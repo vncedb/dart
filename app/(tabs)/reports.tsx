@@ -1,12 +1,11 @@
 // filepath: app/(tabs)/reports.tsx
 import {
-  Clock01Icon,
   File02Icon,
   FileVerifiedIcon,
   Message01Icon,
   Search01Icon,
   Task01Icon,
-  WifiOff01Icon,
+  WifiOff01Icon
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import NetInfo from "@react-native-community/netinfo";
@@ -64,7 +63,7 @@ export default function ReportsScreen() {
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [markedDates, setMarkedDates] = useState<string[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
-  const [activeJob, setActiveJob] = useState<any>(null); // Stored to pass to ReportItem
+  const [activeJob, setActiveJob] = useState<any>(null); 
 
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -96,10 +95,10 @@ export default function ReportsScreen() {
 
   const applyFilter = useCallback((range: DateRange, data: any[]) => {
     if (!range || !data) return;
-    const startStr = range.start.split("T")[0];
-    const endStr = range.end.split("T")[0];
+    const startStr = (range.start as string).split("T")[0];
+    const endStr = (range.end as string).split("T")[0];
     const filtered = data
-      .map((section) => {
+      .map((section: any) => {
         const matchingItems = section.data.filter((item: any) => item.date >= startStr && item.date <= endStr);
         if (matchingItems.length > 0) return { ...section, data: matchingItems };
         return null;
@@ -122,7 +121,7 @@ export default function ReportsScreen() {
       setUnreadCount(count);
 
       const job: any = await ReportService.getActiveJob(userId);
-      setActiveJob(job); // Stored to give ReportItem shift context
+      setActiveJob(job); 
       if (!job) {
         setAllSections([]);
         setFilteredSections([]);
@@ -152,10 +151,10 @@ export default function ReportsScreen() {
       const sortedDates = Array.from(allDatesSet).sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
 
       const merged = sortedDates.map((dateStr) => {
-        const dayAtts = attendance
+        const dayAtts = (attendance as any[])
           ?.filter((a: any) => a.date === dateStr)
           .sort((a: any, b: any) => new Date(a.clock_in).getTime() - new Date(b.clock_in).getTime()) || [];
-        const taskList: any = tasks?.filter((t: any) => t.date === dateStr) || [];
+        const taskList: any = (tasks as any[])?.filter((t: any) => t.date === dateStr) || [];
         
         let synced = true;
         if (dayAtts.length > 0 && dayAtts.some((a: any) => !a.is_synced || a.is_synced === 0)) synced = false;
@@ -175,8 +174,8 @@ export default function ReportsScreen() {
         };
       });
 
-      const grouped = ReportService.groupReportsByPayout(merged, payoutType);
-      const sectionsArray = Object.values(grouped);
+      const grouped = ReportService.groupReportsByPayout(merged, payoutType) as any;
+      const sectionsArray = Object.values(grouped) as any[];
       setAllSections(sectionsArray);
 
       if (!currentRange) {
@@ -198,14 +197,16 @@ export default function ReportsScreen() {
           end = endOfMonth(now);
           label = `${format(start, "MMM 16")} - ${format(end, "d, yyyy")}`;
         }
-        const defaultRange: ExtendedDateRange = { start: format(start, "yyyy-MM-dd"), end: format(end, "yyyy-MM-dd"), label, type: "period" };
+        
+        const defaultRange = { start: format(start, "yyyy-MM-dd"), end: format(end, "yyyy-MM-dd"), label, type: "period" } as ExtendedDateRange;
         setCurrentRange(defaultRange);
         applyFilter(defaultRange, sectionsArray);
       } else {
         applyFilter(currentRange, sectionsArray);
       }
-    } catch (error: any) { 
-      console.log("Fetch Error", error);
+    } catch (error) { 
+      const err = error as any;
+      console.log("Fetch Error", err);
     } finally {
       setRefreshing(false);
       setIsLoading(false);
@@ -221,22 +222,23 @@ export default function ReportsScreen() {
   const handleExactDateSelect = (date: Date) => {
     if (date) {
       const dateStr = format(date, "yyyy-MM-dd");
-      const range: ExtendedDateRange = { start: dateStr, end: dateStr, label: format(date, "MMMM d, yyyy"), type: "day" };
+      const range = { start: dateStr, end: dateStr, label: format(date, "MMMM d, yyyy"), type: "day" } as ExtendedDateRange;
       setCurrentRange(range);
       applyFilter(range, allSections);
     }
   };
 
-  const handleRangeSelect = (range: ExtendedDateRange) => {
-    setCurrentRange(range);
-    applyFilter(range, allSections);
+  const handleRangeSelect = (range: any) => {
+    const extRange = range as ExtendedDateRange;
+    setCurrentRange(extRange);
+    applyFilter(extRange, allSections);
   };
 
   const renderItem = ({ item, index }: any) => (
     <ReportItem
       item={item}
       index={index}
-      job={activeJob} // Passing job config
+      job={activeJob}
       onPress={() => router.push({ pathname: "/reports/details", params: { date: item.date } })}
     />
   );
@@ -267,7 +269,7 @@ export default function ReportsScreen() {
       <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} />
       <FloatingAlert visible={floatingAlert.visible} message={floatingAlert.message} type={floatingAlert.type as any} onHide={() => setFloatingAlert({ ...floatingAlert, visible: false })} />
 
-      <ReportFilterModal visible={modalVisible} onClose={() => setModalVisible(false)} availableDates={availableDates} currentRange={currentRange} onSelect={handleRangeSelect as any} />
+      <ReportFilterModal visible={modalVisible} onClose={() => setModalVisible(false)} availableDates={availableDates} currentRange={currentRange} onSelect={handleRangeSelect} />
 
       <DatePicker visible={showDatePicker} onClose={() => setShowDatePicker(false)} onSelect={handleExactDateSelect} selectedDate={currentRange && currentRange.type === "day" ? new Date(currentRange.start) : new Date()} title="Select Specific Date" markedDates={markedDates} />
 
@@ -279,12 +281,10 @@ export default function ReportsScreen() {
           { 
               label: "Add Entry", 
               icon: Task01Icon, 
-              onPress: () => { setActionMenuVisible(false); router.push("/reports/add-entry"); } 
-          },
-          { 
-              label: "Log Attendance", 
-              icon: Clock01Icon, 
-              onPress: () => { setActionMenuVisible(false); router.push("/reports/add-attendance"); } 
+              onPress: () => { 
+                  setActionMenuVisible(false); 
+                  router.push({ pathname: "/reports/add-entry", params: { showAttendance: 'true' } }); 
+              } 
           },
           { 
               label: "Generate Report", 

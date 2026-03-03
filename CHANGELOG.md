@@ -2,6 +2,30 @@
 
 All notable changes to the DART application will be documented in this file.
 
+# Changelog
+
+## [1.0.4] - 2026-03-04
+
+### ✨ New Features
+* **Session Log Modal**: Added a detailed modal in Report Details to view precise daily time-in and time-out session histories.
+* **Inline Date Editing**: The report date is now directly editable from the Report Details screen. Changing the date intelligently cascades the update to all related tasks and attendance records.
+* **Global Icon Button**: Introduced a new, highly reusable `IconButton` component to standardize circular and rounded button styles across the app.
+
+### 🎨 UI/UX Improvements
+* **Report Item Redesign**: Restructured the Report Item cards to display entry counts and logged hours horizontally below the time, and aligned status tags into a compact 2x2 grid on the top right.
+* **Tooltip Enhancement**: Tooltips on Report Items now trigger on "Hold" (Long Press) and safely float outside container boundaries with automatic width sizing to prevent text cut-offs.
+* **Report Details Layout**: Unified the Attendance and Task container designs, added a dynamic "Work Hour/s" badge, and matched Action Menu icon styles.
+* **Edit Mode Polish**: Refined the Edit Report header to lock the title, display a cleanly padded "X" discard button, and hide non-essential actions.
+* **Typography Stabilization**: Locked font sizes and weights for time displays to prevent unwanted auto-shrinking or layout shifts.
+
+### 🐛 Bug Fixes
+* **Native Crash Resolved**: Fixed a critical JNI/C++ crash caused by background garbage collection conflicting with scroll animations on the Report Details screen.
+* **Timezone Offset Fix**: Fixed a UTC shifting bug where editing attendance times would accidentally bump the record to a different day, resulting in a "No Record" error.
+* **Time Chronology Enforcement**: Fixed the 24h+ duration bug. Time In and Time Out inputs are now strictly clamped within the current local date boundaries (12:00 AM - 11:59 PM).
+* **Edit Lock**: Prevented manual time editing for active/ongoing ("In Progress") sessions to ensure time-tracking integrity.
+
+---
+
 ## [1.0.3] - 2026-03-02
 ### Highlights
 - Introduced Monetization & App Polish.

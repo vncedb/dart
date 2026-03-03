@@ -13,6 +13,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withTiming } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import Button from "../../components/Button";
@@ -35,6 +36,54 @@ const formatBytes = (bytes: number, decimals = 2) => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+};
+
+// Custom Marquee Component for scrolling long file names
+const MarqueeText = ({ text, style }: { text: string; style: any }) => {
+    const [textWidth, setTextWidth] = useState(0);
+    const [containerWidth, setContainerWidth] = useState(0);
+    const translateX = useSharedValue(0);
+
+    useEffect(() => {
+        if (textWidth > containerWidth && containerWidth > 0) {
+            translateX.value = 0;
+            translateX.value = withDelay(
+                1000, 
+                withRepeat(
+                    withTiming(-(textWidth + 30), { duration: (textWidth + 30) * 15, easing: Easing.linear }),
+                    -1,
+                    false
+                )
+            );
+        } else {
+            translateX.value = 0;
+        }
+    }, [textWidth, containerWidth]);
+
+    const animatedStyle = useAnimatedStyle(() => ({
+        transform: [{ translateX: translateX.value }]
+    }));
+
+    return (
+        <View 
+            style={{ flex: 1, overflow: 'hidden', alignItems: 'flex-end', paddingLeft: 10 }}
+            onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
+        >
+            <Animated.View style={[{ flexDirection: 'row' }, textWidth > containerWidth ? animatedStyle : undefined]}>
+                <Text
+                    numberOfLines={1}
+                    onLayout={(e) => setTextWidth(e.nativeEvent.layout.width)}
+                    style={[style, { maxWidth: undefined }]}
+                >
+                    {text}
+                </Text>
+                {/* Duplicate text for seamless looping */}
+                {textWidth > containerWidth && containerWidth > 0 && (
+                    <Text style={[style, { marginLeft: 30, maxWidth: undefined }]}>{text}</Text>
+                )}
+            </Animated.View>
+        </View>
+    );
 };
 
 export default function PreviewReportScreen() {
@@ -72,13 +121,15 @@ export default function PreviewReportScreen() {
       return viewOptions.meta?.period || 'Report';
   }, [startDate, endDate, date, viewOptions]);
 
-  // Generates Report_YYYYMMDD_Style precisely as requested
+  // Generates Report_YYYYMMDD_Style_HHMM
   const finalReportName = useMemo(() => {
       const styleName = viewOptions.format === "pdf"
         ? (viewOptions.style ? viewOptions.style.charAt(0).toUpperCase() + viewOptions.style.slice(1) : "Corporate")
         : "Sheet";
-      return `Report_${format(new Date(), 'yyyyMMdd')}_${styleName}`;
+      return `Report_${format(new Date(), 'yyyyMMdd')}_${styleName}_${format(new Date(), 'HHmm')}`;
   }, [viewOptions]);
+
+  const displayFileName = `${finalReportName}.${viewOptions.format === 'pdf' ? 'pdf' : 'xlsx'}`;
 
   const generateFile = useCallback(async () => {
     setLoading(true);
@@ -230,7 +281,6 @@ export default function PreviewReportScreen() {
       await FileSystem.copyAsync({ from: fileUri!, to: permUri });
       const info = await FileSystem.getInfoAsync(permUri);
 
-      // Metadata to enable precise grouping/filtering in saved reports list
       const reportMeta = {
           reportDate: formattedPeriod,
           startDate: startDate ? new Date(startDate as string).toISOString() : (date ? new Date(date as string).toISOString() : new Date().toISOString()),
@@ -242,6 +292,7 @@ export default function PreviewReportScreen() {
         id: reportId, user_id: user.id, title: finalReportName, file_path: permUri,
         file_type: viewOptions.format, file_size: info.exists ? info.size : 0,
         created_at: new Date().toISOString(), remote_url: null,
+        period_key: formattedPeriod, // Forces reportDate string into column as bulletproof fallback
         metadata: JSON.stringify(reportMeta)
       };
 
@@ -306,30 +357,36 @@ export default function PreviewReportScreen() {
 
                   <View style={styles.detailRow}>
                       <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>File Name</Text>
-                      <Text style={[styles.detailValue, { color: theme.colors.text }]} numberOfLines={1}>{finalReportName}</Text>
+                      <MarqueeText text={displayFileName} style={[styles.detailValue, { color: theme.colors.text }]} />
                   </View>
                   <View style={styles.detailRow}>
-                      <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Format</Text>
+                      <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>File Type</Text>
                       <View style={[styles.badge, { backgroundColor: theme.colors.primary + '15' }]}>
-                          <Text style={[styles.badgeText, { color: theme.colors.primary }]}>{String(viewOptions.format).toUpperCase()}</Text>
+                          <Text style={[styles.badgeText, { color: theme.colors.primary }]}>{viewOptions.format === 'pdf' ? 'PDF Document' : 'Excel Spreadsheet'}</Text>
                       </View>
                   </View>
                   <View style={styles.detailRow}>
-                      <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>File Size</Text>
-                      <Text style={[styles.detailValue, { color: theme.colors.text }]}>{formatBytes(fileSize)}</Text>
+                      <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Report Date</Text>
+                      <Text style={[styles.detailValue, { color: theme.colors.text }]}>{formattedPeriod}</Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                      <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Generated On</Text>
+                      <Text style={[styles.detailValue, { color: theme.colors.text }]}>{format(new Date(), "MMM d, yyyy • h:mm a")}</Text>
                   </View>
                   <View style={[styles.detailRow, { marginBottom: 0 }]}>
-                      <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Generated</Text>
-                      <Text style={[styles.detailValue, { color: theme.colors.text }]}>{format(new Date(), "MMM d, yyyy • h:mm a")}</Text>
+                      <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>File Size</Text>
+                      <Text style={[styles.detailValue, { color: theme.colors.text }]}>{formatBytes(fileSize)}</Text>
                   </View>
               </View>
           </View>
         )}
       </View>
 
-      <Footer>
-        <Button title="Save to Device" onPress={handleSavePress} variant="primary" disabled={loading || !fileUri} icon={<HugeiconsIcon icon={FloppyDiskIcon} size={20} color="#fff" />} style={{ width: "100%" }} />
-      </Footer>
+      {!loading && fileUri && (
+        <Footer>
+          <Button title="Save Report" onPress={handleSavePress} variant="primary" disabled={loading || !fileUri} icon={<HugeiconsIcon icon={FloppyDiskIcon} size={20} color="#fff" />} style={{ width: "100%" }} />
+        </Footer>
+      )}
     </SafeAreaView>
   );
 }
@@ -348,8 +405,8 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 15, fontFamily: 'Nunito_700Bold', textTransform: 'uppercase', letterSpacing: 0.5 },
   divider: { height: 1, width: '100%', marginBottom: 16, opacity: 0.6 },
   detailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  detailLabel: { fontSize: 14, fontFamily: 'Nunito_600SemiBold' },
+  detailLabel: { fontSize: 14, fontFamily: 'Nunito_600SemiBold', flex: 1 },
   detailValue: { fontSize: 14, fontFamily: 'Nunito_700Bold', maxWidth: '65%', textAlign: 'right' },
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-  badgeText: { fontSize: 12, fontFamily: 'Nunito_700Bold' }
+  badgeText: { fontSize: 12, fontFamily: 'Nunito_800ExtraBold' }
 });

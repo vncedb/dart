@@ -1,5 +1,6 @@
 // filepath: app/reports/add-entry.tsx
 import {
+    ArrowDown01Icon,
     Calendar03Icon,
     Camera01Icon,
     Delete02Icon,
@@ -32,6 +33,7 @@ import Footer from '../../components/Footer';
 import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import ModernAlert from '../../components/ModernAlert';
+import TimePicker from '../../components/TimePicker';
 import { useAppTheme } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
 import { useSync } from '../../context/SyncContext';
@@ -47,21 +49,32 @@ export default function AddEntryScreen() {
     const { user } = useAuth(); 
     const { triggerSync } = useSync();
     
-    const { id, jobId, date: paramDate, fixedDate } = useLocalSearchParams();
+    const { id, jobId, date: paramDate, fixedDate, showAttendance } = useLocalSearchParams();
     const entryId = Array.isArray(id) ? id[0] : id; 
     const passedJobId = Array.isArray(jobId) ? jobId[0] : jobId;
     const isFixedDate = fixedDate === 'true';
+    const showAttendanceBool = showAttendance === 'true';
     
     const canEditDate = !isFixedDate && !entryId;
     
+    // --- Data States ---
     const [description, setDescription] = useState('');
     const [remarks, setRemarks] = useState('');
     const [images, setImages] = useState<string[]>([]);
     const [activeJobId, setActiveJobId] = useState<string | null>(null);
 
     const [selectedDate, setSelectedDate] = useState<Date>(paramDate ? new Date(paramDate as string) : new Date());
-    const [showDatePicker, setShowDatePicker] = useState(false);
+    
+    // --- Time States (Attendance Mode) ---
+    const [timeIn, setTimeIn] = useState<Date | undefined>(undefined);
+    const [timeOut, setTimeOut] = useState<Date | undefined>(undefined);
 
+    // --- Modal States ---
+    const [showDatePicker, setShowDatePicker] = useState(false);
+    const [showTimeInPicker, setShowTimeInPicker] = useState(false);
+    const [showTimeOutPicker, setShowTimeOutPicker] = useState(false);
+
+    // --- UI/UX States ---
     const [errors, setErrors] = useState({ description: false });
     const [loading, setLoading] = useState(false);
     const [initialLoading, setInitialLoading] = useState(true);
@@ -124,6 +137,31 @@ export default function AddEntryScreen() {
         } catch (e) { console.error(e); } finally { setInitialLoading(false); }
     };
 
+    // --- Time Handlers ---
+    const handleTimeConfirm = (setter: React.Dispatch<React.SetStateAction<Date | undefined>>) => 
+        (hours: number, minutes: number, period?: "AM" | "PM" | undefined) => {
+            const newDate = new Date(selectedDate);
+            let h = hours;
+            if (period === 'PM' && h < 12) h += 12;
+            if (period === 'AM' && h === 12) h = 0;
+            
+            newDate.setHours(h, minutes, 0, 0);
+            setter(newDate);
+            setIsDirty(true);
+            setShowTimeInPicker(false);
+            setShowTimeOutPicker(false);
+        };
+
+    const getInitialTime = (d?: Date): { h: number; m: number; p: "AM" | "PM" } => {
+        if (!d) return { h: 12, m: 0, p: 'AM' };
+        let h = d.getHours();
+        const m = d.getMinutes();
+        const p: "AM" | "PM" = h >= 12 ? 'PM' : 'AM';
+        h = h % 12 || 12;
+        return { h, m, p };
+    };
+
+    // --- Image Handlers ---
     const handleImagePick = async (source: 'camera' | 'gallery') => {
         const remaining = MAX_PHOTOS - images.length;
         if (remaining <= 0) {
@@ -168,12 +206,25 @@ export default function AddEntryScreen() {
         });
     };
 
+    // --- Save Handler ---
     const saveEntry = async () => {
-        if (!description.trim()) {
+        const hasTimeIn = !!timeIn;
+        const hasTimeOut = !!timeOut;
+        const hasTask = !!description.trim();
+
+        if (!hasTask) {
             setErrors({ description: true });
-            setAlertConfig({ visible: true, type: 'warning', title: 'Missing Info', message: 'Please enter a description.', confirmText: 'OK', onConfirm: () => setAlertConfig({ visible: false }) });
+            setAlertConfig({ visible: true, type: 'warning', title: 'Missing Info', message: 'Please enter a task description.', confirmText: 'OK', onConfirm: () => setAlertConfig({ visible: false }) });
             return;
         }
+
+        if (showAttendanceBool) {
+            if (!hasTimeIn || !hasTimeOut) {
+                setAlertConfig({ visible: true, type: 'warning', title: 'Missing Info', message: 'Please provide both Time In and Time Out.', confirmText: 'OK', onConfirm: () => setAlertConfig({ visible: false }) });
+                return;
+            }
+        }
+
         if (!activeJobId || !user?.id) {
             setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'No active job or user found.', confirmText: 'Okay', onConfirm: () => setAlertConfig({ visible: false }) });
             return;
@@ -181,18 +232,48 @@ export default function AddEntryScreen() {
 
         setLoading(true);
         try {
+            const db = await getDB();
+            const dateStr = format(selectedDate, 'yyyy-MM-dd'); 
+            const now = new Date().toISOString();
+
+            // 1. Create Attendance (If applicable)
+            if (showAttendanceBool && timeIn && timeOut) {
+                const cIn = new Date(selectedDate);
+                cIn.setHours(timeIn.getHours(), timeIn.getMinutes(), 0, 0);
+
+                const cOut = new Date(selectedDate);
+                cOut.setHours(timeOut.getHours(), timeOut.getMinutes(), 0, 0);
+
+                if (cOut < cIn) {
+                    setAlertConfig({ visible: true, type: 'warning', title: 'Invalid Time', message: 'Time Out cannot be earlier than Time In on the same day.', confirmText: 'OK', onConfirm: () => setAlertConfig({ visible: false }) });
+                    setLoading(false);
+                    return;
+                }
+
+                const newAttId = generateUUID();
+                const attRemarks = remarks.trim() ? `Manual Entry: ${remarks.trim()}` : 'Manual Entry';
+
+                const newRecord = { 
+                    id: newAttId, user_id: user.id, job_id: activeJobId, date: dateStr, 
+                    clock_in: cIn.toISOString(), clock_out: cOut.toISOString(),
+                    status: 'completed', remarks: attRemarks, updated_at: now 
+                };
+
+                await db.runAsync(
+                    'INSERT INTO attendance (id, user_id, job_id, date, clock_in, clock_out, status, remarks, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)',
+                    [newRecord.id, newRecord.user_id, newRecord.job_id, newRecord.date, newRecord.clock_in, newRecord.clock_out, newRecord.status, newRecord.remarks, newRecord.updated_at]
+                );
+                await queueSyncItem('attendance', newAttId, 'INSERT', newRecord);
+            }
+
+            // 2. Create/Update Task
             const processedImages = await Promise.all(images.map(async (uri) => {
                 if (uri.startsWith('http') || !FileSystem.documentDirectory) return uri;
                 const filename = uri.split('/').pop();
                 const newPath = FileSystem.documentDirectory + filename;
                 try { await FileSystem.copyAsync({ from: uri, to: newPath }); return newPath; } catch { return uri; }
             }));
-            
             const imagesJson = JSON.stringify(processedImages);
-            const now = new Date().toISOString();
-            const dateStr = format(selectedDate, 'yyyy-MM-dd'); 
-            
-            const db = await getDB();
 
             if (entryId) {
                 const payload = { id: entryId, user_id: user.id, job_id: activeJobId, description: description.trim(), remarks: remarks.trim(), image_url: imagesJson, date: dateStr, updated_at: now };
@@ -213,12 +294,20 @@ export default function AddEntryScreen() {
         } finally { setLoading(false); }
     };
 
+    const timeInVals = getInitialTime(timeIn);
+    const timeOutVals = getInitialTime(timeOut);
+    
+    const isReadyToSave = isDirty && ((showAttendanceBool && timeIn && timeOut && description.trim()) || (!showAttendanceBool && description.trim()));
+
     return (
         <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
             <ModernAlert {...alertConfig} />
-            <LoadingOverlay visible={loading} message="Saving task..." />
+            <LoadingOverlay visible={loading} message="Saving entry..." />
             
-            <DatePicker visible={showDatePicker} onClose={() => setShowDatePicker(false)} onSelect={(date) => { setSelectedDate(date); setIsDirty(true); setShowDatePicker(false); }} selectedDate={selectedDate} title="Select Task Date" />
+            <DatePicker visible={showDatePicker} onClose={() => setShowDatePicker(false)} onSelect={(date) => { setSelectedDate(date); setIsDirty(true); setShowDatePicker(false); }} selectedDate={selectedDate} title="Select Entry Date" />
+            
+            <TimePicker visible={showTimeInPicker} onClose={() => setShowTimeInPicker(false)} onConfirm={handleTimeConfirm(setTimeIn)} title="Select Time In" initialHours={timeInVals.h} initialMinutes={timeInVals.m} initialPeriod={timeInVals.p} />
+            <TimePicker visible={showTimeOutPicker} onClose={() => setShowTimeOutPicker(false)} onConfirm={handleTimeConfirm(setTimeOut)} title="Select Time Out" initialHours={timeOutVals.h} initialMinutes={timeOutVals.m} initialPeriod={timeOutVals.p} />
 
             <Header title={entryId ? 'Edit Entry' : 'Add Entry'} />
 
@@ -229,18 +318,65 @@ export default function AddEntryScreen() {
                     <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                         
                         <View style={styles.inputBlock}>
-                            <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Date</Text>
-                            <TouchableOpacity disabled={!canEditDate} activeOpacity={canEditDate ? 0.7 : 1} onPress={() => setShowDatePicker(true)} style={[styles.inputWrapper, { borderColor: theme.colors.border, backgroundColor: canEditDate ? theme.colors.card : theme.colors.background }]}>
-                                <View style={styles.dateRow}>
-                                    <HugeiconsIcon icon={Calendar03Icon} size={20} color={canEditDate ? theme.colors.primary : theme.colors.textSecondary} />
-                                    <Text style={[styles.dateText, { color: canEditDate ? theme.colors.text : theme.colors.textSecondary }]}>{format(selectedDate, 'MMMM d, yyyy')}</Text>
-                                </View>
-                                {canEditDate && <HugeiconsIcon icon={PencilEdit02Icon} size={18} color={theme.colors.textSecondary} />}
-                            </TouchableOpacity>
+                            <Text style={[styles.label, { color: theme.colors.textSecondary }]}>
+                                Date <Text style={{ color: '#ef4444' }}>*</Text>
+                            </Text>
+                            <View style={{ position: 'relative' }}>
+                                <TouchableOpacity disabled={!canEditDate} activeOpacity={canEditDate ? 0.7 : 1} onPress={() => setShowDatePicker(true)}>
+                                    <View style={{ 
+                                        flexDirection: 'row', alignItems: 'center', 
+                                        backgroundColor: canEditDate ? theme.colors.card : theme.colors.background, 
+                                        borderRadius: 16, borderWidth: 1, 
+                                        borderColor: theme.colors.border,
+                                        height: 56, paddingHorizontal: 16 
+                                    }}>
+                                        <HugeiconsIcon icon={Calendar03Icon} size={22} color={canEditDate ? theme.colors.primary : theme.colors.textSecondary} />
+                                        
+                                        <Text numberOfLines={1} style={{ flex: 1, marginLeft: 12, fontSize: 15, fontFamily: 'Nunito_500Medium', color: theme.colors.text }}>
+                                            {format(selectedDate, 'MMMM d, yyyy')}
+                                        </Text>
+                                        
+                                        {canEditDate && <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.icon} />}
+                                    </View>
+                                </TouchableOpacity>
+                            </View>
                         </View>
 
+                        {showAttendanceBool && (
+                            <View style={styles.inputBlock}>
+                                <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Attendance Record</Text>
+                                <View style={[styles.sessionCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                                    <View style={styles.sessionCardBody}>
+                                        <TouchableOpacity activeOpacity={0.7} onPress={() => setShowTimeInPicker(true)} style={styles.sessionTimeCol}>
+                                            <Text style={[styles.sessionTimeLabel, { color: theme.colors.textSecondary }]}>TIME IN <Text style={{color: '#ef4444'}}>*</Text></Text>
+                                            <View style={styles.sessionValueRow}>
+                                                <Text style={[styles.sessionTimeValue, { color: timeIn ? theme.colors.text : theme.colors.textSecondary }]}>
+                                                    {timeIn ? format(timeIn, 'h:mm a') : '--:--'}
+                                                </Text>
+                                                <HugeiconsIcon icon={PencilEdit02Icon} size={14} color={theme.colors.primary} />
+                                            </View>
+                                        </TouchableOpacity>
+                                        
+                                        <View style={[styles.sessionCardDivider, { backgroundColor: theme.colors.border }]} />
+                                        
+                                        <TouchableOpacity activeOpacity={0.7} onPress={() => setShowTimeOutPicker(true)} style={styles.sessionTimeCol}>
+                                            <Text style={[styles.sessionTimeLabel, { color: theme.colors.textSecondary }]}>TIME OUT <Text style={{color: '#ef4444'}}>*</Text></Text>
+                                            <View style={styles.sessionValueRow}>
+                                                <Text style={[styles.sessionTimeValue, { color: timeOut ? theme.colors.text : theme.colors.textSecondary }]}>
+                                                    {timeOut ? format(timeOut, 'h:mm a') : '--:--'}
+                                                </Text>
+                                                <HugeiconsIcon icon={PencilEdit02Icon} size={14} color={theme.colors.primary} />
+                                            </View>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            </View>
+                        )}
+
                         <View style={styles.inputBlock}>
-                            <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Task Description <Text style={{color: theme.colors.danger}}>*</Text></Text>
+                            <Text style={[styles.label, { color: theme.colors.textSecondary }]}>
+                                Task Description <Text style={{color: '#ef4444'}}>*</Text>
+                            </Text>
                             <View style={[styles.inputWrapper, { borderColor: errors.description ? theme.colors.danger : theme.colors.border, backgroundColor: theme.colors.card }]}>
                                 <TextInput style={[styles.textInput, { color: theme.colors.text }]} placeholder="What did you accomplish?" placeholderTextColor={theme.colors.textSecondary} value={description} onChangeText={(t) => { setDescription(t); setIsDirty(true); setErrors({description: false}); }} maxLength={255} />
                             </View>
@@ -292,7 +428,7 @@ export default function AddEntryScreen() {
             
             {isDirty && (
                 <Footer>
-                    <Button title={entryId ? 'Update Entry' : 'Save Entry'} onPress={saveEntry} isLoading={loading} disabled={loading || !description.trim()} style={{ width: '100%' }} />
+                    <Button title={entryId ? 'Update Entry' : 'Save Entry'} onPress={saveEntry} isLoading={loading} disabled={loading || !isReadyToSave} style={{ width: '100%' }} />
                 </Footer>
             )}
         </SafeAreaView>
@@ -304,10 +440,8 @@ const styles = StyleSheet.create({
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
     scrollContent: { padding: 24, paddingBottom: 100 },
     inputBlock: { marginBottom: 24 },
-    label: { fontSize: 11, fontFamily: 'Nunito_500Medium', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 8, marginLeft: 4 },
+    label: { fontSize: 11, fontFamily: 'Nunito_500Medium', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8, marginLeft: 4 },
     inputWrapper: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderWidth: 1, borderRadius: 16, paddingHorizontal: 16, minHeight: 56 },
-    dateRow: { flexDirection: 'row', alignItems: 'center', flex: 1, gap: 12 },
-    dateText: { fontFamily: 'Nunito_500Medium', fontSize: 15 },
     textInput: { flex: 1, fontFamily: 'Nunito_500Medium', fontSize: 15, paddingVertical: 16 },
     textAreaWrapper: { alignItems: 'flex-start', minHeight: 120 },
     textArea: { height: 100, paddingTop: 16 },
@@ -315,5 +449,13 @@ const styles = StyleSheet.create({
     uploadBtnText: { marginLeft: 8, fontFamily: 'Nunito_500Medium', fontSize: 13 },
     imagePreviewWrapper: { width: '100%', aspectRatio: 4 / 3, borderRadius: 16, borderWidth: 1, overflow: 'hidden', position: 'relative' },
     imagePreview: { width: '100%', height: '100%' },
-    removeImageBtn: { position: 'absolute', top: 12, right: 12, backgroundColor: 'rgba(0,0,0,0.6)', padding: 8, borderRadius: 20 }
+    removeImageBtn: { position: 'absolute', top: 12, right: 12, backgroundColor: 'rgba(0,0,0,0.6)', padding: 8, borderRadius: 20 },
+
+    sessionCard: { borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
+    sessionCardBody: { flexDirection: 'row', alignItems: 'center', padding: 16 },
+    sessionTimeCol: { flex: 1 },
+    sessionTimeLabel: { fontSize: 11, fontFamily: 'Nunito_600SemiBold', textTransform: 'uppercase', marginBottom: 6, letterSpacing: 0.5 },
+    sessionValueRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    sessionTimeValue: { fontSize: 16, fontFamily: 'Nunito_800ExtraBold' },
+    sessionCardDivider: { width: 1, height: 32, marginHorizontal: 16, opacity: 0.5 },
 });

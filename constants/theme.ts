@@ -19,7 +19,7 @@ const palette = {
   slate50: '#f8fafc',
   slate100: '#f1f5f9',
   slate200: '#e2e8f0',
-  slate300: '#cbd5e1', // Added for switch off state
+  slate300: '#cbd5e1',
   slate400: '#94a3b8',
   slate500: '#64748b',
   slate800: '#1e293b',
@@ -28,7 +28,7 @@ const palette = {
   
   white: '#ffffff',
   red: '#ef4444',
-  green: '#10b981', // Emerald green
+  green: '#10b981',
   
   glassLight: 'rgba(255, 255, 255, 0.9)',
   glassDark: 'rgba(15, 23, 42, 0.9)',

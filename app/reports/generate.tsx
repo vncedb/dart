@@ -282,36 +282,39 @@ export default function GenerateReportScreen() {
 
     setGenerating(true);
 
-    if (shouldSaveSettings && hasSettingsChanged()) {
-      try {
-        const settingsToSave = {
-          formatType, paperSize, reportStyle, dateFormat, timeFormat,
-          includeDocs, includeDay, includeDept, includeSecondarySignee, columns, signature,
-          customName, customTitle, companyName, department, secondaryName, secondaryTitle, secondarySignature
-        };
-        await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsToSave));
-        setInitialSettings(JSON.stringify(settingsToSave));
-      } catch (e) { console.log("Failed to save settings"); }
-    }
+    // Timeout allows React to render the loading overlay immediately
+    setTimeout(async () => {
+        if (shouldSaveSettings && hasSettingsChanged()) {
+          try {
+            const settingsToSave = {
+              formatType, paperSize, reportStyle, dateFormat, timeFormat,
+              includeDocs, includeDay, includeDept, includeSecondarySignee, columns, signature,
+              customName, customTitle, companyName, department, secondaryName, secondaryTitle, secondarySignature
+            };
+            await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsToSave));
+            setInitialSettings(JSON.stringify(settingsToSave));
+          } catch (e) { console.log("Failed to save settings"); }
+        }
 
-    isProceeding.current = true;
+        isProceeding.current = true;
 
-    router.push({
-      pathname: "/reports/preview",
-      params: {
-        startDate: params.startDate, endDate: params.endDate, date: params.date,
-        config: JSON.stringify({
-          format: formatType, paperSize, style: reportStyle, includeDocs, includeDay,
-          includeDept, dateFormat, timeFormat, columns,
-          meta: {
-            name: customName, title: customTitle, company: companyName, department: department, period: periodLabel, signature,
-            secondaryName: includeSecondarySignee ? secondaryName : undefined,
-            secondaryTitle: includeSecondarySignee ? secondaryTitle : undefined,
-            secondarySignature: includeSecondarySignee ? secondarySignature : undefined,
+        router.push({
+          pathname: "/reports/preview",
+          params: {
+            startDate: params.startDate, endDate: params.endDate, date: params.date,
+            config: JSON.stringify({
+              format: formatType, paperSize, style: reportStyle, includeDocs, includeDay,
+              includeDept, dateFormat, timeFormat, columns,
+              meta: {
+                name: customName, title: customTitle, company: companyName, department: department, period: periodLabel, signature,
+                secondaryName: includeSecondarySignee ? secondaryName : undefined,
+                secondaryTitle: includeSecondarySignee ? secondaryTitle : undefined,
+                secondarySignature: includeSecondarySignee ? secondarySignature : undefined,
+              },
+            }),
           },
-        }),
-      },
-    });
+        });
+    }, 50);
   };
 
   const handleSignatureSave = (sig: string) => {

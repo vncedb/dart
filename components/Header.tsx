@@ -1,4 +1,4 @@
-// components/Header.tsx
+// filepath: components/Header.tsx
 import {
   ArrowLeft02Icon,
   MoreVerticalCircle01Icon,
@@ -127,7 +127,7 @@ export default function Header({
         <ActionMenu
           visible={menuVisible}
           onClose={() => setMenuVisible(false)}
-          actions={menuActions}
+          actions={menuActions as any}
           anchor={menuAnchor}
         />
       )}
@@ -150,8 +150,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     bottom: 0,
-    left: 48,  // Reduced from 60 to prevent text truncation
-    right: 48, // Reduced from 60 to prevent text truncation
+    left: 48, 
+    right: 48,
     alignItems: "center",
     justifyContent: "center",
     zIndex: -1,
