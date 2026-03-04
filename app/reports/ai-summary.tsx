@@ -1,173 +1,291 @@
+// filepath: app/reports/ai-summary.tsx
 import {
-  Notification01Icon,
+  Activity01Icon,
+  Alert01Icon,
+  ArrowLeft01Icon,
+  Key01Icon,
   SparklesIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
-import { useRouter } from "expo-router";
-import React, { useEffect } from "react";
+import { endOfMonth, format, startOfMonth } from "date-fns";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
-import Animated, {
-  FadeInDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming,
-} from "react-native-reanimated";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import Button from "../../components/Button";
 import Header from "../../components/Header";
 import { useAppTheme } from "../../constants/theme";
-import { FontFamily, Typography } from "../../constants/typography";
+import { useAuth } from "../../context/AuthContext";
+import { useActiveJob } from "../../hooks/useActiveJob";
+import {
+  fetchAISummaryData,
+  generateAnalyticsInsights,
+  generateWeeklyReview,
+  isAIAvailable
+} from "../../lib/ai";
 
 export default function AISummaryScreen() {
-  const router = useRouter();
-  const theme = useAppTheme();
+    const router = useRouter();
+    const theme = useAppTheme();
+    const { user } = useAuth();
+    
+    // Fix: Get activeJob from the hook, then extract the ID
+    const { activeJob } = useActiveJob();
+    const activeJobId = activeJob?.id;
+    
+    const params = useLocalSearchParams();
 
-  const pulse = useSharedValue(1);
+    // Determine target dates (default to current month if not provided)
+    const startDate = (params.startDate as string) || format(startOfMonth(new Date()), 'yyyy-MM-dd');
+    const endDate = (params.endDate as string) || format(endOfMonth(new Date()), 'yyyy-MM-dd');
 
-  useEffect(() => {
-    pulse.value = withRepeat(
-      withSequence(
-        withTiming(1.08, { duration: 1500 }),
-        withTiming(1, { duration: 1500 })
-      ),
-      -1
-    );
-  }, []);
+    const [hasKey, setHasKey] = useState<boolean | null>(null);
+    const [generating, setGenerating] = useState(false);
+    const [reviewContent, setReviewContent] = useState<string | null>(null);
+    const [insightsContent, setInsightsContent] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
 
-  const pulseStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pulse.value }],
-  }));
+    useEffect(() => {
+        checkKeyAndLoad();
+    }, []);
 
-  return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={["top"]}>
-      <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} />
-      <Header title="Summary" />
+    const checkKeyAndLoad = async () => {
+        const available = await isAIAvailable();
+        setHasKey(available);
+    };
 
-      <View style={styles.container}>
-        <Animated.View entering={FadeInDown.duration(600).delay(100)} style={styles.content}>
-          {/* Icon */}
-          <Animated.View
-            style={[
-              styles.iconContainer,
-              { backgroundColor: theme.colors.primary + "12" },
-              pulseStyle,
-            ]}
-          >
-            <View style={[styles.iconInner, { backgroundColor: theme.colors.primary + "18" }]}>
-              <HugeiconsIcon icon={SparklesIcon} size={40} color={theme.colors.primary} />
+    const handleGenerate = async () => {
+        if (!user || !activeJobId) {
+            setError("No active user or job found.");
+            return;
+        }
+
+        setGenerating(true);
+        setError(null);
+        
+        try {
+            const data = await fetchAISummaryData(user.id, activeJobId, startDate, endDate);
+            if (!data) throw new Error("Failed to fetch local data for AI.");
+            
+            if (data.attendance.length === 0 && data.accomplishments.length === 0) {
+                throw new Error("No attendance or tasks logged in this period to generate a summary.");
+            }
+
+            // Run generations concurrently
+            const [review, insights] = await Promise.all([
+                generateWeeklyReview(data),
+                generateAnalyticsInsights(data)
+            ]);
+
+            setReviewContent(review);
+            setInsightsContent(insights);
+        } catch (err: any) {
+            console.error("AI Gen Error:", err);
+            setError(err.message || "An error occurred while generating the summary.");
+        } finally {
+            setGenerating(false);
+        }
+    };
+
+    // Very simple Markdown parser for Bold (**text**) and basic structure
+    const renderMarkdown = (text: string) => {
+        const lines = text.split('\n');
+        return lines.map((line, index) => {
+            if (line.trim() === '') return <View key={index} style={{ height: 8 }} />;
+            
+            let isHeader = false;
+            let isBullet = false;
+            let content = line;
+
+            if (line.startsWith('### ')) { isHeader = true; content = line.replace('### ', ''); }
+            else if (line.startsWith('## ')) { isHeader = true; content = line.replace('## ', ''); }
+            else if (line.startsWith('# ')) { isHeader = true; content = line.replace('# ', ''); }
+            else if (line.startsWith('* ') || line.startsWith('- ')) { isBullet = true; content = line.substring(2); }
+            else if (line.match(/^\d+\.\s/)) { isBullet = true; } // Numbered list
+
+            const parts = content.split(/(\*\*.*?\*\*)/g);
+            const renderedLine = parts.map((part, i) => {
+                if (part.startsWith('**') && part.endsWith('**')) {
+                    return <Text key={i} style={{ fontFamily: 'Nunito_800ExtraBold', color: theme.colors.text }}>{part.slice(2, -2)}</Text>;
+                }
+                return <Text key={i} style={{ fontFamily: isHeader ? 'Nunito_800ExtraBold' : 'Nunito_500Medium', color: isHeader ? theme.colors.text : theme.colors.textSecondary }}>{part}</Text>;
+            });
+
+            return (
+                <View key={index} style={{ 
+                    flexDirection: isBullet ? 'row' : 'column', 
+                    marginBottom: isHeader ? 8 : 4,
+                    marginTop: isHeader ? 16 : 0,
+                    paddingLeft: isBullet ? 12 : 0
+                }}>
+                    {isBullet && <Text style={{ color: theme.colors.textSecondary, marginRight: 8, fontSize: 16 }}>•</Text>}
+                    <Text style={{ 
+                        flex: isBullet ? 1 : undefined,
+                        fontSize: isHeader ? 18 : 15,
+                        lineHeight: isHeader ? 26 : 22,
+                    }}>
+                        {renderedLine}
+                    </Text>
+                </View>
+            );
+        });
+    };
+
+    if (hasKey === null) {
+        return (
+            <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={["top"]}>
+                <Header title="AI Summary" />
+                <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+                    <ActivityIndicator size="large" color={theme.colors.primary} />
+                </View>
+            </SafeAreaView>
+        );
+    }
+
+    if (!hasKey) {
+        return (
+            <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={["top"]}>
+                <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} />
+                <Header title="AI Summary" />
+
+                <View style={[styles.centerContainer, { paddingHorizontal: 32 }]}>
+                    <View style={[styles.iconContainer, { backgroundColor: theme.colors.primary + "15", marginBottom: 24 }]}>
+                        <HugeiconsIcon icon={Key01Icon} size={48} color={theme.colors.primary} />
+                    </View>
+                    <Text style={[styles.title, { color: theme.colors.text }]}>API Key Required</Text>
+                    <Text style={[styles.subtitle, { color: theme.colors.textSecondary, textAlign: 'center' }]}>
+                        To use the AI generation features, you need to provide your free Google Gemini API key.
+                    </Text>
+                    
+                    <View style={{ width: '100%', marginTop: 32 }}>
+                        <Button title="Go to Settings" onPress={() => router.push('/settings/gemini')} />
+                        <Button title="Cancel" variant="secondary" onPress={() => router.back()} style={{ marginTop: 12 }} />
+                    </View>
+                </View>
+            </SafeAreaView>
+        );
+    }
+
+    return (
+        <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={["top"]}>
+            <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} />
+            
+            <View style={styles.headerBar}>
+                <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+                    <HugeiconsIcon icon={ArrowLeft01Icon} size={24} color={theme.colors.text} />
+                </TouchableOpacity>
+                <Text style={[styles.headerTitle, { color: theme.colors.text }]}>AI Insights</Text>
+                <View style={{ width: 44 }} />
             </View>
-          </Animated.View>
 
-          {/* Title */}
-          <Text style={[styles.title, { color: theme.colors.text }]}>Coming Soon</Text>
-          <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
-            AI-Powered Summary
-          </Text>
+            <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+                
+                <View style={[styles.infoCard, { backgroundColor: theme.colors.primary + '10', borderColor: theme.colors.primary + '25' }]}>
+                    <View style={[styles.iconBox, { backgroundColor: theme.colors.primary + '20' }]}>
+                        <HugeiconsIcon icon={SparklesIcon} size={20} color={theme.colors.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={[styles.infoTitle, { color: theme.colors.primary }]}>AI-Powered Review</Text>
+                        <Text style={[styles.infoDesc, { color: theme.colors.textSecondary }]}>
+                            Generate an intelligent performance review and analytics insights based on your logged hours and tasks from {format(new Date(startDate), 'MMM d')} to {format(new Date(endDate), 'MMM d, yyyy')}.
+                        </Text>
+                    </View>
+                </View>
 
-          {/* Description */}
-          <View style={[styles.descCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-            <Text style={[styles.descText, { color: theme.colors.text }]}>
-              We're building an intelligent summary feature powered by Google Gemini that will automatically draft performance reviews and analytics insights based on your daily logs.
-            </Text>
-          </View>
+                {error && (
+                    <Animated.View entering={FadeInDown} style={[styles.errorCard, { backgroundColor: theme.colors.danger + '10', borderColor: theme.colors.danger + '30' }]}>
+                        <HugeiconsIcon icon={Alert01Icon} size={20} color={theme.colors.danger} />
+                        <Text style={[styles.errorText, { color: theme.colors.danger }]}>{error}</Text>
+                    </Animated.View>
+                )}
 
-          {/* Feature List */}
-          <View style={styles.featureList}>
-            {[
-              "Auto-generated weekly performance reviews",
-              "Smart analytics from attendance patterns",
-              "AI-driven productivity insights",
-              "One-tap export and sharing",
-            ].map((feature, i) => (
-              <Animated.View
-                key={i}
-                entering={FadeInDown.duration(400).delay(300 + i * 100)}
-                style={styles.featureRow}
-              >
-                <View style={[styles.featureDot, { backgroundColor: theme.colors.primary }]} />
-                <Text style={[styles.featureText, { color: theme.colors.textSecondary }]}>
-                  {feature}
-                </Text>
-              </Animated.View>
-            ))}
-          </View>
+                {!reviewContent && !generating && (
+                    <Button 
+                        title="Generate Summary" 
+                        icon={<HugeiconsIcon icon={SparklesIcon} size={20} color="#fff" />} 
+                        onPress={handleGenerate} 
+                        style={{ marginTop: 12 }} 
+                    />
+                )}
 
-          {/* Notification CTA */}
-          <View style={[styles.notifCard, { backgroundColor: theme.dark ? theme.colors.primary + '10' : '#EEF2FF', borderColor: theme.colors.primary + '20' }]}>
-            <HugeiconsIcon icon={Notification01Icon} size={18} color={theme.colors.primary} />
-            <Text style={[styles.notifText, { color: theme.colors.primary }]}>
-              You'll be notified when this feature is available.
-            </Text>
-          </View>
-        </Animated.View>
+                {generating && (
+                    <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="large" color={theme.colors.primary} style={{ marginBottom: 16 }} />
+                        <Text style={[styles.loadingTitle, { color: theme.colors.text }]}>Analyzing your data...</Text>
+                        <Text style={[styles.loadingDesc, { color: theme.colors.textSecondary }]}>Gemini is drafting your performance review.</Text>
+                    </View>
+                )}
 
-        <View style={styles.footer}>
-          <Button title="Go Back" variant="secondary" onPress={() => router.back()} />
-        </View>
-      </View>
-    </SafeAreaView>
-  );
+                {reviewContent && !generating && (
+                    <Animated.View entering={FadeInDown.duration(500)}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16, marginTop: 16 }}>
+                            <HugeiconsIcon icon={Activity01Icon} size={20} color={theme.colors.text} />
+                            <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Performance Review</Text>
+                        </View>
+                        <View style={[styles.contentCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                            {renderMarkdown(reviewContent)}
+                        </View>
+
+                        {insightsContent && (
+                            <>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16, marginTop: 24 }}>
+                                    <HugeiconsIcon icon={SparklesIcon} size={20} color={theme.colors.text} />
+                                    <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Smart Insights</Text>
+                                </View>
+                                <View style={[styles.contentCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                                    {renderMarkdown(insightsContent)}
+                                </View>
+                            </>
+                        )}
+
+                        <Button 
+                            title="Regenerate" 
+                            variant="secondary" 
+                            icon={<HugeiconsIcon icon={SparklesIcon} size={20} color={theme.colors.text} />} 
+                            onPress={handleGenerate} 
+                            style={{ marginTop: 24, marginBottom: 20 }} 
+                        />
+                    </Animated.View>
+                )}
+
+            </ScrollView>
+        </SafeAreaView>
+    );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "space-between" },
-  content: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 32 },
-  iconContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 28,
-  },
-  iconInner: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  title: {
-    ...Typography.h1,
-    marginBottom: 6,
-  },
-  subtitle: {
-    ...Typography.bodyMedium,
-    marginBottom: 24,
-  },
-  descCard: {
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    marginBottom: 28,
-  },
-  descText: {
-    ...Typography.body,
-    textAlign: "center",
-    lineHeight: 24,
-  },
-  featureList: { alignSelf: "stretch", gap: 14, marginBottom: 28, paddingHorizontal: 4 },
-  featureRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  featureDot: { width: 6, height: 6, borderRadius: 3 },
-  featureText: { ...Typography.smallMedium, flex: 1 },
-  notifCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  notifText: { ...Typography.caption, flex: 1 },
-  footer: { paddingHorizontal: 24, paddingBottom: 32 },
+    headerBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12 },
+    backBtn: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+    headerTitle: { fontSize: 18, fontFamily: 'Nunito_800ExtraBold', letterSpacing: -0.3 },
+    scrollContent: { padding: 24, paddingBottom: 60 },
+    
+    centerContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
+    iconContainer: { width: 100, height: 100, borderRadius: 50, alignItems: "center", justifyContent: "center" },
+    title: { fontSize: 24, fontFamily: 'Nunito_800ExtraBold', marginBottom: 8, textAlign: 'center' },
+    subtitle: { fontSize: 15, fontFamily: 'Nunito_500Medium', lineHeight: 22 },
+    
+    infoCard: { flexDirection: 'row', padding: 16, borderRadius: 16, borderWidth: 1, gap: 16, marginBottom: 24 },
+    iconBox: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+    infoTitle: { fontSize: 16, fontFamily: 'Nunito_800ExtraBold', marginBottom: 4 },
+    infoDesc: { fontSize: 13, fontFamily: 'Nunito_500Medium', lineHeight: 20 },
+
+    errorCard: { flexDirection: 'row', padding: 16, borderRadius: 16, borderWidth: 1, gap: 12, marginBottom: 24, alignItems: 'center' },
+    errorText: { fontSize: 14, fontFamily: 'Nunito_600SemiBold', flex: 1 },
+
+    loadingContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
+    loadingTitle: { fontSize: 18, fontFamily: 'Nunito_800ExtraBold', marginBottom: 6 },
+    loadingDesc: { fontSize: 14, fontFamily: 'Nunito_500Medium' },
+
+    sectionTitle: { fontSize: 18, fontFamily: 'Nunito_800ExtraBold', letterSpacing: -0.3 },
+    contentCard: { padding: 20, borderRadius: 20, borderWidth: 1 },
 });

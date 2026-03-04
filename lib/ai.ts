@@ -1,15 +1,19 @@
+// filepath: lib/ai.ts
 import { GoogleGenAI } from "@google/genai";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { format } from "date-fns";
 import { getDB } from "./db-client";
 
-const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || "";
-
-const getAI = () => {
-  if (!GEMINI_API_KEY) return null;
-  return new GoogleGenAI({ apiKey: GEMINI_API_KEY });
+const getAI = async () => {
+  const apiKey = await AsyncStorage.getItem("gemini_api_key");
+  if (!apiKey) return null;
+  return new GoogleGenAI({ apiKey });
 };
 
-export const isAIAvailable = () => !!GEMINI_API_KEY;
+export const isAIAvailable = async () => {
+    const apiKey = await AsyncStorage.getItem("gemini_api_key");
+    return !!apiKey;
+};
 
 interface AttendanceRow {
   date: string;
@@ -103,8 +107,8 @@ ${tasksSummary || "  No accomplishments logged"}
 };
 
 export const generateWeeklyReview = async (data: SummaryData): Promise<string> => {
-  const ai = getAI();
-  if (!ai) throw new Error("AI is not configured. Set EXPO_PUBLIC_GEMINI_API_KEY in your environment.");
+  const ai = await getAI();
+  if (!ai) throw new Error("AI is not configured. Please set your Gemini API Key in Settings.");
 
   const context = buildPromptContext(data);
 
@@ -135,8 +139,8 @@ ${context}`,
 };
 
 export const generateAnalyticsInsights = async (data: SummaryData): Promise<string> => {
-  const ai = getAI();
-  if (!ai) throw new Error("AI is not configured. Set EXPO_PUBLIC_GEMINI_API_KEY in your environment.");
+  const ai = await getAI();
+  if (!ai) throw new Error("AI is not configured. Please set your Gemini API Key in Settings.");
 
   const context = buildPromptContext(data);
 

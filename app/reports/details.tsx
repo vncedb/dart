@@ -234,25 +234,19 @@ export default function ReportDetailsScreen() {
     try {
       if (user && dateStr) {
         const db = await getDB();
-        const now = new Date().toISOString();
+        
+        // HARD DELETE FOR ATTENDANCE
         if (attendances.length > 0) {
             for (const att of attendances) {
-                const exists: any = await db.getFirstAsync("SELECT * FROM attendance WHERE id = ?", [att.id]);
-                if (exists) {
-                    await db.runAsync("UPDATE attendance SET deleted_at = ?, updated_at = ?, is_synced = 0 WHERE id = ?", [now, now, att.id]);
-                    const payload = { ...exists, deleted_at: now, updated_at: now, is_synced: 0 };
-                    await queueSyncItem("attendance", att.id, "UPDATE", payload);
-                }
+                await db.runAsync("DELETE FROM attendance WHERE id = ?", [att.id]);
+                await queueSyncItem("attendance", att.id, "DELETE");
             }
         }
+        // HARD DELETE FOR TASKS
         if (tasks.length > 0) {
             for (const acc of tasks) {
-                const exists: any = await db.getFirstAsync("SELECT * FROM accomplishments WHERE id = ?", [acc.id]);
-                if (exists) {
-                    await db.runAsync("UPDATE accomplishments SET deleted_at = ?, updated_at = ?, is_synced = 0 WHERE id = ?", [now, now, acc.id]);
-                    const payload = { ...exists, deleted_at: now, updated_at: now, is_synced: 0 };
-                    await queueSyncItem("accomplishments", acc.id, "UPDATE", payload);
-                }
+                await db.runAsync("DELETE FROM accomplishments WHERE id = ?", [acc.id]);
+                await queueSyncItem("accomplishments", acc.id, "DELETE");
             }
         }
         triggerSync();
@@ -272,29 +266,37 @@ export default function ReportDetailsScreen() {
   const handleTimeConfirm = (hours: number, minutes: number, period?: "AM" | "PM" | undefined) => {
       if (!activePicker) return;
 
+      const session = attendances.find(a => a.id === activePicker.id);
+      if (!session) return;
+
       const targetDateStr = format(activeDate, 'yyyy-MM-dd');
       const [y, m, d] = targetDateStr.split('-').map(Number);
-      const newDate = new Date(y, m - 1, d);
       
       let h = hours;
       if (period === 'PM' && h < 12) h += 12;
       if (period === 'AM' && h === 12) h = 0;
-      newDate.setHours(h, minutes, 0, 0);
 
-      const session = attendances.find(a => a.id === activePicker.id);
-      if (!session) return;
+      let newDate: Date;
 
       if (activePicker.type === 'in') {
-          if (session.clock_out && newDate > new Date(session.clock_out)) {
-              setFloatingAlert({ visible: true, message: "Time In cannot be later than Time Out.", type: "warning" });
-              setActivePicker(null);
-              return;
+          newDate = new Date(y, m - 1, d);
+          newDate.setHours(h, minutes, 0, 0);
+
+          if (session.clock_out) {
+              const outDate = new Date(session.clock_out);
+              if (newDate > outDate) {
+                  setFloatingAlert({ visible: true, message: "Time In cannot be later than Time Out.", type: "warning" });
+                  setActivePicker(null);
+                  return;
+              }
           }
       } else {
-          if (session.clock_in && newDate < new Date(session.clock_in)) {
-              setFloatingAlert({ visible: true, message: "Time Out cannot be earlier than Time In.", type: "warning" });
-              setActivePicker(null);
-              return;
+          const inDate = session.clock_in ? new Date(session.clock_in) : new Date(y, m - 1, d);
+          newDate = new Date(inDate);
+          newDate.setHours(h, minutes, 0, 0);
+
+          if (newDate < inDate) {
+              newDate.setDate(newDate.getDate() + 1);
           }
       }
 
@@ -321,13 +323,10 @@ export default function ReportDetailsScreen() {
             setLoading(true);
             try {
                 const db = await getDB();
-                const now = new Date().toISOString();
-                const exists: any = await db.getFirstAsync("SELECT * FROM accomplishments WHERE id = ?", [id]);
-                if (exists) {
-                    await db.runAsync('UPDATE accomplishments SET deleted_at = ?, updated_at = ?, is_synced = 0 WHERE id = ?', [now, now, id]);
-                    const payload = { ...exists, deleted_at: now, updated_at: now, is_synced: 0 };
-                    await queueSyncItem('accomplishments', id, 'UPDATE', payload);
-                }
+                // HARD DELETE TASK
+                await db.runAsync('DELETE FROM accomplishments WHERE id = ?', [id]);
+                await queueSyncItem('accomplishments', id, 'DELETE');
+                
                 triggerSync();
                 fetchReportDetails();
             } catch (err) { console.log(err); }
@@ -346,12 +345,9 @@ export default function ReportDetailsScreen() {
 
           for (const att of attendances) {
               if (att._isDeleted) {
-                  const exists: any = await db.getFirstAsync("SELECT * FROM attendance WHERE id = ?", [att.id]);
-                  if (exists) {
-                      await db.runAsync("UPDATE attendance SET deleted_at = ?, updated_at = ?, is_synced = 0 WHERE id = ?", [now, now, att.id]);
-                      const payload = { ...exists, deleted_at: now, updated_at: now, is_synced: 0 };
-                      await queueSyncItem("attendance", att.id, "UPDATE", payload);
-                  }
+                  // HARD DELETE SPECIFIC SESSION
+                  await db.runAsync("DELETE FROM attendance WHERE id = ?", [att.id]);
+                  await queueSyncItem("attendance", att.id, "DELETE");
               } else if (att._isModified || targetDateStr !== dateStr) {
                   const exists: any = await db.getFirstAsync("SELECT * FROM attendance WHERE id = ?", [att.id]);
                   if (exists) {

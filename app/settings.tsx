@@ -11,6 +11,7 @@ import {
     ReloadIcon,
     SecurityCheckIcon,
     Share08Icon,
+    SparklesIcon,
     VolumeHighIcon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
@@ -49,11 +50,9 @@ import SyncStatusIndicator from '../components/SyncStatusIndicator';
 import { useAppTheme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { useSync } from '../context/SyncContext';
+import { performFullSync } from '../lib/sync';
 import { checkForUpdate } from '../lib/updateCheck';
 import { ExportService } from '../services/ExportService';
-
-// --- NEW SYNC IMPORT ---
-import { performFullSync } from '../lib/sync';
 
 type ThemeOption = 'system' | 'light' | 'dark';
 
@@ -315,6 +314,14 @@ export default function SettingsScreen() {
                     <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>SECURITY</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
                         <ModernSettingsItem icon={SecurityCheckIcon} label="Account & Security" subLabel="Biometrics, Password, Danger Zone" onPress={() => router.push('/settings/account-security')} isLast theme={theme} />
+                    </View>
+                </View>
+
+                {/* AI INTEGRATION */}
+                <View style={{ marginBottom: 24 }}>
+                    <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>AI INTEGRATION (BETA)</Text>
+                    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
+                        <ModernSettingsItem icon={SparklesIcon} label="Gemini API Key" subLabel="For AI-powered feature" onPress={() => router.push('/settings/gemini')} isLast theme={theme} />
                     </View>
                 </View>
 
