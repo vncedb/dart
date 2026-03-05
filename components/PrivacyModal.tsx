@@ -1,3 +1,4 @@
+// filepath: components/PrivacyModal.tsx
 import { SecurityCheckIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { useRouter } from 'expo-router';
@@ -18,6 +19,7 @@ import Animated, {
     runOnJS,
     useAnimatedStyle,
     useSharedValue,
+    withSpring,
     withTiming
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -49,15 +51,18 @@ export default function PrivacyModal({ visible, onClose, onAgree, isLoading = fa
     useEffect(() => {
         if (visible) {
             translateY.value = SNAP_CLOSE;
-            translateY.value = withTiming(SNAP_OPEN, { 
-                duration: 350, 
-                easing: Easing.out(Easing.quad) 
+            // Replaced timing with a premium soft spring for the opening sequence
+            translateY.value = withSpring(SNAP_OPEN, { 
+                damping: 22, 
+                stiffness: 150, 
+                mass: 0.8 
             });
         }
     }, [visible]);
 
     const close = () => {
-        translateY.value = withTiming(SNAP_CLOSE, { duration: 250 }, () => {
+        // Smooth timing for close to avoid bottom bouncing
+        translateY.value = withTiming(SNAP_CLOSE, { duration: 300, easing: Easing.bezier(0.25, 0.1, 0.25, 1) }, () => {
             runOnJS(onClose)();
         });
     };
@@ -88,7 +93,8 @@ export default function PrivacyModal({ visible, onClose, onAgree, isLoading = fa
             if (event.translationY > 100 || event.velocityY > 500) {
                 runOnJS(close)();
             } else {
-                translateY.value = withTiming(SNAP_OPEN, { duration: 300, easing: Easing.out(Easing.quad) });
+                // Return gracefully with spring if they didn't swipe hard enough
+                translateY.value = withSpring(SNAP_OPEN, { damping: 20, stiffness: 150 });
             }
         });
 
@@ -134,10 +140,9 @@ export default function PrivacyModal({ visible, onClose, onAgree, isLoading = fa
                             </View>
 
                             <Text style={[styles.description, { color: theme.colors.textSecondary }]}>
-                                By tapping &quot;Agree &amp; Continue&quot;, you acknowledge that you have read and agree to DART&quot;s{' '}
+                                By tapping &quot;Agree & Continue&quot;, you acknowledge that you have read and agree to DART&apos;s{' '}
                                 <Text 
                                     style={[styles.hyperlink, { color: theme.colors.primary }]} 
-                                    // UPDATED PATH HERE
                                     onPress={() => openLink('/settings/docs/terms-of-service')}
                                 >
                                     Terms of Service
@@ -145,7 +150,6 @@ export default function PrivacyModal({ visible, onClose, onAgree, isLoading = fa
                                 {' '}and{' '}
                                 <Text 
                                     style={[styles.hyperlink, { color: theme.colors.primary }]} 
-                                    // UPDATED PATH HERE
                                     onPress={() => openLink('/settings/docs/privacy-details')}
                                 >
                                     Privacy Policy

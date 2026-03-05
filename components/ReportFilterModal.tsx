@@ -1,3 +1,4 @@
+// filepath: components/ReportFilterModal.tsx
 import {
     Calendar02Icon,
     Tick01Icon
@@ -19,10 +20,12 @@ import { FlatList, Gesture, GestureDetector, GestureHandlerRootView } from 'reac
 import Animated, {
     Easing,
     FadeIn,
+    FadeInDown,
     FadeOut,
     runOnJS,
     useAnimatedStyle,
     useSharedValue,
+    withSpring,
     withTiming
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -77,8 +80,12 @@ export default function ReportFilterModal({
                 setActiveTab(currentRange.type);
             }
             translateY.value = SNAP_CLOSE;
-            // Smooth linear easing (No Spring)
-            translateY.value = withTiming(SNAP_MID, { duration: 300, easing: Easing.out(Easing.ease) });
+            // Matches PrivacyModal opening spring
+            translateY.value = withSpring(SNAP_MID, { 
+                damping: 22, 
+                stiffness: 150, 
+                mass: 0.8 
+            });
         }
     }, [visible, currentRange, translateY]);
 
@@ -140,7 +147,11 @@ export default function ReportFilterModal({
     }, [activeTab, availableDates]);
 
     const close = () => {
-        translateY.value = withTiming(SNAP_CLOSE, { duration: 250, easing: Easing.in(Easing.ease) }, () => runOnJS(onClose)());
+        // Matches PrivacyModal closing curve
+        translateY.value = withTiming(SNAP_CLOSE, { 
+            duration: 300, 
+            easing: Easing.bezier(0.25, 0.1, 0.25, 1) 
+        }, () => runOnJS(onClose)());
     };
 
     const pan = Gesture.Pan()
@@ -151,8 +162,12 @@ export default function ReportFilterModal({
             translateY.value = newY;
         })
         .onEnd((e) => {
-            if (e.velocityY > 500 || (e.translationY > 100)) runOnJS(close)();
-            else translateY.value = withTiming(SNAP_MID, { duration: 300, easing: Easing.out(Easing.ease) });
+            if (e.velocityY > 500 || (e.translationY > 100)) {
+                runOnJS(close)();
+            } else {
+                // Matches PrivacyModal snap-back spring
+                translateY.value = withSpring(SNAP_MID, { damping: 20, stiffness: 150 });
+            }
         });
 
     const animatedStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.value }] }));
@@ -160,7 +175,11 @@ export default function ReportFilterModal({
     return (
         <Modal transparent visible={visible} onRequestClose={close} animationType="none" statusBarTranslucent>
             <GestureHandlerRootView style={styles.overlay}>
-                <Animated.View entering={FadeIn} exiting={FadeOut} style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.6)' }]}>
+                <Animated.View 
+                    entering={FadeIn.duration(300)} 
+                    exiting={FadeOut.duration(300)} 
+                    style={[styles.backdrop, { backgroundColor: 'rgba(0,0,0,0.6)' }]}
+                >
                     <Pressable style={StyleSheet.absoluteFill} onPress={close} />
                 </Animated.View>
 
@@ -172,7 +191,6 @@ export default function ReportFilterModal({
                             <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
                         </View>
 
-                        {/* Updated Modal Header with Title & Subtitle */}
                         <ModalHeader 
                             title="Select Range" 
                             subtitle="Filter Reports"
@@ -182,26 +200,29 @@ export default function ReportFilterModal({
 
                         <View style={styles.contentContainer}>
                             
-                            {/* Modern Segmented Control / Tabs */}
-                            <View style={[styles.tabContainer, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                                {[{ id: 'period', label: 'Period' }, { id: 'week', label: 'Week' }, { id: 'month', label: 'Month' }].map((tab: any) => (
-                                    <TouchableOpacity 
-                                        key={tab.id} 
-                                        activeOpacity={0.8}
-                                        onPress={() => setActiveTab(tab.id)}
-                                        style={[
-                                            styles.tab, 
-                                            activeTab === tab.id && [styles.activeTab, { backgroundColor: theme.colors.background }]
-                                        ]}
-                                    >
-                                        <Text style={[
-                                            styles.tabText, 
-                                            { color: activeTab === tab.id ? theme.colors.text : theme.colors.textSecondary }
-                                        ]}>
-                                            {tab.label}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
+                            {/* Modern Segmented Control */}
+                            <View style={[styles.tabContainer, { backgroundColor: theme.colors.card }]}>
+                                {[{ id: 'period', label: 'Period' }, { id: 'week', label: 'Week' }, { id: 'month', label: 'Month' }].map((tab: any) => {
+                                    const isActive = activeTab === tab.id;
+                                    return (
+                                        <TouchableOpacity 
+                                            key={tab.id} 
+                                            activeOpacity={0.8}
+                                            onPress={() => setActiveTab(tab.id)}
+                                            style={[
+                                                styles.tab, 
+                                                isActive && [styles.activeTab, { backgroundColor: theme.colors.background }]
+                                            ]}
+                                        >
+                                            <Text style={[
+                                                styles.tabText, 
+                                                { color: isActive ? theme.colors.text : theme.colors.textSecondary }
+                                            ]}>
+                                                {tab.label}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
                             </View>
 
                             {isLoading ? (
@@ -213,47 +234,51 @@ export default function ReportFilterModal({
                                     data={groups}
                                     keyExtractor={item => item.label}
                                     showsVerticalScrollIndicator={false}
-                                    renderItem={({ item }) => {
+                                    renderItem={({ item, index }) => {
                                         const isSelected = currentRange?.label === item.label && currentRange?.type === item.type;
 
                                         return (
-                                            <TouchableOpacity 
-                                                activeOpacity={0.7}
-                                                onPress={() => { onSelect(item); close(); }} 
-                                                style={[
-                                                    styles.itemCard, 
-                                                    { 
-                                                        backgroundColor: isSelected ? theme.colors.primary + '08' : theme.colors.card,
-                                                        borderColor: isSelected ? theme.colors.primary : theme.colors.border,
-                                                    }
-                                                ]}
+                                            <Animated.View 
+                                                entering={FadeInDown.duration(300).delay(index * 40).springify()}
                                             >
-                                                <View style={styles.itemLeft}>
-                                                    <View style={[
-                                                        styles.iconBox,
-                                                        { backgroundColor: isSelected ? theme.colors.primary : theme.colors.background }
-                                                    ]}>
-                                                        <HugeiconsIcon 
-                                                            icon={Calendar02Icon} 
-                                                            size={20} 
-                                                            color={isSelected ? '#fff' : theme.colors.textSecondary} 
-                                                        />
+                                                <TouchableOpacity 
+                                                    activeOpacity={0.7}
+                                                    onPress={() => { onSelect(item); close(); }} 
+                                                    style={[
+                                                        styles.itemCard, 
+                                                        isSelected && { backgroundColor: theme.colors.primary + '15' }
+                                                    ]}
+                                                >
+                                                    <View style={styles.itemLeft}>
+                                                        <View style={[
+                                                            styles.iconBox,
+                                                            { backgroundColor: isSelected ? theme.colors.primary : theme.colors.card }
+                                                        ]}>
+                                                            <HugeiconsIcon 
+                                                                icon={Calendar02Icon} 
+                                                                size={20} 
+                                                                // Removed the unsupported 'variant' prop
+                                                                color={isSelected ? '#fff' : theme.colors.textSecondary} 
+                                                            />
+                                                        </View>
+                                                        <Text style={[
+                                                            styles.itemLabel, 
+                                                            { color: isSelected ? theme.colors.primary : theme.colors.text }
+                                                        ]}>
+                                                            {item.label}
+                                                        </Text>
                                                     </View>
-                                                    <Text style={[
-                                                        styles.itemLabel, 
-                                                        { color: isSelected ? theme.colors.primary : theme.colors.text }
-                                                    ]}>
-                                                        {item.label}
-                                                    </Text>
-                                                </View>
-                                                
-                                                {isSelected && (
-                                                    <HugeiconsIcon icon={Tick01Icon} size={24} color={theme.colors.primary} />
-                                                )}
-                                            </TouchableOpacity>
+                                                    
+                                                    {isSelected && (
+                                                        <Animated.View entering={FadeIn.duration(200)}>
+                                                            <HugeiconsIcon icon={Tick01Icon} size={24} color={theme.colors.primary} />
+                                                        </Animated.View>
+                                                    )}
+                                                </TouchableOpacity>
+                                            </Animated.View>
                                         );
                                     }}
-                                    contentContainerStyle={{ gap: 12, paddingBottom: Math.max(insets.bottom, 40) }}
+                                    contentContainerStyle={{ gap: 8, paddingBottom: Math.max(insets.bottom, 40) }}
                                     ListEmptyComponent={
                                         <View style={styles.emptyContainer}>
                                             <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
@@ -307,42 +332,47 @@ const styles = StyleSheet.create({
         paddingHorizontal: 24, 
         paddingTop: 16 
     },
+    
+    // Modern Segmented Control
     tabContainer: { 
         flexDirection: 'row', 
         padding: 4, 
-        borderRadius: 14, 
+        borderRadius: 16, 
         marginBottom: 20, 
-        height: 44,
-        borderWidth: 1,
     },
     tab: { 
         flex: 1, 
         alignItems: 'center', 
         justifyContent: 'center', 
-        borderRadius: 10 
+        borderRadius: 12,
+        paddingVertical: 10,
     },
     activeTab: { 
         shadowColor: "#000", 
-        shadowOpacity: 0.08, 
+        shadowOpacity: 0.04, 
         shadowRadius: 4,
         shadowOffset: { width: 0, height: 2 },
-        elevation: 2 
+        elevation: 1 
     },
     tabText: { 
         fontFamily: 'Nunito_700Bold', 
-        fontSize: 13 
+        fontSize: 14 
     },
+    
     loadingContainer: {
         paddingTop: 40,
         alignItems: 'center'
     },
+    
+    // Refined List Items
     itemCard: { 
         flexDirection: 'row', 
         alignItems: 'center', 
         justifyContent: 'space-between', 
-        padding: 16, 
-        borderRadius: 16, 
-        borderWidth: 1.5 
+        padding: 12,
+        paddingRight: 16,
+        borderRadius: 20, 
+        backgroundColor: 'transparent',
     },
     itemLeft: { 
         flexDirection: 'row', 
@@ -350,22 +380,24 @@ const styles = StyleSheet.create({
         gap: 14 
     },
     iconBox: {
-        width: 40,
-        height: 40,
-        borderRadius: 12,
+        width: 42,
+        height: 42,
+        borderRadius: 14,
         alignItems: 'center',
         justifyContent: 'center',
     },
     itemLabel: { 
         fontSize: 15, 
-        fontFamily: 'Nunito_700Bold' 
+        fontFamily: 'Nunito_700Bold',
+        letterSpacing: -0.2, 
     },
+    
     emptyContainer: {
-        padding: 30,
+        padding: 40,
         alignItems: 'center'
     },
     emptyText: {
-        fontFamily: 'Nunito_400Regular',
-        fontSize: 14
+        fontFamily: 'Nunito_500Medium',
+        fontSize: 15
     }
 });

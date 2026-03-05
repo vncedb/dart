@@ -11,10 +11,10 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { differenceInMinutes, format } from 'date-fns';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { useAppTheme } from '../constants/theme';
+import InfoTooltip from './InfoTooltip'; // Ensure the path is correct
 
 interface ReportItemProps {
     item: any;
@@ -31,17 +31,12 @@ type TagItem = {
     icon?: any;
 };
 
-// Global reference to ensure only ONE tooltip is open across all ReportItems
-let globalTooltipCloser: (() => void) | null = null;
-
 const ReportItem = ({
     item,
     job,
     onPress
 }: ReportItemProps) => {
     const theme = useAppTheme();
-    const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
-    const tooltipTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const attendances = useMemo(() => item.attendances || [], [item.attendances]);
     
@@ -125,41 +120,6 @@ const ReportItem = ({
     const absentLabel = (isPast && !isWeekend) ? 'Missed' : 'No Record';
     const absentTooltip = absentLabel === 'Missed' ? 'Missed Shift' : 'No Attendance Record';
 
-    const closeTooltip = useCallback(() => {
-        setActiveTooltip(null);
-        if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
-    }, []);
-
-    useEffect(() => {
-        return () => {
-            if (globalTooltipCloser === closeTooltip) {
-                globalTooltipCloser = null;
-            }
-            if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
-        };
-    }, [closeTooltip]);
-
-    const handleShowTooltip = (message: string) => {
-        if (activeTooltip === message) {
-            closeTooltip();
-            if (globalTooltipCloser === closeTooltip) globalTooltipCloser = null;
-            return;
-        }
-
-        if (globalTooltipCloser && globalTooltipCloser !== closeTooltip) {
-            globalTooltipCloser();
-        }
-
-        setActiveTooltip(message);
-        globalTooltipCloser = closeTooltip;
-
-        if (tooltipTimeoutRef.current) clearTimeout(tooltipTimeoutRef.current);
-        tooltipTimeoutRef.current = setTimeout(() => {
-            setActiveTooltip(null);
-            if (globalTooltipCloser === closeTooltip) globalTooltipCloser = null;
-        }, 2500); 
-    };
-
     const renderTags = () => {
         const activeTags: TagItem[] = [];
         
@@ -173,27 +133,18 @@ const ReportItem = ({
             <View style={styles.tagsContainer}>
                 <View style={[styles.tagsGrid, activeTags.length === 4 ? { alignContent: 'center', justifyContent: 'center' } : { alignContent: 'flex-start', justifyContent: 'flex-end' }]}>
                     {activeTags.map(t => (
-                        <TouchableOpacity 
-                            key={t.id} 
-                            activeOpacity={0.6} 
-                            onLongPress={() => handleShowTooltip(t.tooltip)} 
-                            delayLongPress={200}
-                            style={[styles.tagBadge, { backgroundColor: t.color + '15' }]}
-                        >
-                            {t.text ? (
-                                <Text style={[styles.tagText, { color: t.color }]}>{t.text}</Text>
-                            ) : t.icon ? (
-                                <HugeiconsIcon icon={t.icon} size={12} color={t.color} />
-                            ) : null}
-                        </TouchableOpacity>
+                        <InfoTooltip key={t.id} text={t.tooltip}>
+                            {/* Inner View replaces the old TouchableOpacity */}
+                            <View style={[styles.tagBadge, { backgroundColor: t.color + '15' }]}>
+                                {t.text ? (
+                                    <Text style={[styles.tagText, { color: t.color }]}>{t.text}</Text>
+                                ) : t.icon ? (
+                                    <HugeiconsIcon icon={t.icon} size={12} color={t.color} />
+                                ) : null}
+                            </View>
+                        </InfoTooltip>
                     ))}
                 </View>
-
-                {activeTooltip && (
-                    <Animated.View entering={FadeIn.duration(200)} exiting={FadeOut.duration(200)} style={[styles.tooltipBubble, { backgroundColor: theme.colors.text }]}>
-                        <Text style={[styles.tooltipText, { color: theme.colors.card }]}>{activeTooltip}</Text>
-                    </Animated.View>
-                )}
             </View>
         );
     };
@@ -262,6 +213,8 @@ const styles = StyleSheet.create({
         marginBottom: 10, 
         borderRadius: 20, 
         borderWidth: 1, 
+        // Ensure overflow is visible so tooltips don't get clipped
+        overflow: 'visible'
     },
     touchable: { flexDirection: 'row', padding: 8, alignItems: 'center' },
     
@@ -299,27 +252,9 @@ const styles = StyleSheet.create({
     rightColumn: { width: 52, alignItems: 'flex-end', justifyContent: 'flex-start', paddingTop: 2, zIndex: 10 },
     tagsContainer: { position: 'relative', zIndex: 10 },
     tagsGrid: { flexDirection: 'row', flexWrap: 'wrap', width: 52, gap: 4, minHeight: 24 },
+    
     tagBadge: { width: 24, height: 24, borderRadius: 6, alignItems: 'center', justifyContent: 'center' },
     tagText: { fontSize: 9, fontFamily: 'Nunito_800ExtraBold' },
-    
-    tooltipBubble: { 
-        position: 'absolute', 
-        right: 60, 
-        top: 0,
-        paddingHorizontal: 12, 
-        paddingVertical: 6, 
-        borderRadius: 8, 
-        zIndex: 9999,
-        elevation: 10,
-        flexDirection: 'row', 
-        alignItems: 'center',
-        justifyContent: 'center',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.15,
-        shadowRadius: 4,
-    },
-    tooltipText: { fontSize: 12, fontFamily: 'Nunito_800ExtraBold' },
     
     actionZone: { paddingLeft: 8, justifyContent: 'center' }
 });
