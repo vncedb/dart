@@ -8,15 +8,13 @@ import {
   Clock01Icon,
   Delete02Icon,
   Image01Icon,
-  Pdf01Icon,
   PencilEdit02Icon,
   PrinterIcon,
+  Settings02Icon,
   SignatureIcon,
   Tick01Icon,
-  Timer01Icon,
   UserCircleIcon,
   UserGroupIcon,
-  Xls01Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -28,6 +26,7 @@ import {
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -44,7 +43,7 @@ import Footer from "../../components/Footer";
 import Header from "../../components/Header";
 import ImageViewer from "../../components/ImageViewer";
 import LoadingOverlay from "../../components/LoadingOverlay";
-import ModernAlert from "../../components/ModernAlert";
+import { ModernAlert } from "../../components/ModernUI";
 import SelectDropdown from "../../components/SelectDropdown";
 import SignatureModal from "../../components/SignatureModal";
 import { useAppTheme } from "../../constants/theme";
@@ -59,14 +58,14 @@ const setupSAFDirectory = async (baseUri: string) => {
     let target = baseUri;
     try {
         target = await FileSystem.StorageAccessFramework.makeDirectoryAsync(target, 'DART');
-    } catch (e) {
+    } catch {
         const contents = await FileSystem.StorageAccessFramework.readDirectoryAsync(target);
         const found = contents.find(uri => decodeURIComponent(uri).endsWith('/DART') || decodeURIComponent(uri).endsWith('%3ADART'));
         if (found) target = found;
     }
     try {
         target = await FileSystem.StorageAccessFramework.makeDirectoryAsync(target, 'Reports');
-    } catch (e) {
+    } catch {
         const contents = await FileSystem.StorageAccessFramework.readDirectoryAsync(target);
         const found = contents.find(uri => decodeURIComponent(uri).endsWith('/Reports') || decodeURIComponent(uri).endsWith('%3AReports'));
         if (found) target = found;
@@ -78,12 +77,15 @@ export default function GenerateReportScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const theme = useAppTheme();
+  
   const params = useLocalSearchParams();
+  const { startDate, endDate, date } = params;
 
   // --- Data State ---
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
-  const [reportCount, setReportCount] = useState(0);
+  const [availableDates, setAvailableDates] = useState<string[]>([]);
+  const [selectedDates, setSelectedDates] = useState<Set<string>>(new Set());
   const [periodLabel, setPeriodLabel] = useState("");
   const [previewImages, setPreviewImages] = useState<string[]>([]);
 
@@ -95,10 +97,8 @@ export default function GenerateReportScreen() {
   const [timeFormat, setTimeFormat] = useState("exact_hm");
 
   const [includeDocs, setIncludeDocs] = useState(true);
-  const [includeDay, setIncludeDay] = useState(true);
-  const [includeDept, setIncludeDept] = useState(true);
   const [includeSecondarySignee, setIncludeSecondarySignee] = useState(false);
-  const [columns, setColumns] = useState({ time: true, duration: true, activities: true });
+  const [includeActivities, setIncludeActivities] = useState(true);
 
   // --- Meta State ---
   const [customName, setCustomName] = useState("");
@@ -114,6 +114,7 @@ export default function GenerateReportScreen() {
 
   const [sigModalVisible, setSigModalVisible] = useState(false);
   const [activeSigner, setActiveSigner] = useState<"primary" | "secondary">("primary");
+  const [customizeModalVisible, setCustomizeModalVisible] = useState(false);
 
   const [initialSettings, setInitialSettings] = useState<string>("");
   const [shouldSaveSettings, setShouldSaveSettings] = useState(false);
@@ -137,7 +138,7 @@ export default function GenerateReportScreen() {
 
       const currentSettings = JSON.stringify({
         formatType, paperSize, reportStyle, dateFormat, timeFormat,
-        includeDocs, includeDay, includeDept, includeSecondarySignee, columns, signature,
+        includeDocs, includeSecondarySignee, includeActivities, signature,
         customName, customTitle, companyName, department, secondaryName, secondaryTitle, secondarySignature
       });
 
@@ -158,7 +159,7 @@ export default function GenerateReportScreen() {
     return unsubscribe;
   }, [
     navigation, loading, initialSettings, formatType, paperSize, reportStyle,
-    dateFormat, timeFormat, includeDocs, includeDay, includeDept, includeSecondarySignee, columns,
+    dateFormat, timeFormat, includeDocs, includeSecondarySignee, includeActivities,
     signature, customName, customTitle, companyName, department, secondaryName, secondaryTitle, secondarySignature
   ]);
 
@@ -201,9 +202,7 @@ export default function GenerateReportScreen() {
           if (loaded.dateFormat) setDateFormat(loaded.dateFormat);
           if (loaded.timeFormat) setTimeFormat(loaded.timeFormat);
           if (loaded.includeDocs !== undefined) setIncludeDocs(loaded.includeDocs);
-          if (loaded.includeDay !== undefined) setIncludeDay(loaded.includeDay);
-          if (loaded.includeDept !== undefined) setIncludeDept(loaded.includeDept);
-          if (loaded.columns) setColumns(loaded.columns);
+          if (loaded.includeActivities !== undefined) setIncludeActivities(loaded.includeActivities);
           if (loaded.signature) setSignature(loaded.signature);
 
           if (loaded.customName) currentName = loaded.customName;
@@ -234,17 +233,14 @@ export default function GenerateReportScreen() {
             dateFormat: settingsRes ? JSON.parse(settingsRes).dateFormat : "MM/dd/yyyy",
             timeFormat: settingsRes ? JSON.parse(settingsRes).timeFormat : "exact_hm",
             includeDocs: settingsRes ? JSON.parse(settingsRes).includeDocs : true,
-            includeDay: settingsRes ? JSON.parse(settingsRes).includeDay : true,
-            includeDept: settingsRes ? JSON.parse(settingsRes).includeDept : true,
+            includeActivities: settingsRes ? JSON.parse(settingsRes).includeActivities : true,
             includeSecondarySignee: sInc,
-            columns: settingsRes ? JSON.parse(settingsRes).columns : { time: true, duration: true, activities: true },
             signature: settingsRes ? JSON.parse(settingsRes).signature : null,
             customName: currentName, customTitle: currentTitle, companyName: currentCompany, department: currentDept,
             secondaryName: sName, secondaryTitle: sTitle, secondarySignature: sSig
           })
         );
 
-        const { startDate, endDate, date } = params;
         let items: any = { attendance: [], tasks: [] };
 
         if (startDate && endDate) {
@@ -256,10 +252,13 @@ export default function GenerateReportScreen() {
           items = { attendance: res.attendance ? [res.attendance] : [], tasks: res.tasks };
         }
 
-        const uniqueDates = new Set();
-        (items.attendance || []).forEach((a: any) => uniqueDates.add(a.date));
-        (items.tasks || []).forEach((t: any) => uniqueDates.add(t.date));
-        setReportCount(uniqueDates.size);
+        const datesFound = new Set<string>();
+        (items.attendance || []).forEach((a: any) => datesFound.add(a.date));
+        (items.tasks || []).forEach((t: any) => datesFound.add(t.date));
+        
+        const sortedDates = Array.from(datesFound).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+        setAvailableDates(sortedDates);
+        setSelectedDates(new Set(sortedDates));
 
         const imagesFound: string[] = [];
         (items.tasks || []).forEach((t: any) => {
@@ -273,29 +272,39 @@ export default function GenerateReportScreen() {
           }
         });
         setPreviewImages(imagesFound);
-      } catch (e) {
-        console.error("Generate Init Error:", e);
+      } catch (err) {
+        console.error("Generate Init Error:", err);
       } finally {
         if (isMounted) setLoading(false);
       }
     };
     init();
     return () => { isMounted = false; };
-  }, [params.startDate, params.endDate, params.date]);
+  }, [startDate, endDate, date]);
 
   const hasSettingsChanged = () => {
     return JSON.stringify({
       formatType, paperSize, reportStyle, dateFormat, timeFormat,
-      includeDocs, includeDay, includeDept, includeSecondarySignee, columns, signature,
+      includeDocs, includeSecondarySignee, includeActivities, signature,
       customName, customTitle, companyName, department, secondaryName, secondaryTitle, secondarySignature
     }) !== initialSettings;
   };
 
+  const handleToggleDate = (dateToToggle: string) => {
+    const newSelection = new Set(selectedDates);
+    if (newSelection.has(dateToToggle)) {
+        newSelection.delete(dateToToggle);
+    } else {
+        newSelection.add(dateToToggle);
+    }
+    setSelectedDates(newSelection);
+  };
+
   const handleProceed = async () => {
-    if (reportCount === 0) {
+    if (selectedDates.size === 0) {
       setAlertConfig({
         visible: true, type: "warning", title: "No Data",
-        message: "There is no data to generate for this period.", confirmText: "OK",
+        message: "There are no dates selected to generate for this period.", confirmText: "OK",
         onConfirm: () => setAlertConfig({ visible: false }),
       });
       return;
@@ -317,8 +326,8 @@ export default function GenerateReportScreen() {
                     });
                     return;
                 }
-            } catch (e) {
-                console.error("SAF Error", e);
+            } catch (err) {
+                console.error("SAF Error", err);
                 return;
             }
         }
@@ -331,12 +340,12 @@ export default function GenerateReportScreen() {
           try {
             const settingsToSave = {
               formatType, paperSize, reportStyle, dateFormat, timeFormat,
-              includeDocs, includeDay, includeDept, includeSecondarySignee, columns, signature,
+              includeDocs, includeSecondarySignee, includeActivities, signature,
               customName, customTitle, companyName, department, secondaryName, secondaryTitle, secondarySignature
             };
             await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsToSave));
             setInitialSettings(JSON.stringify(settingsToSave));
-          } catch (e) { console.log("Failed to save settings"); }
+          } catch (err) { console.log("Failed to save settings", err); }
         }
 
         isProceeding.current = true;
@@ -344,10 +353,12 @@ export default function GenerateReportScreen() {
         router.push({
           pathname: "/reports/preview",
           params: {
-            startDate: params.startDate, endDate: params.endDate, date: params.date,
+            startDate, endDate, date,
             config: JSON.stringify({
-              format: formatType, paperSize, style: reportStyle, includeDocs, includeDay,
-              includeDept, dateFormat, timeFormat, columns,
+              format: formatType, paperSize, style: reportStyle, includeDocs, includeDay: true,
+              includeDept: true, dateFormat, timeFormat, 
+              columns: { time: true, duration: true, activities: includeActivities }, 
+              selectedDates: Array.from(selectedDates),
               meta: {
                 name: customName, title: customTitle, company: companyName, department: department, period: periodLabel, signature,
                 secondaryName: includeSecondarySignee ? secondaryName : undefined,
@@ -384,6 +395,24 @@ export default function GenerateReportScreen() {
     </View>
   );
 
+  const renderToggleRow = (label: string, icon: any, value: boolean, onToggle: (val: boolean) => void, isLast?: boolean) => (
+      <View style={[styles.checkRow, !isLast && { borderBottomWidth: 1, borderBottomColor: theme.colors.border }]}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.colors.border }}>
+            <HugeiconsIcon icon={icon} size={18} color={theme.colors.textSecondary} />
+          </View>
+          <Text style={[styles.checkLabel, { color: theme.colors.text }]}>{label}</Text>
+        </View>
+        <Switch 
+          value={value} 
+          onValueChange={onToggle} 
+          trackColor={{ false: theme.colors.border, true: theme.colors.primary }} 
+          thumbColor={Platform.OS === 'ios' ? '#FFFFFF' : (value ? '#FFFFFF' : theme.colors.textSecondary)} 
+          style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }}
+        />
+      </View>
+  );
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={["top", "bottom"]}>
       <Header title="Generate Report" />
@@ -399,6 +428,51 @@ export default function GenerateReportScreen() {
 
       <ImageViewer visible={viewerVisible} imageUri={activeImage} onClose={() => setViewerVisible(false)} />
 
+      {/* Customize Modal */}
+      <Modal visible={customizeModalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+            <View style={[styles.customizeSheet, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                <View style={[styles.modalHeader, { borderBottomColor: theme.colors.border }]}>
+                    <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Customize Inclusion</Text>
+                    <TouchableOpacity onPress={() => setCustomizeModalVisible(false)}>
+                        <Text style={{ fontFamily: 'Nunito_700Bold', color: theme.colors.primary, fontSize: 15 }}>Done</Text>
+                    </TouchableOpacity>
+                </View>
+                <ScrollView contentContainerStyle={{ padding: 16 }}>
+                    {availableDates.length === 0 ? (
+                        <Text style={{ textAlign: 'center', color: theme.colors.textSecondary, fontFamily: 'Nunito_600SemiBold', marginVertical: 20 }}>No dates available.</Text>
+                    ) : (
+                        availableDates.map((dateItem, index) => {
+                            const isSelected = selectedDates.has(dateItem);
+                            return (
+                                <TouchableOpacity 
+                                    key={dateItem} 
+                                    onPress={() => handleToggleDate(dateItem)} 
+                                    activeOpacity={0.7}
+                                    style={[
+                                        styles.dateSelectionRow, 
+                                        { borderBottomColor: theme.colors.border },
+                                        index === availableDates.length - 1 && { borderBottomWidth: 0 }
+                                    ]}
+                                >
+                                    <Text style={{ fontFamily: 'Nunito_600SemiBold', fontSize: 15, color: theme.colors.text }}>
+                                        {format(new Date(dateItem), 'MMMM dd, yyyy')}
+                                    </Text>
+                                    <Switch 
+                                        value={isSelected} 
+                                        onValueChange={() => handleToggleDate(dateItem)}
+                                        trackColor={{ false: theme.colors.border, true: theme.colors.primary }} 
+                                        thumbColor={Platform.OS === 'ios' ? '#FFFFFF' : (isSelected ? '#FFFFFF' : theme.colors.textSecondary)}
+                                    />
+                                </TouchableOpacity>
+                            )
+                        })
+                    )}
+                </ScrollView>
+            </View>
+        </View>
+      </Modal>
+
       <View style={{ flex: 1 }}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -406,20 +480,26 @@ export default function GenerateReportScreen() {
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>REPORT SUMMARY</Text>
               <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                  <View style={[styles.iconBox, { backgroundColor: theme.colors.primary + "15" }]}>
-                    <HugeiconsIcon icon={Calendar03Icon} size={20} color={theme.colors.primary} />
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                    <View style={[styles.iconBox, { backgroundColor: theme.colors.primary + "15" }]}>
+                      <HugeiconsIcon icon={Calendar03Icon} size={20} color={theme.colors.primary} />
+                    </View>
+                    <View>
+                      <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontWeight: "700", textTransform: "uppercase" }}>Selected Period</Text>
+                      <Text style={{ fontSize: 16, color: theme.colors.text, fontFamily: 'Nunito_800ExtraBold', marginTop: 2 }}>{periodLabel || "Loading..."}</Text>
+                    </View>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontWeight: "700", textTransform: "uppercase" }}>Selected Period</Text>
-                    <Text style={{ fontSize: 16, color: theme.colors.text, fontWeight: "800", marginTop: 2 }}>{periodLabel || "Loading..."}</Text>
-                  </View>
+                  <TouchableOpacity onPress={() => setCustomizeModalVisible(true)} style={[styles.customizeBtn, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+                      <HugeiconsIcon icon={Settings02Icon} size={16} color={theme.colors.text} />
+                      <Text style={{ fontFamily: 'Nunito_700Bold', fontSize: 13, color: theme.colors.text }}>Customize</Text>
+                  </TouchableOpacity>
                 </View>
                 <View style={[styles.divider, { backgroundColor: theme.colors.border, marginVertical: 14 }]} />
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                  <Text style={{ fontSize: 14, color: theme.colors.textSecondary, fontWeight: "600" }}>Total Included Reports</Text>
+                  <Text style={{ fontSize: 14, color: theme.colors.textSecondary, fontFamily: 'Nunito_600SemiBold' }}>Total Included Reports</Text>
                   <View style={[styles.badge, { backgroundColor: theme.colors.success + "15" }]}>
-                    <Text style={{ fontSize: 13, color: theme.colors.success, fontWeight: "800" }}>{reportCount} {reportCount === 1 ? "Day" : "Days"}</Text>
+                    <Text style={{ fontSize: 13, color: theme.colors.success, fontFamily: 'Nunito_800ExtraBold' }}>{selectedDates.size} {selectedDates.size === 1 ? "Day" : "Days"}</Text>
                   </View>
                 </View>
               </View>
@@ -428,12 +508,12 @@ export default function GenerateReportScreen() {
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>FILE FORMAT</Text>
               <View style={styles.row}>
-                <TouchableOpacity activeOpacity={0.8} onPress={() => setFormatType("pdf")} style={[styles.optionCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }, formatType === "pdf" && { borderColor: pdfColor, backgroundColor: pdfColor + "10" }]}>
-                  <HugeiconsIcon icon={Pdf01Icon} size={32} color={formatType === "pdf" ? pdfColor : theme.colors.textSecondary} />
+                <TouchableOpacity activeOpacity={0.8} onPress={() => setFormatType("pdf")} style={[styles.optionCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }, formatType === "pdf" && { borderColor: pdfColor, backgroundColor: pdfColor + "08" }]}>
+                  <Image source={require('../../assets/icons/custom-icons/pdf.png')} style={{ width: 36, height: 36, opacity: formatType === 'pdf' ? 1 : 0.6 }} resizeMode="contain" />
                   <Text style={[styles.optionText, { color: formatType === "pdf" ? pdfColor : theme.colors.text }]}>Adobe PDF</Text>
                 </TouchableOpacity>
-                <TouchableOpacity activeOpacity={0.8} onPress={() => setFormatType("xlsx")} style={[styles.optionCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }, formatType === "xlsx" && { borderColor: excelColor, backgroundColor: excelColor + "10" }]}>
-                  <HugeiconsIcon icon={Xls01Icon} size={32} color={formatType === "xlsx" ? excelColor : theme.colors.textSecondary} />
+                <TouchableOpacity activeOpacity={0.8} onPress={() => setFormatType("xlsx")} style={[styles.optionCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }, formatType === "xlsx" && { borderColor: excelColor, backgroundColor: excelColor + "08" }]}>
+                  <Image source={require('../../assets/icons/custom-icons/xlsx.png')} style={{ width: 36, height: 36, opacity: formatType === 'xlsx' ? 1 : 0.6 }} resizeMode="contain" />
                   <Text style={[styles.optionText, { color: formatType === "xlsx" ? excelColor : theme.colors.text }]}>Microsoft Excel</Text>
                 </TouchableOpacity>
               </View>
@@ -473,44 +553,35 @@ export default function GenerateReportScreen() {
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>REPORT CONTENT</Text>
               <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                {[
-                  { label: "Day", icon: Calendar03Icon, value: includeDay, setValue: setIncludeDay },
-                  { label: "Time Record", icon: Clock01Icon, value: columns.time, setValue: (v: boolean) => setColumns(prev => ({ ...prev, time: v })) },
-                  { label: "Duration", icon: Timer01Icon, value: columns.duration, setValue: (v: boolean) => setColumns(prev => ({ ...prev, duration: v })) },
-                  { label: "Activities", icon: CheckListIcon, value: columns.activities, setValue: (v: boolean) => setColumns(prev => ({ ...prev, activities: v })) },
-                  { label: "Department", icon: UserGroupIcon, value: includeDept, setValue: setIncludeDept },
-                ].map((item, index, array) => (
-                  <View key={item.label} style={[styles.checkRow, index !== array.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.colors.border }]}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                      <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.colors.border }}>
-                        <HugeiconsIcon icon={item.icon} size={16} color={theme.colors.textSecondary} />
-                      </View>
-                      <Text style={[styles.checkLabel, { color: theme.colors.text }]}>{item.label}</Text>
-                    </View>
-                    <Switch value={item.value} onValueChange={item.setValue} trackColor={{ false: theme.colors.toggleOff, true: theme.colors.toggleOn }} thumbColor={theme.colors.toggleThumb} />
-                  </View>
-                ))}
-
+                
+                {renderToggleRow("Include Activities", CheckListIcon, includeActivities, setIncludeActivities, formatType !== 'pdf')}
+                
                 {formatType === "pdf" && (
                   <>
-                    <View style={[styles.checkRow, { borderTopWidth: 1, borderTopColor: theme.colors.border }]}>
+                    <View style={[styles.checkRow]}>
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                         <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.colors.border }}>
-                            <HugeiconsIcon icon={Image01Icon} size={16} color={theme.colors.textSecondary} />
+                         <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: theme.colors.background, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: theme.colors.border }}>
+                            <HugeiconsIcon icon={Image01Icon} size={18} color={theme.colors.textSecondary} />
                          </View>
                         <View>
-                          <Text style={[styles.checkLabel, { color: theme.colors.text }]}>Documentation</Text>
+                          <Text style={[styles.checkLabel, { color: theme.colors.text }]}>Include Documentation</Text>
                           {previewImages.length > 0 && <Text style={[styles.checkSub, { color: theme.colors.textSecondary }]}>{previewImages.length} images found</Text>}
                         </View>
                       </View>
-                      <Switch value={includeDocs} onValueChange={setIncludeDocs} trackColor={{ false: theme.colors.toggleOff, true: theme.colors.toggleOn }} thumbColor={theme.colors.toggleThumb} />
+                      <Switch 
+                        value={includeDocs} 
+                        onValueChange={setIncludeDocs} 
+                        trackColor={{ false: theme.colors.border, true: theme.colors.primary }} 
+                        thumbColor={Platform.OS === 'ios' ? '#FFFFFF' : (includeDocs ? '#FFFFFF' : theme.colors.textSecondary)}
+                        style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }}
+                      />
                     </View>
                     {includeDocs && previewImages.length > 0 && (
                       <View style={{ padding: 16, paddingTop: 0 }}>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                           {previewImages.map((uri, i) => (
                             <TouchableOpacity key={i} onPress={() => { setActiveImage(uri); setViewerVisible(true); }}>
-                              <Image source={{ uri }} style={{ width: 64, height: 64, borderRadius: 8, backgroundColor: theme.colors.border }} resizeMode="cover" />
+                              <Image source={{ uri }} style={{ width: 64, height: 64, borderRadius: 10, backgroundColor: theme.colors.border }} resizeMode="cover" />
                             </TouchableOpacity>
                           ))}
                         </ScrollView>
@@ -564,7 +635,7 @@ export default function GenerateReportScreen() {
                                 <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.primary + '15', alignItems: 'center', justifyContent: 'center' }}>
                                     <HugeiconsIcon icon={SignatureIcon} size={22} color={theme.colors.primary} />
                                 </View>
-                                <Text style={{ color: theme.colors.textSecondary, fontWeight: "600", fontSize: 13 }}>Tap here to draw signature</Text>
+                                <Text style={{ color: theme.colors.textSecondary, fontFamily: "Nunito_600SemiBold", fontSize: 13 }}>Tap here to draw signature</Text>
                             </View>
                         </TouchableOpacity>
                     )}
@@ -575,10 +646,16 @@ export default function GenerateReportScreen() {
               <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 20 }]}>
                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: includeSecondarySignee ? 24 : 0 }}>
                     <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 15, fontFamily: 'Nunito_700Bold', color: theme.colors.text }}>Secondary Signee</Text>
-                        <Text style={{ fontSize: 12, fontFamily: 'Nunito_500Medium', color: theme.colors.textSecondary, marginTop: 2 }}>Include a co-signer or approver</Text>
+                        <Text style={{ fontSize: 15, fontFamily: 'Nunito_800ExtraBold', color: theme.colors.text }}>Secondary Signee</Text>
+                        <Text style={{ fontSize: 13, fontFamily: 'Nunito_500Medium', color: theme.colors.textSecondary, marginTop: 4 }}>Include a co-signer or approver</Text>
                     </View>
-                    <Switch value={includeSecondarySignee} onValueChange={setIncludeSecondarySignee} trackColor={{ true: theme.colors.primary, false: theme.colors.border }} />
+                    <Switch 
+                      value={includeSecondarySignee} 
+                      onValueChange={setIncludeSecondarySignee} 
+                      trackColor={{ false: theme.colors.border, true: theme.colors.primary }} 
+                      thumbColor={Platform.OS === 'ios' ? '#FFFFFF' : (includeSecondarySignee ? '#FFFFFF' : theme.colors.textSecondary)}
+                      style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }}
+                    />
                  </View>
 
                  {includeSecondarySignee && (
@@ -615,7 +692,7 @@ export default function GenerateReportScreen() {
                                             <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.primary + '15', alignItems: 'center', justifyContent: 'center' }}>
                                                 <HugeiconsIcon icon={SignatureIcon} size={22} color={theme.colors.primary} />
                                             </View>
-                                            <Text style={{ color: theme.colors.textSecondary, fontWeight: "600", fontSize: 13 }}>Tap to add approver signature</Text>
+                                            <Text style={{ color: theme.colors.textSecondary, fontFamily: "Nunito_600SemiBold", fontSize: 13 }}>Tap to add approver signature</Text>
                                         </View>
                                     </TouchableOpacity>
                                 )}
@@ -656,7 +733,7 @@ const styles = StyleSheet.create({
   optionText: { fontFamily: "Nunito_800ExtraBold", fontSize: 15 },
   card: { borderRadius: 20, borderWidth: 1, overflow: "hidden" },
   iconBox: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  badge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
   checkRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16, paddingVertical: 14 },
   checkLabel: { fontSize: 15, fontFamily: "Nunito_700Bold" },
   checkSub: { fontSize: 12, marginTop: 4, opacity: 0.6, fontFamily: 'Nunito_500Medium' },
@@ -685,4 +762,13 @@ const styles = StyleSheet.create({
   saveSettingsRow: { flexDirection: "row", alignItems: "center", padding: 18, borderRadius: 16, borderWidth: 1, marginBottom: 20, gap: 14 },
   checkbox: { width: 24, height: 24, borderRadius: 8, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   saveSettingsText: { fontFamily: "Nunito_700Bold", fontSize: 15 },
+  
+  customizeBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
+  
+  // Modal Customize Styles
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  customizeSheet: { width: '100%', maxHeight: '60%', borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, overflow: 'hidden' },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1 },
+  modalTitle: { fontFamily: 'Nunito_800ExtraBold', fontSize: 16 },
+  dateSelectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1 },
 });

@@ -1,19 +1,20 @@
+// filepath: components/SelectDropdown.tsx
 import { ArrowDown01Icon, CheckmarkCircle02Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import React, { useRef, useState } from 'react';
 import {
     Animated,
-    Dimensions,
     Keyboard,
     Modal,
-    Pressable,
+    PanResponder,
+    Platform,
     ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
+    TouchableWithoutFeedback,
     View
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppTheme } from '../constants/theme';
 
 interface Option {
@@ -33,65 +34,44 @@ interface SelectDropdownProps {
 
 export default function SelectDropdown({ label, value, options, onChange, placeholder = 'Select' }: SelectDropdownProps) {
     const theme = useAppTheme();
-    const insets = useSafeAreaInsets();
     const [visible, setVisible] = useState(false);
-    const [layout, setLayout] = useState<any>(null);
     
-    const triggerRef = useRef<View>(null);
     const fadeAnim = useRef(new Animated.Value(0)).current;
-    const scaleAnim = useRef(new Animated.Value(0.95)).current;
-    const translateAnim = useRef(new Animated.Value(-10)).current;
+    const translateYAnim = useRef(new Animated.Value(300)).current;
 
     const selectedOption = options.find(o => o.value === value);
 
+    const panResponder = useRef(
+        PanResponder.create({
+            onStartShouldSetPanResponder: () => true,
+            onMoveShouldSetPanResponder: (_, gestureState) => {
+                return gestureState.dy > 5;
+            },
+            onPanResponderRelease: (_, gestureState) => {
+                if (gestureState.dy > 50 || gestureState.vy > 0.5) {
+                    closeDropdown();
+                }
+            },
+        })
+    ).current;
+
     const openDropdown = () => {
         Keyboard.dismiss();
-        
-        triggerRef.current?.measureInWindow((x: number, y: number, width: number, height: number) => {
-            const windowHeight = Dimensions.get('window').height;
-            const headerHeight = 44;
-            const itemHeight = 60; // Approx
-            const maxContentHeight = 280;
-            const calculatedHeight = Math.min((options.length * itemHeight) + headerHeight, maxContentHeight);
-            
-            // Calculate space below the trigger
-            const spaceBelow = windowHeight - (y + height + insets.bottom + 120);
-            
-            // If space below is too small, render ABOVE
-            const showAbove = spaceBelow < calculatedHeight && y > calculatedHeight;
-            
-            // Exact Y position: 
-            // If above: y - calculatedHeight - margin
-            // If below: y + height + margin
-            const finalY = showAbove ? (y - calculatedHeight + 40) : (y + height + 40);
-            
-            setLayout({
-                x: x,
-                y: finalY,
-                width: width,
-                height: calculatedHeight,
-                showAbove
-            });
+        setVisible(true);
 
-            setVisible(true);
+        fadeAnim.setValue(0);
+        translateYAnim.setValue(300);
 
-            // Animate In
-            fadeAnim.setValue(0);
-            scaleAnim.setValue(0.95);
-            translateAnim.setValue(showAbove ? 10 : -10);
-
-            Animated.parallel([
-                Animated.timing(fadeAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
-                Animated.spring(scaleAnim, { toValue: 1, damping: 20, stiffness: 300, useNativeDriver: true }),
-                Animated.timing(translateAnim, { toValue: 0, duration: 200, useNativeDriver: true })
-            ]).start();
-        });
+        Animated.parallel([
+            Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
+            Animated.spring(translateYAnim, { toValue: 0, damping: 25, stiffness: 300, useNativeDriver: true })
+        ]).start();
     };
 
     const closeDropdown = () => {
         Animated.parallel([
-            Animated.timing(fadeAnim, { toValue: 0, duration: 150, useNativeDriver: true }),
-            Animated.timing(scaleAnim, { toValue: 0.95, duration: 150, useNativeDriver: true })
+            Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+            Animated.timing(translateYAnim, { toValue: 300, duration: 200, useNativeDriver: true })
         ]).start(() => setVisible(false));
     };
 
@@ -105,7 +85,6 @@ export default function SelectDropdown({ label, value, options, onChange, placeh
             {label && <Text style={[styles.label, { color: theme.colors.textSecondary }]}>{label}</Text>}
             
             <TouchableOpacity 
-                ref={triggerRef}
                 activeOpacity={0.7} 
                 onPress={openDropdown} 
                 style={[styles.trigger, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
@@ -122,71 +101,68 @@ export default function SelectDropdown({ label, value, options, onChange, placeh
             </TouchableOpacity>
 
             <Modal visible={visible} transparent animationType="none" onRequestClose={closeDropdown}>
-                <Pressable style={styles.overlay} onPress={closeDropdown}>
-                    {layout && (
-                        <Animated.View 
-                            style={[
-                                styles.dropdown,
-                                { 
-                                    top: layout.y, 
-                                    left: layout.x, 
-                                    width: layout.width,
-                                    height: layout.height,
-                                    backgroundColor: theme.colors.card, 
-                                    borderColor: theme.colors.border,
-                                    opacity: fadeAnim,
-                                    transform: [
-                                        { translateY: translateAnim },
-                                        { scale: scaleAnim }
-                                    ]
-                                }
-                            ]}
-                        >
-                            {/* Dropdown Header */}
-                            <View style={[styles.dropdownHeader, { borderBottomColor: theme.colors.border }]}>
-                                <Text style={[styles.headerTitle, { color: theme.colors.textSecondary }]}>
-                                    Select {label || 'Option'}
-                                </Text>
-                            </View>
-
-                            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 6 }}>
-                                {options.map((opt, i) => {
-                                    const isSelected = opt.value === value;
-                                    return (
-                                        <TouchableOpacity 
-                                            key={i} 
-                                            onPress={() => handleSelect(opt.value)}
-                                            style={[
-                                                styles.optionItem, 
-                                                isSelected && { backgroundColor: theme.colors.primary + '10' }
-                                            ]}
-                                        >
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-                                                {opt.icon}
-                                                <View style={{ flex: 1 }}>
-                                                    <Text style={[
-                                                        styles.optionLabel, 
-                                                        { color: isSelected ? theme.colors.primary : theme.colors.text }
-                                                    ]}>
-                                                        {opt.label}
-                                                    </Text>
-                                                    {opt.description && (
-                                                        <Text style={[styles.optionDesc, { color: theme.colors.textSecondary }]}>
-                                                            {opt.description}
-                                                        </Text>
+                <TouchableWithoutFeedback onPress={closeDropdown}>
+                    <Animated.View style={[styles.bottomSheetOverlay, { opacity: fadeAnim }]}>
+                        <TouchableWithoutFeedback>
+                            <Animated.View 
+                                style={[
+                                    styles.floatingSheet, 
+                                    { 
+                                        backgroundColor: theme.colors.card, 
+                                        borderColor: theme.colors.border,
+                                        transform: [{ translateY: translateYAnim }]
+                                    }
+                                ]}
+                            >
+                                <View style={styles.dragHeader} {...panResponder.panHandlers}>
+                                    <View style={[styles.dragHandle, { backgroundColor: theme.colors.border }]} />
+                                    {label && <Text style={[styles.sheetTitle, { color: theme.colors.text }]}>{label}</Text>}
+                                </View>
+                                
+                                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.sheetContent}>
+                                    {options.map((opt, i) => {
+                                        const isSelected = opt.value === value;
+                                        return (
+                                            <TouchableOpacity 
+                                                key={i} 
+                                                onPress={() => handleSelect(opt.value)}
+                                                style={[
+                                                    styles.sheetItem, 
+                                                    isSelected && { backgroundColor: theme.colors.primary + '08' }
+                                                ]}
+                                                activeOpacity={0.7}
+                                            >
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                                                    {opt.icon && (
+                                                        <View style={[styles.iconWrapper, { backgroundColor: isSelected ? theme.colors.primary + '15' : theme.colors.background, borderColor: theme.colors.border, borderWidth: isSelected ? 0 : 1 }]}>
+                                                            {opt.icon}
+                                                        </View>
                                                     )}
+                                                    <View style={{ flex: 1 }}>
+                                                        <Text style={[
+                                                            styles.sheetText, 
+                                                            { color: isSelected ? theme.colors.primary : theme.colors.text, fontFamily: isSelected ? 'Nunito_800ExtraBold' : 'Nunito_600SemiBold' }
+                                                        ]}>
+                                                            {opt.label}
+                                                        </Text>
+                                                        {opt.description && (
+                                                            <Text style={[styles.optionDesc, { color: theme.colors.textSecondary }]}>
+                                                                {opt.description}
+                                                            </Text>
+                                                        )}
+                                                    </View>
                                                 </View>
-                                            </View>
-                                            {isSelected && (
-                                                <HugeiconsIcon icon={CheckmarkCircle02Icon} size={18} color={theme.colors.primary} />
-                                            )}
-                                        </TouchableOpacity>
-                                    );
-                                })}
-                            </ScrollView>
-                        </Animated.View>
-                    )}
-                </Pressable>
+                                                {isSelected && (
+                                                    <HugeiconsIcon icon={CheckmarkCircle02Icon} size={20} color={theme.colors.primary} />
+                                                )}
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                                </ScrollView>
+                            </Animated.View>
+                        </TouchableWithoutFeedback>
+                    </Animated.View>
+                </TouchableWithoutFeedback>
             </Modal>
         </View>
     );
@@ -194,10 +170,10 @@ export default function SelectDropdown({ label, value, options, onChange, placeh
 
 const styles = StyleSheet.create({
     wrapper: { marginBottom: 20 },
-    label: { fontSize: 11, fontFamily: 'Nunito_700Bold', marginBottom: 8, marginLeft: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
+    label: { fontSize: 11, fontFamily: 'Nunito_800ExtraBold', marginBottom: 8, marginLeft: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
     trigger: { 
         height: 56, 
-        borderRadius: 12, 
+        borderRadius: 14, 
         borderWidth: 1, 
         flexDirection: 'row', 
         alignItems: 'center', 
@@ -206,39 +182,31 @@ const styles = StyleSheet.create({
     },
     valueText: { fontSize: 15, fontFamily: 'Nunito_600SemiBold' },
     
-    overlay: { flex: 1 },
-    dropdown: { 
-        position: 'absolute',
-        borderRadius: 14, 
+    bottomSheetOverlay: { 
+        flex: 1, 
+        backgroundColor: 'rgba(0,0,0,0.4)', 
+        justifyContent: 'flex-end',
+        paddingHorizontal: 16
+    },
+    floatingSheet: { 
+        width: '100%', 
+        marginBottom: Platform.OS === 'ios' ? 40 : 24, 
+        borderRadius: 24, 
         borderWidth: 1,
-        elevation: 10,
+        maxHeight: '80%',
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.15,
-        shadowRadius: 24,
-        overflow: 'hidden',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.1,
+        shadowRadius: 20,
+        elevation: 10
     },
-    dropdownHeader: {
-        paddingVertical: 10,
-        paddingHorizontal: 16,
-        borderBottomWidth: 1,
-        backgroundColor: 'rgba(0,0,0,0.02)',
-        justifyContent: 'center'
-    },
-    headerTitle: {
-        fontSize: 11,
-        fontFamily: 'Nunito_700Bold',
-        textTransform: 'uppercase',
-        opacity: 0.7
-    },
+    dragHeader: { width: '100%', paddingVertical: 14, alignItems: 'center', borderTopLeftRadius: 24, borderTopRightRadius: 24, marginBottom: 4 },
+    dragHandle: { width: 36, height: 4, borderRadius: 2, opacity: 0.8, marginBottom: 12 },
+    sheetTitle: { fontSize: 16, fontFamily: 'Nunito_800ExtraBold', letterSpacing: -0.2 },
     
-    optionItem: { 
-        flexDirection: 'row', 
-        alignItems: 'center', 
-        padding: 12, 
-        borderRadius: 8, 
-        marginBottom: 2,
-    },
-    optionLabel: { fontSize: 14, fontFamily: 'Nunito_600SemiBold' },
-    optionDesc: { fontSize: 11, marginTop: 2, lineHeight: 14 }
+    sheetContent: { paddingHorizontal: 10, paddingBottom: 16 },
+    sheetItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 14, borderRadius: 16, marginBottom: 4 },
+    iconWrapper: { width: 36, height: 36, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
+    sheetText: { fontSize: 15, letterSpacing: -0.2 },
+    optionDesc: { fontSize: 12, marginTop: 2, lineHeight: 16, fontFamily: 'Nunito_500Medium' }
 });

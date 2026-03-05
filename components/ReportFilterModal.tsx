@@ -25,7 +25,6 @@ import Animated, {
     runOnJS,
     useAnimatedStyle,
     useSharedValue,
-    withSpring,
     withTiming
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -74,20 +73,20 @@ export default function ReportFilterModal({
     const context = useSharedValue({ y: 0 });
 
     // Sync active tab with currentRange when opened
+    // FIXED: Removed currentRange from dependency array to prevent animation glitch on select
     useEffect(() => {
         if (visible) {
             if (currentRange?.type && ['period', 'week', 'month'].includes(currentRange.type)) {
                 setActiveTab(currentRange.type);
             }
             translateY.value = SNAP_CLOSE;
-            // Matches PrivacyModal opening spring
-            translateY.value = withSpring(SNAP_MID, { 
-                damping: 22, 
-                stiffness: 150, 
-                mass: 0.8 
+            translateY.value = withTiming(SNAP_MID, { 
+                duration: 350, 
+                easing: Easing.out(Easing.quad) 
             });
         }
-    }, [visible, currentRange, translateY]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [visible]);
 
     useEffect(() => {
         setIsLoading(true);
@@ -147,11 +146,9 @@ export default function ReportFilterModal({
     }, [activeTab, availableDates]);
 
     const close = () => {
-        // Matches PrivacyModal closing curve
-        translateY.value = withTiming(SNAP_CLOSE, { 
-            duration: 300, 
-            easing: Easing.bezier(0.25, 0.1, 0.25, 1) 
-        }, () => runOnJS(onClose)());
+        translateY.value = withTiming(SNAP_CLOSE, { duration: 250 }, () => {
+            runOnJS(onClose)();
+        });
     };
 
     const pan = Gesture.Pan()
@@ -165,8 +162,7 @@ export default function ReportFilterModal({
             if (e.velocityY > 500 || (e.translationY > 100)) {
                 runOnJS(close)();
             } else {
-                // Matches PrivacyModal snap-back spring
-                translateY.value = withSpring(SNAP_MID, { damping: 20, stiffness: 150 });
+                translateY.value = withTiming(SNAP_MID, { duration: 300, easing: Easing.out(Easing.quad) });
             }
         });
 
@@ -257,7 +253,6 @@ export default function ReportFilterModal({
                                                             <HugeiconsIcon 
                                                                 icon={Calendar02Icon} 
                                                                 size={20} 
-                                                                // Removed the unsupported 'variant' prop
                                                                 color={isSelected ? '#fff' : theme.colors.textSecondary} 
                                                             />
                                                         </View>
@@ -297,13 +292,8 @@ export default function ReportFilterModal({
 }
 
 const styles = StyleSheet.create({
-    overlay: { 
-        flex: 1, 
-        justifyContent: 'flex-end' 
-    },
-    backdrop: { 
-        ...StyleSheet.absoluteFillObject 
-    },
+    overlay: { flex: 1, justifyContent: 'flex-end' },
+    backdrop: { ...StyleSheet.absoluteFillObject },
     sheet: { 
         width: '100%', 
         borderTopLeftRadius: 32, 
@@ -316,88 +306,18 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: -10 },
         elevation: 20 
     },
-    handleContainer: { 
-        alignItems: 'center', 
-        paddingTop: 12,
-        paddingBottom: 4 
-    },
-    handle: { 
-        width: 40, 
-        height: 5, 
-        borderRadius: 3, 
-        opacity: 0.5 
-    },
-    contentContainer: { 
-        flex: 1, 
-        paddingHorizontal: 24, 
-        paddingTop: 16 
-    },
-    
-    // Modern Segmented Control
-    tabContainer: { 
-        flexDirection: 'row', 
-        padding: 4, 
-        borderRadius: 16, 
-        marginBottom: 20, 
-    },
-    tab: { 
-        flex: 1, 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        borderRadius: 12,
-        paddingVertical: 10,
-    },
-    activeTab: { 
-        shadowColor: "#000", 
-        shadowOpacity: 0.04, 
-        shadowRadius: 4,
-        shadowOffset: { width: 0, height: 2 },
-        elevation: 1 
-    },
-    tabText: { 
-        fontFamily: 'Nunito_700Bold', 
-        fontSize: 14 
-    },
-    
-    loadingContainer: {
-        paddingTop: 40,
-        alignItems: 'center'
-    },
-    
-    // Refined List Items
-    itemCard: { 
-        flexDirection: 'row', 
-        alignItems: 'center', 
-        justifyContent: 'space-between', 
-        padding: 12,
-        paddingRight: 16,
-        borderRadius: 20, 
-        backgroundColor: 'transparent',
-    },
-    itemLeft: { 
-        flexDirection: 'row', 
-        alignItems: 'center', 
-        gap: 14 
-    },
-    iconBox: {
-        width: 42,
-        height: 42,
-        borderRadius: 14,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    itemLabel: { 
-        fontSize: 15, 
-        fontFamily: 'Nunito_700Bold',
-        letterSpacing: -0.2, 
-    },
-    
-    emptyContainer: {
-        padding: 40,
-        alignItems: 'center'
-    },
-    emptyText: {
-        fontFamily: 'Nunito_500Medium',
-        fontSize: 15
-    }
+    handleContainer: { alignItems: 'center', paddingTop: 12, paddingBottom: 4 },
+    handle: { width: 40, height: 5, borderRadius: 3, opacity: 0.5 },
+    contentContainer: { flex: 1, paddingHorizontal: 24, paddingTop: 16 },
+    tabContainer: { flexDirection: 'row', padding: 4, borderRadius: 16, marginBottom: 20 },
+    tab: { flex: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 12, paddingVertical: 10 },
+    activeTab: { shadowColor: "#000", shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
+    tabText: { fontFamily: 'Nunito_700Bold', fontSize: 14 },
+    loadingContainer: { paddingTop: 40, alignItems: 'center' },
+    itemCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, paddingRight: 16, borderRadius: 20, backgroundColor: 'transparent' },
+    itemLeft: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+    iconBox: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+    itemLabel: { fontSize: 15, fontFamily: 'Nunito_700Bold', letterSpacing: -0.2 },
+    emptyContainer: { padding: 40, alignItems: 'center' },
+    emptyText: { fontFamily: 'Nunito_500Medium', fontSize: 15 }
 });
