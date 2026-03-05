@@ -636,8 +636,8 @@ export default function GenerateReportScreen() {
 
                  {includeSecondarySignee && (
                      <>
-                        {renderInputRow("Approver Name", UserCircleIcon, secondaryName, setSecondaryName, "e.g. Jane Doe")}
-                        {renderInputRow("Approver Title", Briefcase02Icon, secondaryTitle, setSecondaryTitle, "e.g. Project Manager")}
+                        {renderInputRow("Approver Name", UserCircleIcon, secondaryName, setSecondaryName, "Enter Approver's Name")}
+                        {renderInputRow("Approver Title", Briefcase02Icon, secondaryTitle, setSecondaryTitle, "Enter Approver's Title")}
                         
                         {formatType === "pdf" && (
                             <View style={{ marginTop: 16 }}>

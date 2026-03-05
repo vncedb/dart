@@ -2,7 +2,7 @@
   "expo": {
     "name": "DART",
     "slug": "dart-app",
-    "version": "1.0.3",
+    "version": "1.0.4",
     "owner": "project-vdb",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

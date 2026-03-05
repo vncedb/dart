@@ -470,7 +470,7 @@ export default function SavedReportsScreen() {
                     </View>
                     <Text style={[styles.permissionTitle, { color: theme.colors.text }]}>Storage Access Required</Text>
                     <Text style={[styles.permissionDesc, { color: theme.colors.textSecondary }]}>
-                        To save reports directly to your device and make them accessible in your &quot;Documents&quot; folder, please grant directory access. We will automatically configure a &quot;DART/Reports&quot; folder for you.
+                        To save reports directly to your device and make them accessible in your &quot;Documents&quot; folder, please grant directory access.
                     </Text>
                     <Button title="Choose Folder" onPress={requestPermission} style={{ width: '80%', marginTop: 24 }} />
                 </View>

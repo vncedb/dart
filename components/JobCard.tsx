@@ -1,9 +1,9 @@
 import {
     Briefcase02Icon,
     Calendar03Icon,
-    Clock01Icon,
-    DollarCircleIcon,
-    Menu01Icon, // Used Menu01Icon as requested
+    Clock01Icon, // Updated icon
+    Menu01Icon,
+    Money03Icon,
     Target02Icon,
     UserGroupIcon
 } from '@hugeicons/core-free-icons';
@@ -69,7 +69,7 @@ export default function JobCard({ currentJob, visibleKeys, theme, onEdit }: any)
 
     const getIcon = (key: string) => { 
         switch(key) { 
-            case 'rate': return DollarCircleIcon; 
+            case 'rate': return Money03Icon;
             case 'shift': return Clock01Icon; 
             case 'payroll': return Calendar03Icon; 
             case 'employment_status': return Briefcase02Icon;
@@ -90,14 +90,12 @@ export default function JobCard({ currentJob, visibleKeys, theme, onEdit }: any)
                         {currentJob.title}
                     </Text>
                     <View style={styles.companyRow}>
-                        {/* <HugeiconsIcon icon={Building03Icon} size={14} color={theme.colors.textSecondary} /> */}
                         <Text style={[styles.companyName, { color: theme.colors.textSecondary }]} numberOfLines={2}>
                             {currentJob.company || currentJob.company_name || 'No Company Details'}
                         </Text>
                     </View>
                 </View>
                 
-                {/* Menu01Icon with "Edit Button" Style */}
                 <TouchableOpacity 
                     onPress={onEdit} 
                     style={[styles.iconButton, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
@@ -170,7 +168,6 @@ const styles = StyleSheet.create({
         fontSize: 13, 
         fontFamily: 'Nunito_600SemiBold',
     },
-    // Matches the "Edit" button style from My Jobs
     iconButton: { 
         padding: 8, 
         borderRadius: 12, 

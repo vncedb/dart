@@ -7,7 +7,7 @@ import {
     MoreVerticalIcon,
     PencilEdit02Icon,
     PlusSignIcon,
-    Share01Icon,
+    Share08Icon,
     Task01Icon,
     Time02Icon,
     Time04Icon,
@@ -594,7 +594,7 @@ export default function ReportDetailsScreen() {
         onClose={() => setMenuVisible(false)}
         actions={[
             { label: "Edit Report", icon: PencilEdit02Icon, onPress: () => toggleEditMode(true), color: theme.colors.text },
-            { label: "Share Overview", icon: Share01Icon, onPress: handleShare, color: theme.colors.primary },
+            { label: "Share Overview", icon: Share08Icon, onPress: handleShare, color: theme.colors.primary },
             { label: "Generate Document", icon: File02Icon, onPress: () => { setMenuVisible(false); router.push({ pathname: "/reports/generate", params: { date } }); }, color: "#f97316" },
             { label: "Delete Report", icon: Delete02Icon, onPress: () => {
                 setMenuVisible(false);
