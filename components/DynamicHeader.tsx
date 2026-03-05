@@ -2,7 +2,7 @@
 import { format } from 'date-fns';
 import * as Haptics from 'expo-haptics';
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
     LinearTransition,
     useAnimatedStyle,
@@ -24,6 +24,11 @@ interface DynamicHeaderProps {
     dailyGoal: number;
     isLoading?: boolean;
 }
+
+const shadowStyle = Platform.select({
+    ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 12 },
+    android: { elevation: 3 }
+});
 
 const SkeletonBox = ({ width, height, borderRadius = 4, style }: any) => {
     const theme = useAppTheme();
@@ -84,7 +89,7 @@ export default function DynamicHeader({
         const goalMins = dailyGoal * 60;
         const percent = goalMins > 0 ? Math.min(workedMinutes / goalMins, 1) : 0;
         progressAnim.value = withTiming(percent, { duration: 1000 });
-    }, [workedMinutes, dailyGoal, isLoading]);
+    }, [workedMinutes, dailyGoal, isLoading, progressAnim]);
 
     const handlePressIn = () => {
         scaleAnim.value = withSpring(0.98, { damping: 10 });
@@ -119,7 +124,8 @@ export default function DynamicHeader({
                         { 
                             backgroundColor: theme.colors.card,
                             borderColor: theme.colors.border,
-                        }
+                        },
+                        shadowStyle
                     ]}
                 >
                     <View style={styles.rowBetween}>

@@ -36,14 +36,12 @@ const convertImageToBase64 = async (uri: string): Promise<string> => {
 
         const fileInfo = await FileSystem.getInfoAsync(processUri);
         if (!fileInfo.exists) {
-            console.warn(`File does not exist locally: ${processUri}`);
             return ''; 
         }
 
         const base64 = await FileSystem.readAsStringAsync(processUri, { encoding: 'base64' });
         return `data:image/jpeg;base64,${base64}`;
     } catch (e) {
-        console.warn("Failed to convert image to base64:", e);
         return '';
     }
 };
@@ -137,7 +135,6 @@ export const generateReport = async ({
         
         let finalDate = day.date;
         if (style === 'minimal') {
-            // Force pure single line for monochrome minimal
             finalDate = finalDate.replace(/\n/g, ' ').replace(/<[^>]*>/g, '');
         } else {
             const displayDate = finalDate.replace(/\n/g, '<br/><span style="font-size: 8px; font-weight: 500; color: #666; text-transform: uppercase;">');
@@ -280,7 +277,6 @@ export const generateReport = async ({
             .time-label { color: ${t.secondary}; font-weight: 700; font-size: 8px; text-transform: uppercase; margin-right: 4px; }
             .time-val { font-weight: 600; }
 
-            /* Perfectly Centered Signatures Layout */
             .signatures-wrapper {
                 display: flex;
                 justify-content: center;
@@ -415,10 +411,12 @@ export const generateReport = async ({
     </html>
     `;
 
+    // 1. Generate purely temporary file and return the URI 
     const { uri } = await Print.printToFileAsync({ 
         html, 
         width: dims.w, 
         height: dims.h 
     });
+
     return uri;
 };

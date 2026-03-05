@@ -159,6 +159,7 @@ function RootLayoutNav() {
           <Stack.Screen name="settings/appearance" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/privacy-policy" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/about" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="settings/gemini" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/feedback" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/docs/privacy-details" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/docs/terms-of-service" options={{ animation: "slide_from_right" }} />
@@ -174,7 +175,6 @@ function RootLayoutNav() {
           <Stack.Screen name="reports/generate" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="reports/preview" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="reports/details" options={{ animation: "slide_from_right" }} />
-          <Stack.Screen name="reports/edit" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="reports/ai-summary" options={{ animation: "slide_from_right" }} />
         </Stack>
 

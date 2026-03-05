@@ -7,12 +7,13 @@ import {
   Share08Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { differenceInMinutes, format } from "date-fns";
 import * as FileSystem from "expo-file-system/legacy";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withTiming } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -38,7 +39,6 @@ const formatBytes = (bytes: number, decimals = 2) => {
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 };
 
-// Custom Marquee Component for scrolling long file names
 const MarqueeText = ({ text, style }: { text: string; style: any }) => {
     const [textWidth, setTextWidth] = useState(0);
     const [containerWidth, setContainerWidth] = useState(0);
@@ -58,7 +58,7 @@ const MarqueeText = ({ text, style }: { text: string; style: any }) => {
         } else {
             translateX.value = 0;
         }
-    }, [textWidth, containerWidth]);
+    }, [textWidth, containerWidth, translateX]);
 
     const animatedStyle = useAnimatedStyle(() => ({
         transform: [{ translateX: translateX.value }]
@@ -77,7 +77,6 @@ const MarqueeText = ({ text, style }: { text: string; style: any }) => {
                 >
                     {text}
                 </Text>
-                {/* Duplicate text for seamless looping */}
                 {textWidth > containerWidth && containerWidth > 0 && (
                     <Text style={[style, { marginLeft: 30, maxWidth: undefined }]}>{text}</Text>
                 )}
@@ -95,11 +94,13 @@ export default function PreviewReportScreen() {
   const [fileUri, setFileUri] = useState<string | null>(null);
   const [fileSize, setFileSize] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMsg, setLoadingMsg] = useState("Generating Report...");
   const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+  
+  const [reportTimestamp] = useState(() => Date.now().toString());
 
   const viewOptions = useMemo(() => config ? JSON.parse(config as string) : {}, [config]);
 
-  // Evaluates exactly the duration of the report to display inside the UI/metadata
   const formattedPeriod = useMemo(() => {
       if (date) return format(new Date(date as string), "MMM dd, yyyy"); 
       
@@ -121,18 +122,12 @@ export default function PreviewReportScreen() {
       return viewOptions.meta?.period || 'Report';
   }, [startDate, endDate, date, viewOptions]);
 
-  // Generates Report_YYYYMMDD_Style_HHMM
-  const finalReportName = useMemo(() => {
-      const styleName = viewOptions.format === "pdf"
-        ? (viewOptions.style ? viewOptions.style.charAt(0).toUpperCase() + viewOptions.style.slice(1) : "Corporate")
-        : "Sheet";
-      return `Report_${format(new Date(), 'yyyyMMdd')}_${styleName}_${format(new Date(), 'HHmm')}`;
-  }, [viewOptions]);
-
+  const finalReportName = `ACCOMPLISHMENT_REPORT_${reportTimestamp}`;
   const displayFileName = `${finalReportName}.${viewOptions.format === 'pdf' ? 'pdf' : 'xlsx'}`;
 
   const generateFile = useCallback(async () => {
     setLoading(true);
+    setLoadingMsg("Generating Report...");
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const user = session?.user;
@@ -237,6 +232,7 @@ export default function PreviewReportScreen() {
   const handleSavePress = async () => {
       if (!fileUri) return;
       setLoading(true);
+      setLoadingMsg("Saving Report...");
       
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -264,22 +260,49 @@ export default function PreviewReportScreen() {
   const executeSave = async (overwriteId?: string) => {
     try {
       setLoading(true);
+      setLoadingMsg("Saving Report...");
+      
       const { data: { session } } = await supabase.auth.getSession();
       const user = session?.user;
       if (!user) return;
 
-      const safeFilename = finalReportName.replace(/[^a-zA-Z0-9 _-]/g, "_");
       const ext = viewOptions.format === "pdf" ? "pdf" : "xlsx";
-      const fileName = `${safeFilename}.${ext}`;
-      const baseDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
-      const reportsDir = (baseDir || "") + "reports/";
-      
-      await FileSystem.makeDirectoryAsync(reportsDir, { intermediates: true });
-      const permUri = reportsDir + fileName;
+      const mimeType = viewOptions.format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      let destPath = "";
 
-      if (overwriteId) { try { await FileSystem.deleteAsync(permUri, { idempotent: true }); } catch(_ignore) {} }
-      await FileSystem.copyAsync({ from: fileUri!, to: permUri });
-      const info = await FileSystem.getInfoAsync(permUri);
+      // Safely move file to configured Android SAF Directory
+      if (Platform.OS === 'android') {
+          const safUri = await AsyncStorage.getItem('reports_directory_uri');
+          if (safUri) {
+              try {
+                  const base64Data = await FileSystem.readAsStringAsync(fileUri!, { encoding: 'base64' });
+                  const newUri = await FileSystem.StorageAccessFramework.createFileAsync(safUri, finalReportName, mimeType);
+                  await FileSystem.writeAsStringAsync(newUri, base64Data, { encoding: 'base64' });
+                  destPath = newUri;
+              } catch (e) {
+                  console.error("SAF Save Error, falling back to internal space.", e);
+              }
+          }
+      }
+
+      // Fallback if iOS or if Android SAF fails
+      if (!destPath) {
+          const reportsDir = `${FileSystem.documentDirectory}DART/Reports/`;
+          const dirInfo = await FileSystem.getInfoAsync(reportsDir);
+          if (!dirInfo.exists) {
+              await FileSystem.makeDirectoryAsync(reportsDir, { intermediates: true });
+          }
+          destPath = `${reportsDir}${finalReportName}.${ext}`;
+          if (overwriteId) { try { await FileSystem.deleteAsync(destPath, { idempotent: true }); } catch(_ignore) {} }
+          await FileSystem.copyAsync({ from: fileUri!, to: destPath });
+      }
+
+      // Re-verify actual file size at the final destination
+      let finalFileSize = 0;
+      try {
+          const finalInfo = await FileSystem.getInfoAsync(destPath);
+          if (finalInfo.exists) finalFileSize = finalInfo.size;
+      } catch (e) { console.log(e); }
 
       const reportMeta = {
           reportDate: formattedPeriod,
@@ -289,20 +312,28 @@ export default function PreviewReportScreen() {
 
       const reportId = overwriteId || generateUUID();
       const reportData = {
-        id: reportId, user_id: user.id, title: finalReportName, file_path: permUri,
-        file_type: viewOptions.format, file_size: info.exists ? info.size : 0,
-        created_at: new Date().toISOString(), remote_url: null,
-        period_key: formattedPeriod, // Forces reportDate string into column as bulletproof fallback
-        metadata: JSON.stringify(reportMeta)
+        id: reportId, user_id: user.id, title: finalReportName, file_path: destPath,
+        file_type: viewOptions.format, file_size: finalFileSize,
+        created_at: new Date().toISOString(), remote_url: null, file_url: null,
+        period_key: formattedPeriod, 
+        metadata: JSON.stringify(reportMeta),
+        is_synced: 0 // Specifically mark as 0 so background worker picks it up
       };
 
+      // 1. Instant local SQLite Save
       await saveReportLocal(reportData);
+      
+      // 2. Queue for background cloud upload
       await queueSyncItem("saved_reports", reportId, overwriteId ? "UPDATE" : "INSERT", reportData);
+      
+      // 3. Fire and forget the sync system
       triggerSync();
 
+      // 4. Immediately notify user and proceed to next screen without waiting for the internet!
       setAlertConfig({
         visible: true, type: "success", title: overwriteId ? "Report Replaced" : "Report Saved",
-        message: "Your report has been securely saved to your device.", cancelText: "View", confirmText: "Done",
+        message: "Your report has been saved to your device. Cloud backup will process seamlessly in the background.", 
+        cancelText: "View", confirmText: "Done",
         onCancel: () => {
           setAlertConfig((prev: any) => ({ ...prev, visible: false }));
           router.dismissAll();
@@ -335,7 +366,7 @@ export default function PreviewReportScreen() {
         {loading ? (
           <View style={styles.center}>
             <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text style={{ marginTop: 16, color: theme.colors.textSecondary, fontFamily: 'Nunito_600SemiBold' }}>Finalizing Document...</Text>
+            <Text style={{ marginTop: 16, color: theme.colors.textSecondary, fontFamily: 'Nunito_600SemiBold' }}>{loadingMsg}</Text>
           </View>
         ) : (
           <View style={styles.successContainer}>

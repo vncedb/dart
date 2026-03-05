@@ -1,4 +1,4 @@
-// filepath: vncedb/dart/dart-8346f6d6d3ba6721214d0c5b9d4684d9a2a9874e/app/edit-profile.tsx
+// filepath: app/edit-profile.tsx
 import {
     ArrowDown01Icon,
     InformationCircleIcon,
@@ -117,8 +117,6 @@ export default function EditProfileScreen() {
       last_name: '',
       title: '',
       professional_suffix: '',
-      avatar_url: null,
-      local_avatar_path: null
   });
 
   const [errors, setErrors] = useState<any>({});
@@ -140,7 +138,6 @@ export default function EditProfileScreen() {
       };
   }, []);
 
-  // Capture System back button safely
   useEffect(() => {
       const backAction = () => {
           if (router.canGoBack()) {
@@ -148,7 +145,7 @@ export default function EditProfileScreen() {
           } else {
               router.replace('/(tabs)/profile');
           }
-          return true; // Prevents the app from closing
+          return true; 
       };
       
       const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);

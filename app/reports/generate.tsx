@@ -21,6 +21,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { format } from "date-fns";
+import * as FileSystem from 'expo-file-system/legacy';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -52,6 +53,26 @@ import { supabase } from "../../lib/supabase";
 import { ReportService } from "../../services/ReportService";
 
 const SETTINGS_KEY = "report_generation_settings";
+
+// Setup SAF matching the saved-reports logic
+const setupSAFDirectory = async (baseUri: string) => {
+    let target = baseUri;
+    try {
+        target = await FileSystem.StorageAccessFramework.makeDirectoryAsync(target, 'DART');
+    } catch (e) {
+        const contents = await FileSystem.StorageAccessFramework.readDirectoryAsync(target);
+        const found = contents.find(uri => decodeURIComponent(uri).endsWith('/DART') || decodeURIComponent(uri).endsWith('%3ADART'));
+        if (found) target = found;
+    }
+    try {
+        target = await FileSystem.StorageAccessFramework.makeDirectoryAsync(target, 'Reports');
+    } catch (e) {
+        const contents = await FileSystem.StorageAccessFramework.readDirectoryAsync(target);
+        const found = contents.find(uri => decodeURIComponent(uri).endsWith('/Reports') || decodeURIComponent(uri).endsWith('%3AReports'));
+        if (found) target = found;
+    }
+    return target;
+};
 
 export default function GenerateReportScreen() {
   const router = useRouter();
@@ -280,9 +301,31 @@ export default function GenerateReportScreen() {
       return;
     }
 
+    if (Platform.OS === 'android') {
+        const safUri = await AsyncStorage.getItem('reports_directory_uri');
+        if (!safUri) {
+            try {
+                const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+                if (permissions.granted) {
+                    const finalUri = await setupSAFDirectory(permissions.directoryUri);
+                    await AsyncStorage.setItem('reports_directory_uri', finalUri);
+                } else {
+                    setAlertConfig({
+                        visible: true, type: "error", title: "Storage Access Required",
+                        message: "Please grant storage access so we can save reports to your device.", confirmText: "OK",
+                        onConfirm: () => setAlertConfig({ visible: false })
+                    });
+                    return;
+                }
+            } catch (e) {
+                console.error("SAF Error", e);
+                return;
+            }
+        }
+    }
+
     setGenerating(true);
 
-    // Timeout allows React to render the loading overlay immediately
     setTimeout(async () => {
         if (shouldSaveSettings && hasSettingsChanged()) {
           try {

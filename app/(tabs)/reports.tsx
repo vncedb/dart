@@ -1,10 +1,10 @@
 // filepath: app/(tabs)/reports.tsx
 import {
+  AiMagicIcon,
   File02Icon,
   FileVerifiedIcon,
-  Message01Icon,
   Search01Icon,
-  Task01Icon,
+  TaskAdd01Icon,
   WifiOff01Icon
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
@@ -280,7 +280,7 @@ export default function ReportsScreen() {
         actions={[
           { 
               label: "Add Entry", 
-              icon: Task01Icon, 
+              icon: TaskAdd01Icon, 
               onPress: () => { 
                   setActionMenuVisible(false); 
                   router.push({ pathname: "/reports/add-entry", params: { showAttendance: 'true' } }); 
@@ -306,8 +306,8 @@ export default function ReportsScreen() {
               } 
           },
           {
-              label: "Summary",
-              icon: Message01Icon,
+              label: "Summarize Report",
+              icon: AiMagicIcon,
               onPress: () => {
                   setActionMenuVisible(false);
                   router.push({

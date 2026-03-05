@@ -13,6 +13,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import NetInfo from '@react-native-community/netinfo';
+import { format } from 'date-fns';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -39,7 +40,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import ChangelogModal from '../../components/ChangelogModal'; // <-- IMPORTED CHANGELOG MODAL
+import ChangelogModal from '../../components/ChangelogModal';
 import EditAvatarModal from '../../components/EditAvatarModal';
 import EditDisplayModal from '../../components/EditDisplayModal';
 import JobCard from '../../components/JobCard';
@@ -52,6 +53,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useSync } from '../../context/SyncContext';
 import { queueSyncItem, saveProfileLocal } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
+import { supabase } from '../../lib/supabase';
 
 const shadowStyle = Platform.select({
     ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.08, shadowRadius: 12 },
@@ -101,12 +103,13 @@ export default function ProfileScreen() {
     const [hasJobs, setHasJobs] = useState(false);
     const [email, setEmail] = useState('');
     const [imageError, setImageError] = useState(false);
+    const [isClockedIn, setIsClockedIn] = useState(false);
     
     const [isUpdating, setIsUpdating] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState('Updating...');
     const [modalVisible, setModalVisible] = useState(false);
     const [avatarModalVisible, setAvatarModalVisible] = useState(false);
-    const [changelogModalVisible, setChangelogModalVisible] = useState(false); // <-- CHANGELOG STATE
+    const [changelogModalVisible, setChangelogModalVisible] = useState(false);
     
     const [visibleDetailKeys, setVisibleDetailKeys] = useState<string[]>(DEFAULT_VISIBLE_KEYS);
     
@@ -139,8 +142,8 @@ export default function ProfileScreen() {
                 if (savedConfig) {
                     setVisibleDetailKeys(JSON.parse(savedConfig));
                 }
-            } catch (e) {
-                console.log("Failed to load display config", e);
+            } catch (err) {
+                console.log("Failed to load display config", err);
             }
         };
         loadDisplayConfig();
@@ -150,8 +153,8 @@ export default function ProfileScreen() {
         setVisibleDetailKeys(newKeys);
         try {
             await AsyncStorage.setItem('jobCardVisibleKeys', JSON.stringify(newKeys));
-        } catch (e) {
-            console.log("Failed to save display config", e);
+        } catch (err) {
+            console.log("Failed to save display config", err);
         }
     };
 
@@ -187,39 +190,60 @@ export default function ProfileScreen() {
                             lj.break_schedule = typeof lj.break_schedule === 'string' ? JSON.parse(lj.break_schedule) : lj.break_schedule;
                         } catch { /* ignore */ }
                         tempJob = lj;
+
+                        // Check Attendance Status
+                        const todayStr = format(new Date(), 'yyyy-MM-dd');
+                        const activeAtt: any = await db.getFirstAsync(
+                            `SELECT status FROM attendance WHERE user_id = ? AND job_id = ? AND date = ? AND status IN ('active', 'break') ORDER BY clock_in DESC LIMIT 1`,
+                            [userId, jobId, todayStr]
+                        );
+                        setIsClockedIn(!!activeAtt);
                     }
                 }
 
-                if (tempProfile.avatar_url && !tempProfile.local_avatar_path) {
+                // Smart Caching: Re-download if avatar_url changed or is missing locally
+                if (tempProfile.avatar_url && tempProfile.avatar_url !== 'removed') {
                     const state = await NetInfo.fetch();
-                    if (state.isConnected) {
-                        try {
-                            const rawFileName = tempProfile.avatar_url.split('/').pop() || 'avatar.jpg';
-                            const cleanFileName = rawFileName.split('?')[0].replace(/[^a-zA-Z0-9._-]/g, '_');
-                            const fileName = `${userId}_${cleanFileName}`;
-                            
-                            const rootDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
-                            if (rootDir) {
-                                const avatarDir = `${rootDir}avatars/`;
-                                const dirInfo = await FileSystem.getInfoAsync(avatarDir);
-                                if (!dirInfo.exists) await FileSystem.makeDirectoryAsync(avatarDir, { intermediates: true });
+                    try {
+                        const rawFileName = tempProfile.avatar_url.split('/').pop() || 'avatar.jpg';
+                        const cleanFileName = rawFileName.split('?')[0].replace(/[^a-zA-Z0-9._-]/g, '_');
+                        const expectedFileName = `${userId}_${cleanFileName}`;
+                        
+                        const rootDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
+                        if (rootDir) {
+                            const avatarDir = `${rootDir}avatars/`;
+                            const dirInfo = await FileSystem.getInfoAsync(avatarDir);
+                            if (!dirInfo.exists) await FileSystem.makeDirectoryAsync(avatarDir, { intermediates: true });
 
-                                const localUri = `${avatarDir}${fileName}`;
-                                const fileInfo = await FileSystem.getInfoAsync(localUri);
-                                
-                                if (!fileInfo.exists) await FileSystem.downloadAsync(tempProfile.avatar_url, localUri);
-                                
-                                await db.runAsync('UPDATE profiles SET local_avatar_path = ? WHERE id = ?', [localUri, userId]);
-                                tempProfile.local_avatar_path = localUri;
+                            const expectedLocalUri = `${avatarDir}${expectedFileName}`;
+                            const fileInfo = await FileSystem.getInfoAsync(expectedLocalUri);
+                            
+                            // If the image for THIS specific URL is not downloaded yet
+                            if (!fileInfo.exists && state.isConnected) {
+                                await FileSystem.downloadAsync(tempProfile.avatar_url, expectedLocalUri);
                             }
-                        } catch (e) { console.log("Failed caching avatar:", e); }
-                    }
+                            
+                            // If it exists now, ensure local_avatar_path is updated in DB
+                            const finalFileInfo = await FileSystem.getInfoAsync(expectedLocalUri);
+                            if (finalFileInfo.exists) {
+                                if (tempProfile.local_avatar_path !== expectedLocalUri) {
+                                    await db.runAsync('UPDATE profiles SET local_avatar_path = ? WHERE id = ?', [expectedLocalUri, userId]);
+                                    tempProfile.local_avatar_path = expectedLocalUri;
+                                }
+                            } else {
+                                tempProfile.local_avatar_path = null;
+                            }
+                        }
+                    } catch (err) { console.log("Failed caching avatar:", err); }
+                } else if (tempProfile.avatar_url === 'removed' && tempProfile.local_avatar_path) {
+                    await db.runAsync('UPDATE profiles SET local_avatar_path = NULL WHERE id = ?', [userId]);
+                    tempProfile.local_avatar_path = null;
                 }
             }
 
             setViewData({ profile: tempProfile, job: tempJob });
-        } catch (e) { 
-            console.log("Error loading profile:", e); 
+        } catch (err) { 
+            console.log("Error loading profile:", err); 
         } finally { 
             setRefreshing(false); 
             setIsLoading(false); 
@@ -230,8 +254,44 @@ export default function ProfileScreen() {
 
     const onRefresh = async () => { 
         setRefreshing(true); 
-        if (user) await triggerSync(); 
+        try {
+            if (user) {
+                const state = await NetInfo.fetch();
+                if (state.isConnected) {
+                    // Trigger standard sync
+                    await triggerSync(); 
+                    
+                    // Directly fetch latest avatar from Supabase to guarantee absolute freshness
+                    const { data: remoteProfile } = await supabase
+                        .from('profiles')
+                        .select('avatar_url')
+                        .eq('id', user.id)
+                        .single();
+                        
+                    if (remoteProfile) {
+                        const db = await getDB();
+                        await db.runAsync('UPDATE profiles SET avatar_url = ? WHERE id = ?', [remoteProfile.avatar_url, user.id]);
+                    }
+                }
+            }
+        } catch (e) {
+            console.log("Refresh sync error:", e);
+        }
         await loadData(true); 
+    };
+
+    const deleteOldAvatar = async (oldUrl: string | null) => {
+        if (!oldUrl || oldUrl === 'removed' || !oldUrl.includes('/avatars/')) return;
+        try {
+            const parts = oldUrl.split('/avatars/');
+            if (parts.length > 1) {
+                const oldPath = parts[1].split('?')[0]; 
+                const { error } = await supabase.storage.from('avatars').remove([oldPath]);
+                if (error) console.log("Failed to delete old avatar from storage:", error.message);
+            }
+        } catch {
+            console.log("Could not delete old avatar");
+        }
     };
 
     const handleUpdateProfile = async (updates: any) => {
@@ -239,11 +299,21 @@ export default function ProfileScreen() {
         setIsUpdating(true);
         setLoadingMessage('Saving Data...');
         try {
-            const updatedProfile = { ...viewData.profile, ...updates };
+            const updatedProfile = { ...viewData.profile, ...updates, updated_at: new Date().toISOString() };
             setViewData(prev => ({ ...prev, profile: updatedProfile }));
+            
+            // 1. Save to local SQLite
             await saveProfileLocal(updatedProfile);
-            await queueSyncItem('profiles', user.id, 'UPDATE', updates);
-            triggerSync();
+
+            // 2. Queue for Sync
+            const syncUpdates = { ...updates };
+            delete syncUpdates.local_avatar_path;
+            
+            if (Object.keys(syncUpdates).length > 0) {
+                await queueSyncItem('profiles', user.id, 'UPDATE', syncUpdates);
+                triggerSync();
+            }
+
         } catch (e) { 
             setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Failed to save changes.', confirmText: 'OK', onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) });
         } finally { 
@@ -253,16 +323,160 @@ export default function ProfileScreen() {
     };
 
     const pickAvatar = async () => {
-        const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 0.5 });
-        if (!result.canceled) handleUpdateProfile({ local_avatar_path: result.assets[0].uri });
+        const state = await NetInfo.fetch();
+        if (!state.isConnected) {
+            setAlertConfig({ 
+                visible: true, 
+                type: 'warning', 
+                title: 'No Internet Connection', 
+                message: 'You need an active internet connection to change your profile picture. Please connect and try again.', 
+                confirmText: 'Got it', 
+                onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) 
+            });
+            return;
+        }
+
+        const result = await ImagePicker.launchImageLibraryAsync({ 
+            mediaTypes: ['images'], 
+            allowsEditing: true, 
+            aspect: [1, 1], 
+            quality: 0.7 
+        });
+
+        if (!result.canceled && result.assets[0] && user) {
+            const pickerUri = result.assets[0].uri;
+            setAvatarModalVisible(false);
+            
+            setIsUpdating(true);
+            setLoadingMessage('Processing Image...');
+
+            let progressInterval: ReturnType<typeof setInterval> | null = null;
+
+            try {
+                const rootDir = FileSystem.documentDirectory || FileSystem.cacheDirectory;
+                const avatarDir = `${rootDir}avatars/`;
+                const dirInfo = await FileSystem.getInfoAsync(avatarDir);
+                if (!dirInfo.exists) await FileSystem.makeDirectoryAsync(avatarDir, { intermediates: true });
+
+                const fileExt = pickerUri.split('.').pop() || 'jpeg';
+                const fileName = `${user.id}_${Date.now()}.${fileExt}`;
+                const localDest = `${avatarDir}${fileName}`;
+
+                await FileSystem.copyAsync({ from: pickerUri, to: localDest });
+
+                setViewData(prev => ({
+                    ...prev,
+                    profile: { ...prev.profile, local_avatar_path: localDest }
+                }));
+
+                let currentProgress = 0;
+                setLoadingMessage(`Uploading Photo... ${currentProgress}%`);
+                progressInterval = setInterval(() => {
+                    currentProgress += Math.floor(Math.random() * 15) + 5; 
+                    if (currentProgress > 90) currentProgress = 90; 
+                    setLoadingMessage(`Uploading Photo... ${currentProgress}%`);
+                }, 300);
+
+                await deleteOldAvatar(viewData.profile?.avatar_url);
+
+                const response = await fetch(localDest);
+                const arrayBuffer = await response.arrayBuffer(); 
+                const storagePath = `${user.id}/${fileName}`;
+
+                const { error: uploadError } = await supabase.storage
+                    .from('avatars')
+                    .upload(storagePath, arrayBuffer, { 
+                        contentType: `image/${fileExt}`, 
+                        upsert: true 
+                    });
+
+                if (progressInterval) clearInterval(progressInterval);
+
+                if (uploadError) {
+                    console.error('Supabase Error:', uploadError);
+                    throw new Error(uploadError.message || 'Failed to upload avatar.');
+                }
+
+                setLoadingMessage(`Finalizing...`);
+                const { data: publicUrlData } = supabase.storage.from('avatars').getPublicUrl(storagePath);
+                const newAvatarUrl = publicUrlData.publicUrl;
+
+                const { error: profileUpdateError } = await supabase
+                    .from('profiles')
+                    .update({ avatar_url: newAvatarUrl, updated_at: new Date().toISOString() })
+                    .eq('id', user.id);
+                
+                if (profileUpdateError) console.error('Failed to update remote profile:', profileUpdateError);
+
+                await supabase.auth.updateUser({ data: { avatar_url: newAvatarUrl } });
+
+                await handleUpdateProfile({ 
+                    avatar_url: newAvatarUrl, 
+                    local_avatar_path: localDest 
+                });
+
+            } catch (error: any) {
+                if (progressInterval) clearInterval(progressInterval);
+                console.error("Upload error:", error);
+                
+                setViewData(prev => ({
+                    ...prev,
+                    profile: { ...prev.profile, local_avatar_path: viewData.profile?.local_avatar_path }
+                }));
+
+                setAlertConfig({ 
+                    visible: true, 
+                    type: 'error', 
+                    title: 'Upload Failed', 
+                    message: error.message || 'An error occurred during upload. Please try again.', 
+                    confirmText: 'OK', 
+                    onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) 
+                });
+                setIsUpdating(false);
+            }
+        }
     };
 
-    const removeAvatar = () => { handleUpdateProfile({ avatar_url: null, local_avatar_path: null }); };
+    const removeAvatar = async () => { 
+        const state = await NetInfo.fetch();
+        if (!state.isConnected) {
+            setAlertConfig({ 
+                visible: true, 
+                type: 'warning', 
+                title: 'No Internet Connection', 
+                message: 'You need an active internet connection to remove your profile picture. Please connect and try again.', 
+                confirmText: 'Got it', 
+                onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) 
+            });
+            return;
+        }
+
+        setAvatarModalVisible(false);
+        setIsUpdating(true);
+        setLoadingMessage('Removing Photo...');
+        
+        try {
+            await deleteOldAvatar(viewData.profile?.avatar_url);
+            
+            if (user) {
+                await supabase.from('profiles').update({ avatar_url: 'removed', updated_at: new Date().toISOString() }).eq('id', user.id);
+                await supabase.auth.updateUser({ data: { avatar_url: '' } });
+            }
+            
+            await handleUpdateProfile({ avatar_url: 'removed', local_avatar_path: null }); 
+        } catch (err) {
+            console.error(err);
+            setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Failed to remove profile picture.', confirmText: 'OK', onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) });
+        } finally {
+            setIsUpdating(false);
+        }
+    };
 
     const { profile: userProfile, job: userJob } = viewData;
 
     const getAvatarSource = () => {
         if (userProfile?.local_avatar_path) return { uri: userProfile.local_avatar_path };
+        if (userProfile?.avatar_url === 'removed') return null; 
         if (userProfile?.avatar_url) return { uri: userProfile.avatar_url };
         if (user?.user_metadata) {
             const meta = user.user_metadata;
@@ -306,7 +520,6 @@ export default function ProfileScreen() {
                 title="Profile"
                 rightElement={
                     <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center' }}>
-                        {/* CHANGELOG BUTTON */}
                         <TouchableOpacity 
                             onPress={() => setChangelogModalVisible(true)} 
                             style={[styles.settingsButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
@@ -314,7 +527,6 @@ export default function ProfileScreen() {
                             <HugeiconsIcon icon={Note05Icon} size={22} color={theme.colors.text} />
                         </TouchableOpacity>
 
-                        {/* SETTINGS BUTTON */}
                         <TouchableOpacity 
                             onPress={() => router.push('/settings')} 
                             style={[styles.settingsButton, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
@@ -331,19 +543,24 @@ export default function ProfileScreen() {
                 <ScrollView contentContainerStyle={styles.scrollContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} />} showsVerticalScrollIndicator={false}>
                     
                     <View style={styles.profileSection}>
-                        <TouchableOpacity onPress={() => setAvatarModalVisible(true)} activeOpacity={0.8}>
+                        <TouchableOpacity onPress={() => setAvatarModalVisible(true)} activeOpacity={1}>
                             <View style={styles.avatarMainContainer}>
-                                <View style={[styles.avatarWrapper, { borderColor: theme.colors.primary, backgroundColor: theme.colors.card }]}>
-                                    {avatarSource && !imageError ? (
-                                        <Image key={avatarSource.uri} source={avatarSource} style={styles.avatar} contentFit="cover" onError={() => setImageError(true)} />
-                                    ) : (
-                                        <View style={[StyleSheet.absoluteFill, styles.avatarPlaceholder, { backgroundColor: theme.colors.card }]}>
-                                            <HugeiconsIcon icon={UserCircleIcon} size={64} color={theme.colors.textSecondary} />
-                                        </View>
-                                    )}
+                                <View style={[
+                                    styles.avatarOuterRing, 
+                                    { borderColor: isClockedIn ? theme.colors.primary : theme.colors.border }
+                                ]}>
+                                    <View style={[styles.avatarWrapper, { backgroundColor: theme.colors.card }]}>
+                                        {avatarSource && !imageError ? (
+                                            <Image key={avatarSource.uri} source={avatarSource} style={styles.avatar} contentFit="cover" onError={() => setImageError(true)} />
+                                        ) : (
+                                            <View style={[StyleSheet.absoluteFill, styles.avatarPlaceholder, { backgroundColor: theme.colors.card }]}>
+                                                <HugeiconsIcon icon={UserCircleIcon} size={64} color={theme.colors.textSecondary} />
+                                            </View>
+                                        )}
+                                    </View>
                                 </View>
                                 <View style={[styles.editAvatarBtn, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                                    <HugeiconsIcon icon={Camera01Icon} size={16} color={theme.colors.text} />
+                                    <HugeiconsIcon icon={Camera01Icon} size={14} color={theme.colors.text} />
                                 </View>
                             </View>
                         </TouchableOpacity>
@@ -407,13 +624,26 @@ const styles = StyleSheet.create({
     
     profileSection: { alignItems: 'center', paddingVertical: 32, paddingHorizontal: 24 },
     avatarMainContainer: { position: 'relative' },
-    avatarWrapper: { width: 120, height: 120, borderRadius: 60, borderWidth: 4, overflow: 'hidden' }, 
+    
+    avatarOuterRing: {
+        width: 128, 
+        height: 128, 
+        borderRadius: 64, 
+        borderWidth: 2, 
+        alignItems: 'center', 
+        justifyContent: 'center'
+    },
+    avatarWrapper: { 
+        width: 114, 
+        height: 114, 
+        borderRadius: 57, 
+        overflow: 'hidden' 
+    }, 
     avatar: { width: '100%', height: '100%' },
     avatarPlaceholder: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
     
     editAvatarBtn: { 
-        position: 'absolute', bottom: 0, right: 0, width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center', borderWidth: 2,
-        ...shadowStyle
+        position: 'absolute', bottom: 4, right: 4, width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', borderWidth: 2
     },
     
     nameText: { fontSize: 24, fontFamily: 'Nunito_800ExtraBold', textAlign: 'center', letterSpacing: -0.5 },

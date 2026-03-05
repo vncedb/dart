@@ -4,25 +4,38 @@ All notable changes to the DART application will be documented in this file.
 
 # Changelog
 
-## [1.0.4] - 2026-03-04
+## [1.0.4] - 2026-03-05
 
-### ✨ New Features
-* **Session Log Modal**: Added a detailed modal in Report Details to view precise daily time-in and time-out session histories.
-* **Inline Date Editing**: The report date is now directly editable from the Report Details screen. Changing the date intelligently cascades the update to all related tasks and attendance records.
-* **Global Icon Button**: Introduced a new, highly reusable `IconButton` component to standardize circular and rounded button styles across the app.
+### What's New
+- Reports are now automatically saved to `Documents/DART/Reports` using the Android Storage Access Framework with clean file naming conventions (`ACCOMPLISHMENT_REPORT_[ID]`).
+- Generated reports now save instantly to the device and upload to Supabase cloud storage in the background, maintaining a seamless user experience even offline.
+- Saved reports now securely open using native system viewers (PDF/Excel) via Expo Intent Launcher instead of just the share sheet.
+- Added intelligent file integrity checks to detect, flag, and safely delete missing or corrupted files.
+- Profile pictures now successfully upload to Supabase Storage with dynamic caching, live upload progress tracking, and automatic cleanup of previous images.
+- The profile avatar now features a smart dynamic ring that lights up with the primary theme color when clocked in, and stays grey when off-duty.
+- Added a detailed modal in Report Details to view precise daily time-in and time-out session histories.
+- The report date is now directly editable from the Report Details screen. Changing the date intelligently cascades the update to all related tasks and attendance records.
+- Introduced a new, highly reusable `IconButton` component to standardize circular and rounded button styles across the app.
 
-### 🎨 UI/UX Improvements
-* **Report Item Redesign**: Restructured the Report Item cards to display entry counts and logged hours horizontally below the time, and aligned status tags into a compact 2x2 grid on the top right.
-* **Tooltip Enhancement**: Tooltips on Report Items now trigger on "Hold" (Long Press) and safely float outside container boundaries with automatic width sizing to prevent text cut-offs.
-* **Report Details Layout**: Unified the Attendance and Task container designs, added a dynamic "Work Hour/s" badge, and matched Action Menu icon styles.
-* **Edit Mode Polish**: Refined the Edit Report header to lock the title, display a cleanly padded "X" discard button, and hide non-essential actions.
-* **Typography Stabilization**: Locked font sizes and weights for time displays to prevent unwanted auto-shrinking or layout shifts.
+### Improvements
+- Refined the alert popups by removing the redundant "X" close button for a much cleaner, modern aesthetic.
+- Streamlined the Edit Profile screen by moving all avatar management exclusively to the main Profile screen.
+- Perfected the AI generation animations by centering the background glow and prominently highlighting the report period date.
+- Updated the Dynamic Header to utilize the global unified card shadow for a more consistent depth effect.
+- Restructured the Report Item cards to display entry counts and logged hours horizontally below the time, and aligned status tags into a compact 2x2 grid.
+- Tooltips on Report Items now trigger on "Hold" (Long Press) and safely float outside container boundaries with automatic width sizing to prevent text cut-offs.
+- Unified the Attendance and Task container designs, added a dynamic "Work Hour/s" badge, and matched Action Menu icon styles.
+- Locked font sizes and weights for time displays to prevent unwanted auto-shrinking or layout shifts.
 
-### 🐛 Bug Fixes
-* **Native Crash Resolved**: Fixed a critical JNI/C++ crash caused by background garbage collection conflicting with scroll animations on the Report Details screen.
-* **Timezone Offset Fix**: Fixed a UTC shifting bug where editing attendance times would accidentally bump the record to a different day, resulting in a "No Record" error.
-* **Time Chronology Enforcement**: Fixed the 24h+ duration bug. Time In and Time Out inputs are now strictly clamped within the current local date boundaries (12:00 AM - 11:59 PM).
-* **Edit Lock**: Prevented manual time editing for active/ongoing ("In Progress") sessions to ensure time-tracking integrity.
+### Fixes
+- Fixed an issue where the profile picture would incorrectly revert to the previous image upon app restart.
+- Fixed a major offline storage bug where React Native failed to read and upload `content://` URIs from Android's external storage.
+- Fixed Supabase storage bloat by ensuring old avatars and deleted reports are completely purged from the cloud buckets.
+- Resolved specific React Native Reanimated layout animation conflicts and ESLint warnings.
+- Fixed a critical JNI/C++ crash caused by background garbage collection conflicting with scroll animations on the Report Details screen.
+- Fixed a UTC shifting bug where editing attendance times would accidentally bump the record to a different day, resulting in a "No Record" error.
+- Fixed the 24h+ duration bug. Time In and Time Out inputs are now strictly clamped within the current local date boundaries (12:00 AM - 11:59 PM).
+- Prevented manual time editing for active/ongoing ("In Progress") sessions to ensure time-tracking integrity.
 
 ---
 

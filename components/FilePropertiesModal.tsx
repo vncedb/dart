@@ -1,5 +1,5 @@
 // filepath: components/FilePropertiesModal.tsx
-import { Cancel01Icon, DocumentValidationIcon, File02Icon } from '@hugeicons/core-free-icons';
+import { Cancel01Icon, CloudServerIcon, CloudUploadIcon, DocumentValidationIcon, File02Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { format } from 'date-fns';
 import React from 'react';
@@ -35,11 +35,30 @@ export default function FilePropertiesModal({ visible, onClose, report }: FilePr
 
     const reportDate = meta.reportDate || report.period_key || format(new Date(report.created_at), 'MMM dd, yyyy');
 
-    // Add Extension to Title
     const extension = isPdf ? '.pdf' : '.xlsx';
     const fullFileName = report.title?.toLowerCase().endsWith(extension) 
         ? report.title 
         : `${report.title}${extension}`;
+
+    const isLocal = report.isLocal;
+    const isSynced = report.is_synced === 1 || !!report.file_url || !!report.remote_url;
+    
+    // Clean up the path for UI presentation
+    let displayPath = '';
+    if (isLocal && report.localPath) {
+        if (report.localPath.startsWith('content://')) {
+            try {
+                const decoded = decodeURIComponent(report.localPath);
+                const parts = decoded.split('%3A');
+                displayPath = parts.length > 1 ? `Device Storage/${parts[1]}` : decoded;
+            } catch {
+                displayPath = report.localPath;
+            }
+        } else {
+            const parts = report.localPath.split('DART/Reports/');
+            displayPath = parts.length > 1 ? `App Storage/Reports/${parts[1]}` : report.localPath;
+        }
+    }
 
     return (
         <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -93,13 +112,35 @@ export default function FilePropertiesModal({ visible, onClose, report }: FilePr
                                     <Text style={[styles.value, { color: theme.colors.text }]}>{formatBytes(report.file_size)}</Text>
                                 </View>
                                 
-                                <View style={[styles.propertyRow, { borderBottomWidth: 0, marginBottom: 0 }]}>
+                                <View style={[styles.propertyRow, { borderBottomWidth: isLocal ? 1 : 0, marginBottom: 0 }]}>
                                     <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Status</Text>
-                                    <View style={styles.statusRow}>
-                                        <HugeiconsIcon icon={DocumentValidationIcon} size={14} color={theme.colors.success} />
-                                        <Text style={[styles.statusText, { color: theme.colors.success }]}>Saved to Device</Text>
-                                    </View>
+                                    
+                                    {isLocal && isSynced ? (
+                                        <View style={styles.statusRow}>
+                                            <HugeiconsIcon icon={DocumentValidationIcon} size={14} color={theme.colors.success} />
+                                            <Text style={[styles.statusText, { color: theme.colors.success }]}>Saved to Device & Cloud</Text>
+                                        </View>
+                                    ) : isLocal && !isSynced ? (
+                                         <View style={styles.statusRow}>
+                                            <HugeiconsIcon icon={CloudUploadIcon} size={14} color={theme.colors.warning} />
+                                            <Text style={[styles.statusText, { color: theme.colors.warning }]}>Pending Cloud Backup</Text>
+                                        </View>
+                                    ) : (
+                                        <View style={styles.statusRow}>
+                                            <HugeiconsIcon icon={CloudServerIcon} size={14} color={theme.colors.primary} />
+                                            <Text style={[styles.statusText, { color: theme.colors.primary }]}>Saved to Cloud</Text>
+                                        </View>
+                                    )}
                                 </View>
+
+                                {isLocal && (
+                                    <View style={[styles.propertyRow, { borderBottomWidth: 0, flexDirection: 'column', alignItems: 'flex-start', gap: 6 }]}>
+                                        <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Storage Path</Text>
+                                        <Text style={{ fontSize: 12, fontFamily: 'Nunito_500Medium', color: theme.colors.textSecondary, width: '100%', lineHeight: 18 }}>
+                                            {displayPath}
+                                        </Text>
+                                    </View>
+                                )}
                             </View>
                         </View>
                     </TouchableWithoutFeedback>
