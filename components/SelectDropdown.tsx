@@ -1,15 +1,15 @@
 // filepath: components/SelectDropdown.tsx
-import { ArrowDown01Icon, CheckmarkCircle02Icon } from '@hugeicons/core-free-icons';
+import { ArrowDown01Icon, Tick01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import React, { useRef, useState } from 'react';
 import {
-    Animated,
     Keyboard,
     Modal,
     PanResponder,
     Platform,
     ScrollView,
     StyleSheet,
+    Switch,
     Text,
     TouchableOpacity,
     TouchableWithoutFeedback,
@@ -30,15 +30,14 @@ interface SelectDropdownProps {
     options: Option[];
     onChange: (value: any) => void;
     placeholder?: string;
+    multiple?: boolean;
+    customTrigger?: React.ReactNode;
 }
 
-export default function SelectDropdown({ label, value, options, onChange, placeholder = 'Select' }: SelectDropdownProps) {
+export default function SelectDropdown({ label, value, options, onChange, placeholder = 'Select', multiple = false, customTrigger }: SelectDropdownProps) {
     const theme = useAppTheme();
     const [visible, setVisible] = useState(false);
     
-    const fadeAnim = useRef(new Animated.Value(0)).current;
-    const translateYAnim = useRef(new Animated.Value(300)).current;
-
     const selectedOption = options.find(o => o.value === value);
 
     const panResponder = useRef(
@@ -58,59 +57,67 @@ export default function SelectDropdown({ label, value, options, onChange, placeh
     const openDropdown = () => {
         Keyboard.dismiss();
         setVisible(true);
-
-        fadeAnim.setValue(0);
-        translateYAnim.setValue(300);
-
-        Animated.parallel([
-            Animated.timing(fadeAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
-            Animated.spring(translateYAnim, { toValue: 0, damping: 25, stiffness: 300, useNativeDriver: true })
-        ]).start();
     };
 
     const closeDropdown = () => {
-        Animated.parallel([
-            Animated.timing(fadeAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
-            Animated.timing(translateYAnim, { toValue: 300, duration: 200, useNativeDriver: true })
-        ]).start(() => setVisible(false));
+        setVisible(false);
     };
 
     const handleSelect = (val: any) => {
-        onChange(val);
-        closeDropdown();
+        if (multiple) {
+            let newValue;
+            if (Array.isArray(value)) {
+                if (value.includes(val)) {
+                    newValue = value.filter((v: any) => v !== val);
+                } else {
+                    newValue = [...value, val];
+                }
+            } else {
+                newValue = [val];
+            }
+            onChange(newValue);
+        } else {
+            onChange(val);
+            closeDropdown();
+        }
     };
 
     return (
-        <View style={styles.wrapper}>
-            {label && <Text style={[styles.label, { color: theme.colors.textSecondary }]}>{label}</Text>}
+        <View style={customTrigger ? undefined : styles.wrapper}>
+            {label && !customTrigger && <Text style={[styles.label, { color: theme.colors.textSecondary }]}>{label}</Text>}
             
-            <TouchableOpacity 
-                activeOpacity={0.7} 
-                onPress={openDropdown} 
-                style={[styles.trigger, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
-            >
-                <View style={{flexDirection:'row', alignItems:'center', gap: 10, flex: 1}}>
-                    {selectedOption?.icon}
-                    <View style={{flex: 1}}>
-                        <Text style={[styles.valueText, { color: selectedOption ? theme.colors.text : theme.colors.textSecondary }]} numberOfLines={1}>
-                            {selectedOption ? selectedOption.label : placeholder}
-                        </Text>
+            {customTrigger ? (
+                <TouchableOpacity activeOpacity={0.7} onPress={openDropdown}>
+                    {customTrigger}
+                </TouchableOpacity>
+            ) : (
+                <TouchableOpacity 
+                    activeOpacity={0.7} 
+                    onPress={openDropdown} 
+                    style={[styles.trigger, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
+                >
+                    <View style={{flexDirection:'row', alignItems:'center', gap: 10, flex: 1}}>
+                        {selectedOption?.icon}
+                        <View style={{flex: 1}}>
+                            <Text style={[styles.valueText, { color: selectedOption ? theme.colors.text : theme.colors.textSecondary }]} numberOfLines={1}>
+                                {selectedOption ? selectedOption.label : placeholder}
+                            </Text>
+                        </View>
                     </View>
-                </View>
-                <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.textSecondary} />
-            </TouchableOpacity>
+                    <HugeiconsIcon icon={ArrowDown01Icon} size={20} color={theme.colors.textSecondary} />
+                </TouchableOpacity>
+            )}
 
-            <Modal visible={visible} transparent animationType="none" onRequestClose={closeDropdown}>
+            <Modal visible={visible} transparent animationType="fade" onRequestClose={closeDropdown}>
                 <TouchableWithoutFeedback onPress={closeDropdown}>
-                    <Animated.View style={[styles.bottomSheetOverlay, { opacity: fadeAnim }]}>
+                    <View style={styles.bottomSheetOverlay}>
                         <TouchableWithoutFeedback>
-                            <Animated.View 
+                            <View 
                                 style={[
                                     styles.floatingSheet, 
                                     { 
                                         backgroundColor: theme.colors.card, 
-                                        borderColor: theme.colors.border,
-                                        transform: [{ translateY: translateYAnim }]
+                                        borderColor: theme.colors.border
                                     }
                                 ]}
                             >
@@ -120,48 +127,68 @@ export default function SelectDropdown({ label, value, options, onChange, placeh
                                 </View>
                                 
                                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.sheetContent}>
-                                    {options.map((opt, i) => {
-                                        const isSelected = opt.value === value;
-                                        return (
-                                            <TouchableOpacity 
-                                                key={i} 
-                                                onPress={() => handleSelect(opt.value)}
-                                                style={[
-                                                    styles.sheetItem, 
-                                                    isSelected && { backgroundColor: theme.colors.primary + '08' }
-                                                ]}
-                                                activeOpacity={0.7}
-                                            >
-                                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
-                                                    {opt.icon && (
-                                                        <View style={[styles.iconWrapper, { backgroundColor: isSelected ? theme.colors.primary + '15' : theme.colors.background, borderColor: theme.colors.border, borderWidth: isSelected ? 0 : 1 }]}>
-                                                            {opt.icon}
-                                                        </View>
-                                                    )}
-                                                    <View style={{ flex: 1 }}>
-                                                        <Text style={[
-                                                            styles.sheetText, 
-                                                            { color: isSelected ? theme.colors.primary : theme.colors.text, fontFamily: isSelected ? 'Nunito_800ExtraBold' : 'Nunito_600SemiBold' }
-                                                        ]}>
-                                                            {opt.label}
-                                                        </Text>
-                                                        {opt.description && (
-                                                            <Text style={[styles.optionDesc, { color: theme.colors.textSecondary }]}>
-                                                                {opt.description}
-                                                            </Text>
+                                    {options.length === 0 ? (
+                                        <Text style={{ textAlign: 'center', color: theme.colors.textSecondary, fontFamily: 'Nunito_600SemiBold', marginVertical: 20 }}>No options available.</Text>
+                                    ) : (
+                                        options.map((opt, i) => {
+                                            const isSelected = multiple ? (Array.isArray(value) && value.includes(opt.value)) : opt.value === value;
+                                            return (
+                                                <TouchableOpacity 
+                                                    key={i} 
+                                                    onPress={() => handleSelect(opt.value)}
+                                                    style={[
+                                                        styles.sheetItem, 
+                                                        isSelected && !multiple && { backgroundColor: theme.colors.primary + '08' }
+                                                    ]}
+                                                    activeOpacity={0.7}
+                                                >
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                                                        {opt.icon && (
+                                                            <View style={[styles.iconWrapper, { backgroundColor: isSelected ? theme.colors.primary + '15' : theme.colors.background, borderColor: theme.colors.border, borderWidth: isSelected ? 0 : 1 }]}>
+                                                                {opt.icon}
+                                                            </View>
                                                         )}
+                                                        <View style={{ flex: 1 }}>
+                                                            <Text style={[
+                                                                styles.sheetText, 
+                                                                { color: (isSelected && !multiple) ? theme.colors.primary : theme.colors.text, fontFamily: isSelected ? 'Nunito_800ExtraBold' : 'Nunito_600SemiBold' }
+                                                            ]}>
+                                                                {opt.label}
+                                                            </Text>
+                                                            {opt.description && (
+                                                                <Text style={[styles.optionDesc, { color: theme.colors.textSecondary }]}>
+                                                                    {opt.description}
+                                                                </Text>
+                                                            )}
+                                                        </View>
                                                     </View>
-                                                </View>
-                                                {isSelected && (
-                                                    <HugeiconsIcon icon={CheckmarkCircle02Icon} size={20} color={theme.colors.primary} />
-                                                )}
-                                            </TouchableOpacity>
-                                        );
-                                    })}
+                                                    {multiple ? (
+                                                        <View pointerEvents="none">
+                                                            <Switch 
+                                                                value={isSelected} 
+                                                                trackColor={{ false: theme.colors.border, true: theme.colors.primary }} 
+                                                                thumbColor={Platform.OS === 'ios' ? '#FFFFFF' : (isSelected ? '#FFFFFF' : '#F3F4F6')}
+                                                                style={{ 
+                                                                    transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }],
+                                                                    shadowColor: '#000',
+                                                                    shadowOffset: { width: 0, height: 2 },
+                                                                    shadowOpacity: 0.1,
+                                                                    shadowRadius: 2,
+                                                                    elevation: 2
+                                                                }}
+                                                            />
+                                                        </View>
+                                                    ) : isSelected ? (
+                                                        <HugeiconsIcon icon={Tick01Icon} size={20} color={theme.colors.primary} />
+                                                    ) : null}
+                                                </TouchableOpacity>
+                                            );
+                                        })
+                                    )}
                                 </ScrollView>
-                            </Animated.View>
+                            </View>
                         </TouchableWithoutFeedback>
-                    </Animated.View>
+                    </View>
                 </TouchableWithoutFeedback>
             </Modal>
         </View>
@@ -186,19 +213,14 @@ const styles = StyleSheet.create({
         flex: 1, 
         backgroundColor: 'rgba(0,0,0,0.4)', 
         justifyContent: 'flex-end',
-        paddingHorizontal: 16
+        paddingHorizontal: 20
     },
     floatingSheet: { 
         width: '100%', 
         marginBottom: Platform.OS === 'ios' ? 40 : 24, 
         borderRadius: 24, 
         borderWidth: 1,
-        maxHeight: '80%',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.1,
-        shadowRadius: 20,
-        elevation: 10
+        maxHeight: '80%'
     },
     dragHeader: { width: '100%', paddingVertical: 14, alignItems: 'center', borderTopLeftRadius: 24, borderTopRightRadius: 24, marginBottom: 4 },
     dragHandle: { width: 36, height: 4, borderRadius: 2, opacity: 0.8, marginBottom: 12 },

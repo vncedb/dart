@@ -1,3 +1,4 @@
+// filepath: components/ModernUI.tsx
 import {
   Alert02Icon,
   AlertCircleIcon,
@@ -13,7 +14,7 @@ export type AlertType = 'success' | 'error' | 'warning' | 'info' | 'confirmation
 
 interface ModernAlertProps {
   visible: boolean;
-  type?: AlertType; // Made optional to match usage
+  type?: AlertType;
   title: string;
   message: string;
   confirmText?: string;
@@ -80,7 +81,7 @@ export function ModernAlert({
           
           {/* Icon Circle */}
           <View className={`w-14 h-14 ${bg} rounded-full items-center justify-center mb-5`}>
-            <HugeiconsIcon icon={Icon} size={28} color={color} strokeWidth={2.5} variant="solid" />
+            <HugeiconsIcon icon={Icon} size={28} color={color} strokeWidth={2.5} />
           </View>
           
           {/* Text Content */}
@@ -129,7 +130,7 @@ export function ModernToast({ visible, message, type = 'success' }: { visible: b
   return (
     <View className="absolute z-50 self-center w-full max-w-sm px-4 top-14">
         <View className={`flex-row items-center px-4 py-3 shadow-xl rounded-2xl ${bg} border border-white/10 dark:border-black/10`}>
-            <HugeiconsIcon icon={Icon} size={20} color={color} variant="solid" />
+            <HugeiconsIcon icon={Icon} size={20} color={color} />
             <Text className="ml-3 font-sans text-sm font-bold text-slate-900 dark:text-slate-100">
                 {message}
             </Text>

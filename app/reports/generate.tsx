@@ -6,11 +6,11 @@ import {
   Calendar03Icon,
   CheckListIcon,
   Clock01Icon,
+  CustomizeIcon,
   Delete02Icon,
   Image01Icon,
   PencilEdit02Icon,
   PrinterIcon,
-  Settings02Icon,
   SignatureIcon,
   Tick01Icon,
   UserCircleIcon,
@@ -26,7 +26,6 @@ import {
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -41,6 +40,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Button from "../../components/Button";
 import Footer from "../../components/Footer";
 import Header from "../../components/Header";
+import IconButton from "../../components/IconButton";
 import ImageViewer from "../../components/ImageViewer";
 import LoadingOverlay from "../../components/LoadingOverlay";
 import { ModernAlert } from "../../components/ModernUI";
@@ -114,7 +114,6 @@ export default function GenerateReportScreen() {
 
   const [sigModalVisible, setSigModalVisible] = useState(false);
   const [activeSigner, setActiveSigner] = useState<"primary" | "secondary">("primary");
-  const [customizeModalVisible, setCustomizeModalVisible] = useState(false);
 
   const [initialSettings, setInitialSettings] = useState<string>("");
   const [shouldSaveSettings, setShouldSaveSettings] = useState(false);
@@ -154,6 +153,7 @@ export default function GenerateReportScreen() {
           navigation.dispatch(e.data.action);
         },
         onCancel: () => setAlertConfig((p: any) => ({ ...p, visible: false })),
+        onDismiss: () => setAlertConfig((p: any) => ({ ...p, visible: false })),
       });
     });
     return unsubscribe;
@@ -290,22 +290,13 @@ export default function GenerateReportScreen() {
     }) !== initialSettings;
   };
 
-  const handleToggleDate = (dateToToggle: string) => {
-    const newSelection = new Set(selectedDates);
-    if (newSelection.has(dateToToggle)) {
-        newSelection.delete(dateToToggle);
-    } else {
-        newSelection.add(dateToToggle);
-    }
-    setSelectedDates(newSelection);
-  };
-
   const handleProceed = async () => {
     if (selectedDates.size === 0) {
       setAlertConfig({
         visible: true, type: "warning", title: "No Data",
         message: "There are no dates selected to generate for this period.", confirmText: "OK",
         onConfirm: () => setAlertConfig({ visible: false }),
+        onDismiss: () => setAlertConfig({ visible: false }),
       });
       return;
     }
@@ -322,7 +313,8 @@ export default function GenerateReportScreen() {
                     setAlertConfig({
                         visible: true, type: "error", title: "Storage Access Required",
                         message: "Please grant storage access so we can save reports to your device.", confirmText: "OK",
-                        onConfirm: () => setAlertConfig({ visible: false })
+                        onConfirm: () => setAlertConfig({ visible: false }),
+                        onDismiss: () => setAlertConfig({ visible: false }),
                     });
                     return;
                 }
@@ -407,8 +399,15 @@ export default function GenerateReportScreen() {
           value={value} 
           onValueChange={onToggle} 
           trackColor={{ false: theme.colors.border, true: theme.colors.primary }} 
-          thumbColor={Platform.OS === 'ios' ? '#FFFFFF' : (value ? '#FFFFFF' : theme.colors.textSecondary)} 
-          style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }}
+          thumbColor={Platform.OS === 'ios' ? '#FFFFFF' : (value ? '#FFFFFF' : '#F3F4F6')} 
+          style={{ 
+            transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }],
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.1,
+            shadowRadius: 2,
+            elevation: 2 
+          }}
         />
       </View>
   );
@@ -428,51 +427,6 @@ export default function GenerateReportScreen() {
 
       <ImageViewer visible={viewerVisible} imageUri={activeImage} onClose={() => setViewerVisible(false)} />
 
-      {/* Customize Modal */}
-      <Modal visible={customizeModalVisible} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-            <View style={[styles.customizeSheet, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                <View style={[styles.modalHeader, { borderBottomColor: theme.colors.border }]}>
-                    <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Customize Inclusion</Text>
-                    <TouchableOpacity onPress={() => setCustomizeModalVisible(false)}>
-                        <Text style={{ fontFamily: 'Nunito_700Bold', color: theme.colors.primary, fontSize: 15 }}>Done</Text>
-                    </TouchableOpacity>
-                </View>
-                <ScrollView contentContainerStyle={{ padding: 16 }}>
-                    {availableDates.length === 0 ? (
-                        <Text style={{ textAlign: 'center', color: theme.colors.textSecondary, fontFamily: 'Nunito_600SemiBold', marginVertical: 20 }}>No dates available.</Text>
-                    ) : (
-                        availableDates.map((dateItem, index) => {
-                            const isSelected = selectedDates.has(dateItem);
-                            return (
-                                <TouchableOpacity 
-                                    key={dateItem} 
-                                    onPress={() => handleToggleDate(dateItem)} 
-                                    activeOpacity={0.7}
-                                    style={[
-                                        styles.dateSelectionRow, 
-                                        { borderBottomColor: theme.colors.border },
-                                        index === availableDates.length - 1 && { borderBottomWidth: 0 }
-                                    ]}
-                                >
-                                    <Text style={{ fontFamily: 'Nunito_600SemiBold', fontSize: 15, color: theme.colors.text }}>
-                                        {format(new Date(dateItem), 'MMMM dd, yyyy')}
-                                    </Text>
-                                    <Switch 
-                                        value={isSelected} 
-                                        onValueChange={() => handleToggleDate(dateItem)}
-                                        trackColor={{ false: theme.colors.border, true: theme.colors.primary }} 
-                                        thumbColor={Platform.OS === 'ios' ? '#FFFFFF' : (isSelected ? '#FFFFFF' : theme.colors.textSecondary)}
-                                    />
-                                </TouchableOpacity>
-                            )
-                        })
-                    )}
-                </ScrollView>
-            </View>
-        </View>
-      </Modal>
-
       <View style={{ flex: 1 }}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -490,10 +444,18 @@ export default function GenerateReportScreen() {
                       <Text style={{ fontSize: 16, color: theme.colors.text, fontFamily: 'Nunito_800ExtraBold', marginTop: 2 }}>{periodLabel || "Loading..."}</Text>
                     </View>
                   </View>
-                  <TouchableOpacity onPress={() => setCustomizeModalVisible(true)} style={[styles.customizeBtn, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
-                      <HugeiconsIcon icon={Settings02Icon} size={16} color={theme.colors.text} />
-                      <Text style={{ fontFamily: 'Nunito_700Bold', fontSize: 13, color: theme.colors.text }}>Customize</Text>
-                  </TouchableOpacity>
+                  <SelectDropdown
+                      label="Customize Inclusion"
+                      multiple
+                      value={Array.from(selectedDates)}
+                      options={availableDates.map(d => ({ label: format(new Date(d), 'MMMM dd, yyyy'), value: d }))}
+                      onChange={(val) => setSelectedDates(new Set(val))}
+                      customTrigger={
+                          <View pointerEvents="none">
+                              <IconButton icon={CustomizeIcon} size={18} />
+                          </View>
+                      }
+                  />
                 </View>
                 <View style={[styles.divider, { backgroundColor: theme.colors.border, marginVertical: 14 }]} />
                 <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
@@ -572,8 +534,15 @@ export default function GenerateReportScreen() {
                         value={includeDocs} 
                         onValueChange={setIncludeDocs} 
                         trackColor={{ false: theme.colors.border, true: theme.colors.primary }} 
-                        thumbColor={Platform.OS === 'ios' ? '#FFFFFF' : (includeDocs ? '#FFFFFF' : theme.colors.textSecondary)}
-                        style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }}
+                        thumbColor={Platform.OS === 'ios' ? '#FFFFFF' : (includeDocs ? '#FFFFFF' : '#F3F4F6')}
+                        style={{ 
+                          transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }],
+                          shadowColor: '#000',
+                          shadowOffset: { width: 0, height: 2 },
+                          shadowOpacity: 0.1,
+                          shadowRadius: 2,
+                          elevation: 2 
+                        }}
                       />
                     </View>
                     {includeDocs && previewImages.length > 0 && (
@@ -653,8 +622,15 @@ export default function GenerateReportScreen() {
                       value={includeSecondarySignee} 
                       onValueChange={setIncludeSecondarySignee} 
                       trackColor={{ false: theme.colors.border, true: theme.colors.primary }} 
-                      thumbColor={Platform.OS === 'ios' ? '#FFFFFF' : (includeSecondarySignee ? '#FFFFFF' : theme.colors.textSecondary)}
-                      style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }}
+                      thumbColor={Platform.OS === 'ios' ? '#FFFFFF' : (includeSecondarySignee ? '#FFFFFF' : '#F3F4F6')}
+                      style={{ 
+                        transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }],
+                        shadowColor: '#000',
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.1,
+                        shadowRadius: 2,
+                        elevation: 2 
+                      }}
                     />
                  </View>
 
@@ -762,13 +738,4 @@ const styles = StyleSheet.create({
   saveSettingsRow: { flexDirection: "row", alignItems: "center", padding: 18, borderRadius: 16, borderWidth: 1, marginBottom: 20, gap: 14 },
   checkbox: { width: 24, height: 24, borderRadius: 8, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   saveSettingsText: { fontFamily: "Nunito_700Bold", fontSize: 15 },
-  
-  customizeBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
-  
-  // Modal Customize Styles
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  customizeSheet: { width: '100%', maxHeight: '60%', borderTopLeftRadius: 24, borderTopRightRadius: 24, borderWidth: 1, overflow: 'hidden' },
-  modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 16, borderBottomWidth: 1 },
-  modalTitle: { fontFamily: 'Nunito_800ExtraBold', fontSize: 16 },
-  dateSelectionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1 },
 });
