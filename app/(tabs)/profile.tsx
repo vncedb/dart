@@ -314,7 +314,7 @@ export default function ProfileScreen() {
                 triggerSync();
             }
 
-        } catch (e) { 
+        } catch { 
             setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Failed to save changes.', confirmText: 'OK', onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) });
         } finally { 
             setIsUpdating(false); 
@@ -538,7 +538,7 @@ export default function ProfileScreen() {
             />
 
             {isLoading ? (
-                <LoadingScreen message="Loading Profile..." />
+                <LoadingScreen variant="profile" message="Loading Profile..." />
             ) : (
                 <ScrollView contentContainerStyle={styles.scrollContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} />} showsVerticalScrollIndicator={false}>
                     

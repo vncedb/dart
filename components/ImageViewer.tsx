@@ -7,7 +7,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Dimensions,
@@ -54,6 +54,15 @@ export default function ImageViewer({ visible, imageUri, onClose }: ImageViewerP
     const savedTranslateY = useSharedValue(0);
     const backdropOpacity = useSharedValue(1);
 
+    const resetTransform = useCallback(() => {
+        scale.value = withSpring(1, { damping: 18, stiffness: 120 });
+        savedScale.value = 1;
+        translateX.value = withSpring(0);
+        translateY.value = withSpring(0);
+        savedTranslateX.value = 0;
+        savedTranslateY.value = 0;
+    }, [scale, savedScale, translateX, translateY, savedTranslateX, savedTranslateY]);
+
     useEffect(() => {
         if (visible && imageUri) {
             backdropOpacity.value = withTiming(1, { duration: 250 });
@@ -61,7 +70,7 @@ export default function ImageViewer({ visible, imageUri, onClose }: ImageViewerP
         } else {
             backdropOpacity.value = withTiming(0, { duration: 200 });
         }
-    }, [visible, imageUri]);
+    }, [visible, imageUri, backdropOpacity, resetTransform]);
 
     useEffect(() => {
         if (toast) {
@@ -69,15 +78,6 @@ export default function ImageViewer({ visible, imageUri, onClose }: ImageViewerP
             return () => clearTimeout(timer);
         }
     }, [toast]);
-
-    const resetTransform = () => {
-        scale.value = withSpring(1, { damping: 18, stiffness: 120 });
-        savedScale.value = 1;
-        translateX.value = withSpring(0);
-        translateY.value = withSpring(0);
-        savedTranslateX.value = 0;
-        savedTranslateY.value = 0;
-    };
 
     const pinchGesture = Gesture.Pinch()
         .onUpdate((e) => {
@@ -279,7 +279,7 @@ export default function ImageViewer({ visible, imageUri, onClose }: ImageViewerP
                             exiting={FadeOut.duration(150)}
                             style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 24) }]}
                         >
-                            <Text style={styles.footerHint}>Pinch to zoom • Double-tap to zoom • Swipe down to close</Text>
+                            <Text style={styles.footerHint}>Pinch to zoom \u2022 Double-tap to zoom \u2022 Swipe down to close</Text>
                         </Animated.View>
                     )}
                 </Animated.View>

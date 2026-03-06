@@ -3,6 +3,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   FlatList,
   Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   Pressable,
   StyleSheet,
@@ -13,6 +15,7 @@ import {
 import Animated, {
   Easing,
   Extrapolation,
+  type SharedValue,
   interpolate,
   interpolateColor,
   runOnJS,
@@ -25,20 +28,30 @@ import { useAppTheme } from "../constants/theme";
 import Button from "./Button";
 import ModalHeader from "./ModalHeader";
 
-const ITEM_HEIGHT = 56; 
-const CONTENT_HEIGHT = 280; 
+const ITEM_HEIGHT = 56;
+const CONTENT_HEIGHT = 280;
 const PADDING_VERTICAL = (CONTENT_HEIGHT - ITEM_HEIGHT) / 2;
-const COLUMN_WIDTH = 110; 
+const COLUMN_WIDTH = 110;
+
+interface WheelItemProps {
+  item: string | number;
+  index: number;
+  scrollY: SharedValue<number>;
+  onPress: (index: number) => void;
+  formatLabel: (item: string | number) => string;
+  activeColor: string;
+  inactiveColor: string;
+}
 
 const WheelItem = React.memo(
-  ({ item, index, scrollY, onPress, formatLabel, activeColor, inactiveColor }: any) => {
+  function WheelItem({ item, index, scrollY, onPress, formatLabel, activeColor, inactiveColor }: WheelItemProps) {
     const animatedStyle = useAnimatedStyle(() => {
       const itemCenter = index * ITEM_HEIGHT;
       const viewCenter = scrollY.value;
       const distance = Math.abs(viewCenter - itemCenter);
 
-      const scale = interpolate(distance, [0, ITEM_HEIGHT, ITEM_HEIGHT * 2], [1.25, 0.85, 0.7], Extrapolation.CLAMP);
-      const opacity = interpolate(distance, [0, ITEM_HEIGHT, ITEM_HEIGHT * 2], [1, 0.35, 0.15], Extrapolation.CLAMP);
+      const scale = interpolate(distance, [0, ITEM_HEIGHT, ITEM_HEIGHT * 2], [1.2, 0.9, 0.76], Extrapolation.CLAMP);
+      const opacity = interpolate(distance, [0, ITEM_HEIGHT, ITEM_HEIGHT * 2], [1, 0.5, 0.25], Extrapolation.CLAMP);
       const color = interpolateColor(distance, [0, ITEM_HEIGHT], [activeColor, inactiveColor]);
 
       return { transform: [{ scale }], opacity, color };
@@ -46,93 +59,158 @@ const WheelItem = React.memo(
 
     return (
       <TouchableOpacity activeOpacity={1} onPress={() => onPress(index)} style={styles.wheelItem}>
-        <Animated.Text style={[styles.wheelText, animatedStyle]}>
-          {formatLabel(item)}
-        </Animated.Text>
+        <Animated.Text style={[styles.wheelText, animatedStyle]}>{formatLabel(item)}</Animated.Text>
       </TouchableOpacity>
     );
   },
   (prev, next) => prev.item === next.item && prev.index === next.index
 );
-WheelItem.displayName = "WheelItem";
 
-const WheelPicker = React.memo(
-  ({ data, initialValue, onChange, formatLabel, activeColor, inactiveColor, isInfinite = false }: any) => {
-    const MULTIPLIER = 50; 
-    const baseLength = data.length;
-    
-    const extendedData = useMemo(() => {
-      if (!isInfinite) return data;
-      return Array.from({ length: baseLength * MULTIPLIER }, (_, i) => data[i % baseLength]);
-    }, [data, isInfinite, baseLength]);
+interface WheelPickerProps {
+  data: (string | number)[];
+  initialValue: string | number;
+  onChange: (value: string | number) => void;
+  formatLabel: (item: string | number) => string;
+  activeColor: string;
+  inactiveColor: string;
+  isInfinite?: boolean;
+}
 
-    const initialBaseIndex = data.indexOf(initialValue) !== -1 ? data.indexOf(initialValue) : 0;
-    const startIndex = isInfinite ? Math.floor(MULTIPLIER / 2) * baseLength + initialBaseIndex : initialBaseIndex;
+const WheelPicker = React.memo(function WheelPicker({
+  data,
+  initialValue,
+  onChange,
+  formatLabel,
+  activeColor,
+  inactiveColor,
+  isInfinite = false,
+}: WheelPickerProps) {
+  const multiplier = isInfinite ? 60 : 1;
+  const baseLength = data.length;
 
-    const scrollY = useSharedValue(startIndex * ITEM_HEIGHT);
-    const currentIndex = useSharedValue(startIndex);
-    const flatListRef = useRef<FlatList>(null);
+  const extendedData = useMemo(() => {
+    if (!isInfinite) return data;
+    return Array.from({ length: baseLength * multiplier }, (_, i) => data[i % baseLength]);
+  }, [baseLength, data, isInfinite, multiplier]);
 
-    const onScroll = useAnimatedScrollHandler({
-      onScroll: (event) => {
-        scrollY.value = event.contentOffset.y;
-        const index = Math.round(event.contentOffset.y / ITEM_HEIGHT);
-        
-        if (index !== currentIndex.value) {
-          currentIndex.value = index;
-          if (Platform.OS !== "web") runOnJS(Haptics.selectionAsync)();
-          
-          const safeIndex = Math.max(0, Math.min(index, extendedData.length - 1));
-          runOnJS(onChange)(extendedData[safeIndex]);
-        }
-      },
-      onMomentumEnd: (event) => {
-        const index = Math.round(event.contentOffset.y / ITEM_HEIGHT);
-        const safeIndex = Math.max(0, Math.min(index, extendedData.length - 1));
-        runOnJS(onChange)(extendedData[safeIndex]);
-      },
-      onEndDrag: (event) => {
-        const index = Math.round(event.contentOffset.y / ITEM_HEIGHT);
-        const safeIndex = Math.max(0, Math.min(index, extendedData.length - 1));
-        runOnJS(onChange)(extendedData[safeIndex]);
+  const initialBaseIndex = data.indexOf(initialValue) !== -1 ? data.indexOf(initialValue) : 0;
+  const startIndex = isInfinite ? Math.floor(multiplier / 2) * baseLength + initialBaseIndex : initialBaseIndex;
+
+  const scrollY = useSharedValue(startIndex * ITEM_HEIGHT);
+  const flatListRef = useRef<FlatList<string | number>>(null);
+  const lastCommittedIndex = useRef(startIndex);
+  const lastHapticMs = useRef(0);
+
+  const fireHaptic = useCallback(() => {
+    if (Platform.OS === "web") return;
+    const now = Date.now();
+    if (now - lastHapticMs.current < 45) return;
+    lastHapticMs.current = now;
+    Haptics.selectionAsync();
+  }, []);
+
+  const normalizeInfiniteIndex = useCallback(
+    (index: number) => {
+      if (!isInfinite) return index;
+      const mod = ((index % baseLength) + baseLength) % baseLength;
+      return Math.floor(multiplier / 2) * baseLength + mod;
+    },
+    [baseLength, isInfinite, multiplier]
+  );
+
+  const commitIndex = useCallback(
+    (index: number, withHaptic = true) => {
+      if (!extendedData.length) return;
+      const safeIndex = Math.max(0, Math.min(index, extendedData.length - 1));
+      if (safeIndex !== lastCommittedIndex.current) {
+        lastCommittedIndex.current = safeIndex;
+        onChange(extendedData[safeIndex]);
+        if (withHaptic) fireHaptic();
       }
-    });
+    },
+    [extendedData, fireHaptic, onChange]
+  );
 
-    const handlePress = useCallback((index: number) => {
-        flatListRef.current?.scrollToOffset({ offset: index * ITEM_HEIGHT, animated: true });
-        onChange(extendedData[index]);
-        if (Platform.OS !== "web") Haptics.selectionAsync();
-    }, [extendedData, onChange]);
+  const settleAtOffset = useCallback(
+    (offsetY: number, withHaptic = true) => {
+      const rawIndex = Math.round(offsetY / ITEM_HEIGHT);
+      const normalizedIndex = normalizeInfiniteIndex(rawIndex);
 
-    return (
-      <View style={styles.wheelContainer}>
-        <Animated.FlatList
-          ref={flatListRef}
-          data={extendedData}
-          keyExtractor={(_, i) => i.toString()}
-          renderItem={({ item, index }) => (
-            <WheelItem item={item} index={index} scrollY={scrollY} onPress={handlePress} formatLabel={formatLabel} activeColor={activeColor} inactiveColor={inactiveColor} />
-          )}
-          getItemLayout={(_, index) => ({ length: ITEM_HEIGHT, offset: ITEM_HEIGHT * index, index })}
-          initialScrollIndex={startIndex}
-          snapToInterval={ITEM_HEIGHT}
-          snapToAlignment="start"
-          decelerationRate="fast" 
-          bounces={false}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingVertical: PADDING_VERTICAL }}
-          onScroll={onScroll}
-          scrollEventThrottle={16}
-          removeClippedSubviews={Platform.OS === 'android'}
-          initialNumToRender={15}
-          maxToRenderPerBatch={10}
-          windowSize={5}
-        />
-      </View>
-    );
-  }
-);
-WheelPicker.displayName = "WheelPicker";
+      if (isInfinite && normalizedIndex !== rawIndex) {
+        flatListRef.current?.scrollToOffset({ offset: normalizedIndex * ITEM_HEIGHT, animated: false });
+      }
+
+      commitIndex(normalizedIndex, withHaptic);
+    },
+    [commitIndex, isInfinite, normalizeInfiniteIndex]
+  );
+
+  const onScroll = useAnimatedScrollHandler((event) => {
+    scrollY.value = event.contentOffset.y;
+  });
+
+  const handleMomentumEnd = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      settleAtOffset(event.nativeEvent.contentOffset.y);
+    },
+    [settleAtOffset]
+  );
+
+  const handleEndDrag = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const velocityY = Math.abs(event.nativeEvent.velocity?.y || 0);
+      if (velocityY < 0.05) {
+        settleAtOffset(event.nativeEvent.contentOffset.y);
+      }
+    },
+    [settleAtOffset]
+  );
+
+  const handlePress = useCallback(
+    (index: number) => {
+      flatListRef.current?.scrollToOffset({ offset: index * ITEM_HEIGHT, animated: true });
+      commitIndex(index);
+    },
+    [commitIndex]
+  );
+
+  return (
+    <View style={styles.wheelContainer}>
+      <Animated.FlatList
+        ref={flatListRef}
+        data={extendedData}
+        keyExtractor={(_, i) => i.toString()}
+        renderItem={({ item, index }) => (
+          <WheelItem
+            item={item}
+            index={index}
+            scrollY={scrollY}
+            onPress={handlePress}
+            formatLabel={formatLabel}
+            activeColor={activeColor}
+            inactiveColor={inactiveColor}
+          />
+        )}
+        getItemLayout={(_, index) => ({ length: ITEM_HEIGHT, offset: ITEM_HEIGHT * index, index })}
+        initialScrollIndex={startIndex}
+        snapToInterval={ITEM_HEIGHT}
+        snapToAlignment="start"
+        decelerationRate="fast"
+        bounces={false}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingVertical: PADDING_VERTICAL }}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        onMomentumScrollEnd={handleMomentumEnd}
+        onScrollEndDrag={handleEndDrag}
+        removeClippedSubviews={Platform.OS === "android"}
+        initialNumToRender={15}
+        maxToRenderPerBatch={12}
+        windowSize={5}
+      />
+    </View>
+  );
+});
 
 interface DurationPickerProps {
   visible: boolean;
@@ -141,7 +219,7 @@ interface DurationPickerProps {
   title?: string;
   initialHours?: number;
   initialMinutes?: number;
-  maxHours?: number; 
+  maxHours?: number;
 }
 
 export default function DurationPicker({
@@ -151,7 +229,7 @@ export default function DurationPicker({
   title = "Set Duration",
   initialHours = 0,
   initialMinutes = 0,
-  maxHours = 24, 
+  maxHours = 24,
 }: DurationPickerProps) {
   const theme = useAppTheme();
   const [showModal, setShowModal] = useState(visible);
@@ -165,29 +243,40 @@ export default function DurationPicker({
   const hoursData = useMemo(() => Array.from({ length: maxHours }, (_, i) => i), [maxHours]);
   const minutesData = useMemo(() => Array.from({ length: 60 }, (_, i) => i), []);
 
-  const formatHours = useCallback((h: number) => h.toString(), []);
-  const formatMinutes = useCallback((m: number) => m.toString().padStart(2, "0"), []);
+  const formatHours = useCallback((h: string | number) => h.toString(), []);
+  const formatMinutes = useCallback((m: string | number) => Number(m).toString().padStart(2, "0"), []);
 
-  const handleHoursChange = useCallback((v: number) => { hoursRef.current = v; }, []);
-  const handleMinutesChange = useCallback((v: number) => { minutesRef.current = v; }, []);
+  const handleHoursChange = useCallback((v: string | number) => {
+    hoursRef.current = Number(v);
+  }, []);
+
+  const handleMinutesChange = useCallback((v: string | number) => {
+    minutesRef.current = Number(v);
+  }, []);
 
   useEffect(() => {
     if (visible) {
       setShowModal(true);
-      hoursRef.current = Math.min(initialHours, maxHours - 1);
+      hoursRef.current = Math.min(initialHours, Math.max(0, maxHours - 1));
       minutesRef.current = initialMinutes;
 
-      backdropOpacity.value = withTiming(1, { duration: 250 });
-      translateY.value = withTiming(0, { duration: 350, easing: Easing.out(Easing.cubic) });
-    } else {
-      if (showModal) closeModal();
+      backdropOpacity.value = withTiming(1, { duration: 220 });
+      translateY.value = withTiming(0, { duration: 300, easing: Easing.out(Easing.cubic) });
+    } else if (showModal) {
+      translateY.value = withTiming(CONTENT_HEIGHT + 350, { duration: 240, easing: Easing.in(Easing.cubic) });
+      backdropOpacity.value = withTiming(0, { duration: 200 }, (finished) => {
+        if (finished) runOnJS(setShowModal)(false);
+      });
     }
-  }, [visible, initialHours, initialMinutes, maxHours]);
+  }, [visible, initialHours, initialMinutes, maxHours, showModal, backdropOpacity, translateY]);
 
   const closeModal = (callback?: () => void) => {
-    translateY.value = withTiming(CONTENT_HEIGHT + 350, { duration: 300, easing: Easing.in(Easing.cubic) });
-    backdropOpacity.value = withTiming(0, { duration: 250 }, (finished) => {
-      if (finished) { runOnJS(setShowModal)(false); if (callback) runOnJS(callback)(); }
+    translateY.value = withTiming(CONTENT_HEIGHT + 350, { duration: 240, easing: Easing.in(Easing.cubic) });
+    backdropOpacity.value = withTiming(0, { duration: 200 }, (finished) => {
+      if (finished) {
+        runOnJS(setShowModal)(false);
+        if (callback) runOnJS(callback)();
+      }
     });
   };
 
@@ -204,6 +293,8 @@ export default function DurationPicker({
   const animatedBackdropStyle = useAnimatedStyle(() => ({ opacity: backdropOpacity.value }));
   const animatedSheetStyle = useAnimatedStyle(() => ({ transform: [{ translateY: translateY.value }] }));
 
+  const preview = `${hoursRef.current}h ${minutesRef.current.toString().padStart(2, "0")}m`;
+
   if (!showModal) return null;
 
   return (
@@ -213,7 +304,9 @@ export default function DurationPicker({
         <Pressable onPress={handleClose} style={StyleSheet.absoluteFill} />
 
         <Animated.View style={[styles.bottomSheet, { backgroundColor: theme.colors.card }, animatedSheetStyle]}>
-          <View style={styles.handleContainer}><View style={[styles.handle, { backgroundColor: theme.colors.border }]} /></View>
+          <View style={styles.handleContainer}>
+            <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
+          </View>
           <ModalHeader title={title} onClose={handleClose} position="bottom" />
 
           <View style={styles.headersRow}>
@@ -222,17 +315,39 @@ export default function DurationPicker({
             <Text style={[styles.headerLabel, { color: theme.colors.textSecondary }]}>MINUTES</Text>
           </View>
 
+          <View style={styles.previewRow}>
+            <Text style={[styles.previewText, { color: theme.colors.textSecondary }]}>Selected: {preview}</Text>
+          </View>
+
           <View style={styles.pickersContainer}>
-            <View style={[styles.selectionBand, { backgroundColor: theme.colors.primary + '15' }]} pointerEvents="none" />
+            <View style={[styles.selectionBand, { backgroundColor: theme.colors.primary + "15" }]} pointerEvents="none" />
 
             <View style={styles.column}>
-              <WheelPicker data={hoursData} initialValue={hoursRef.current} onChange={handleHoursChange} formatLabel={formatHours} activeColor={theme.colors.text} inactiveColor={theme.colors.textSecondary} isInfinite={maxHours <= 100} />
+              <WheelPicker
+                data={hoursData}
+                initialValue={hoursRef.current}
+                onChange={handleHoursChange}
+                formatLabel={formatHours}
+                activeColor={theme.colors.text}
+                inactiveColor={theme.colors.textSecondary}
+                isInfinite={maxHours <= 100}
+              />
             </View>
-            
-            <View style={styles.spacerCenter}><Text style={[styles.colon, { color: theme.colors.text }]}>:</Text></View>
+
+            <View style={styles.spacerCenter}>
+              <Text style={[styles.colon, { color: theme.colors.text }]}>:</Text>
+            </View>
 
             <View style={styles.column}>
-              <WheelPicker data={minutesData} initialValue={minutesRef.current} onChange={handleMinutesChange} formatLabel={formatMinutes} activeColor={theme.colors.text} inactiveColor={theme.colors.textSecondary} isInfinite={true} />
+              <WheelPicker
+                data={minutesData}
+                initialValue={minutesRef.current}
+                onChange={handleMinutesChange}
+                formatLabel={formatMinutes}
+                activeColor={theme.colors.text}
+                inactiveColor={theme.colors.textSecondary}
+                isInfinite
+              />
             </View>
           </View>
 
@@ -250,19 +365,31 @@ export default function DurationPicker({
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: "flex-end" },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)" },
-  bottomSheet: { width: "100%", borderTopLeftRadius: 32, borderTopRightRadius: 32, overflow: "hidden", shadowColor: "#000", shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 20 },
-  handleContainer: { width: '100%', alignItems: 'center', paddingTop: 14, paddingBottom: 4 },
+  bottomSheet: {
+    width: "100%",
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  handleContainer: { width: "100%", alignItems: "center", paddingTop: 14, paddingBottom: 4 },
   handle: { width: 40, height: 5, borderRadius: 3, opacity: 0.3 },
-  headersRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', paddingTop: 16, paddingBottom: 10 },
-  headerLabel: { width: COLUMN_WIDTH, textAlign: 'center', fontSize: 10, fontFamily: 'Nunito_700Bold', letterSpacing: 1.5, opacity: 0.5 },
-  spacer: { width: 24 }, 
-  pickersContainer: { flexDirection: "row", alignItems: "center", justifyContent: "center", height: CONTENT_HEIGHT, position: 'relative' },
-  column: { width: COLUMN_WIDTH, alignItems: 'center' },
-  spacerCenter: { width: 24, alignItems: 'center', justifyContent: 'center' },
-  selectionBand: { position: 'absolute', top: (CONTENT_HEIGHT - ITEM_HEIGHT) / 2, left: 32, right: 32, height: ITEM_HEIGHT, borderRadius: 18 },
+  headersRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", paddingTop: 12, paddingBottom: 6 },
+  headerLabel: { width: COLUMN_WIDTH, textAlign: "center", fontSize: 10, fontFamily: "Nunito_700Bold", letterSpacing: 1.5, opacity: 0.5 },
+  previewRow: { alignItems: "center", marginBottom: 4 },
+  previewText: { fontSize: 12, fontFamily: "Nunito_600SemiBold" },
+  spacer: { width: 24 },
+  pickersContainer: { flexDirection: "row", alignItems: "center", justifyContent: "center", height: CONTENT_HEIGHT, position: "relative" },
+  column: { width: COLUMN_WIDTH, alignItems: "center" },
+  spacerCenter: { width: 24, alignItems: "center", justifyContent: "center" },
+  selectionBand: { position: "absolute", top: (CONTENT_HEIGHT - ITEM_HEIGHT) / 2, left: 32, right: 32, height: ITEM_HEIGHT, borderRadius: 18 },
   colon: { fontSize: 24, fontFamily: "Nunito_700Bold", opacity: 0.4 },
-  footer: { flexDirection: "row", padding: 24, paddingBottom: Platform.OS === 'ios' ? 40 : 24, borderTopWidth: 1 },
-  wheelContainer: { flex: 1, height: CONTENT_HEIGHT, overflow: "hidden", width: '100%' },
-  wheelItem: { height: ITEM_HEIGHT, width: '100%', justifyContent: "center", alignItems: "center" },
-  wheelText: { fontSize: 22, fontFamily: "Nunito_700Bold", textAlign: "center" }
+  footer: { flexDirection: "row", padding: 24, paddingBottom: Platform.OS === "ios" ? 40 : 24, borderTopWidth: 1 },
+  wheelContainer: { flex: 1, height: CONTENT_HEIGHT, overflow: "hidden", width: "100%" },
+  wheelItem: { height: ITEM_HEIGHT, width: "100%", justifyContent: "center", alignItems: "center" },
+  wheelText: { fontSize: 22, fontFamily: "Nunito_700Bold", textAlign: "center" },
 });

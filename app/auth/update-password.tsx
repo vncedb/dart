@@ -94,7 +94,7 @@ export default function UpdatePassword() {
         };
         const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
         return () => backHandler.remove();
-    }, []);
+    }, [isRecovery, router]);
 
     // [SECURITY] Strict Password Requirements
     const getPasswordRequirementMissing = (pass: string) => {

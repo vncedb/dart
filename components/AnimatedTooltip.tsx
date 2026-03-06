@@ -136,7 +136,7 @@ export default function AnimatedTooltip({
         setIsRendered(false);
       });
     }
-  }, [visible]);
+  }, [visible, fadeAnim, slideAnim]);
 
   if (!isRendered) return null;
 
@@ -177,7 +177,6 @@ export default function AnimatedTooltip({
                   icon={Icon}
                   size={20}
                   color={config.iconColor}
-                  variant="solid"
                 />
               </View>
               <View className="flex-1">

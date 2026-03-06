@@ -64,6 +64,8 @@ export default function SettingsScreen() {
     const { triggerSync, pendingCount, failedCount } = useSync();
 
     const [soundEnabled, setSoundEnabled] = useState(true);
+    const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+    const [vibrationEnabled, setVibrationEnabled] = useState(true);
     const [themePreference, setThemePreference] = useState<ThemeOption>('system');
     
     const [isLoading, setIsLoading] = useState(false);
@@ -126,6 +128,8 @@ export default function SettingsScreen() {
             if (storedSettings && isMounted.current) {
                 const parsed = JSON.parse(storedSettings);
                 if (parsed.soundEnabled !== undefined) setSoundEnabled(parsed.soundEnabled);
+                if (parsed.notificationsEnabled !== undefined) setNotificationsEnabled(parsed.notificationsEnabled);
+                if (parsed.vibrationEnabled !== undefined) setVibrationEnabled(parsed.vibrationEnabled);
                 if (parsed.themePreference) setThemePreference(parsed.themePreference);
             }
         } catch (e) { console.error(e); }
@@ -143,6 +147,16 @@ export default function SettingsScreen() {
     const toggleSound = (val: boolean) => {
         setSoundEnabled(val);
         saveSetting('soundEnabled', val);
+    };
+
+    const toggleNotificationsEnabled = (val: boolean) => {
+        setNotificationsEnabled(val);
+        saveSetting('notificationsEnabled', val);
+    };
+
+    const toggleVibrationEnabled = (val: boolean) => {
+        setVibrationEnabled(val);
+        saveSetting('vibrationEnabled', val);
     };
 
     const handleContactSupport = () => {
@@ -191,7 +205,7 @@ export default function SettingsScreen() {
                     onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) 
                 });
             }
-        } catch (err: any) {
+        } catch {
             setAlertConfig({ 
                 visible: true, 
                 type: 'error', 
@@ -302,10 +316,29 @@ export default function SettingsScreen() {
                     <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>APP SETTINGS</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
                         <ModernSettingsItem icon={Notification01Icon} label="Notifications" onPress={() => router.push('/settings/notifications')} theme={theme} />
+                        <ModernSettingsItem
+                            icon={Notification01Icon}
+                            label="Enable Notifications"
+                            subLabel="Master toggle for all notification surfaces"
+                            theme={theme}
+                            onPress={() => toggleNotificationsEnabled(!notificationsEnabled)}
+                            rightElement={<Switch value={notificationsEnabled} onValueChange={toggleNotificationsEnabled} trackColor={{ false: '#767577', true: theme.colors.primary }} thumbColor={'#fff'} style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }} />}
+                        />
                         <ModernSettingsItem icon={PaintBoardIcon} label="Appearance" subLabel={themePreference === 'system' ? 'System Default' : (themePreference === 'dark' ? 'Dark Mode' : 'Light Mode')} onPress={() => router.push('/settings/appearance')} theme={theme} />
-                        <ModernSettingsItem 
-                            icon={VolumeHighIcon} label="Sound Effects" isLast theme={theme} onPress={() => toggleSound(!soundEnabled)}
-                            rightElement={<Switch value={soundEnabled} onValueChange={toggleSound} trackColor={{ false: '#767577', true: theme.colors.primary }} thumbColor={'#fff'} style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }} />} 
+                        <ModernSettingsItem
+                            icon={VolumeHighIcon}
+                            label="Sound Effects"
+                            theme={theme}
+                            onPress={() => toggleSound(!soundEnabled)}
+                            rightElement={<Switch value={soundEnabled} onValueChange={toggleSound} trackColor={{ false: '#767577', true: theme.colors.primary }} thumbColor={'#fff'} style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }} />}
+                        />
+                        <ModernSettingsItem
+                            icon={SparklesIcon}
+                            label="Haptic Feedback"
+                            isLast
+                            theme={theme}
+                            onPress={() => toggleVibrationEnabled(!vibrationEnabled)}
+                            rightElement={<Switch value={vibrationEnabled} onValueChange={toggleVibrationEnabled} trackColor={{ false: '#767577', true: theme.colors.primary }} thumbColor={'#fff'} style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }} />}
                         />
                     </View>
                 </View>
@@ -319,9 +352,9 @@ export default function SettingsScreen() {
 
                 {/* AI INTEGRATION */}
                 <View style={{ marginBottom: 24 }}>
-                    <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>AI INTEGRATION (BETA)</Text>
+                    <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>AI INTEGRATION</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
-                        <ModernSettingsItem icon={SparklesIcon} label="Gemini API Key" subLabel="For AI-powered feature" onPress={() => router.push('/settings/gemini')} isLast theme={theme} />
+                        <ModernSettingsItem icon={SparklesIcon} label="API Keys & AI Provider" subLabel="Manage OpenAI and Gemini integration" onPress={() => router.push('/settings/apikey')} isLast theme={theme} />
                     </View>
                 </View>
 

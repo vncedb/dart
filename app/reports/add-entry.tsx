@@ -12,7 +12,7 @@ import { format } from 'date-fns';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Image,
@@ -99,25 +99,20 @@ export default function AddEntryScreen() {
         return unsubscribe;
     }, [navigation, loading, isDirty]);
 
-    useEffect(() => {
-        const init = async () => {
-            if (entryId) await fetchEntryDetails(entryId);
-            else if (passedJobId) { setActiveJobId(passedJobId); setInitialLoading(false); }
-            else await fetchActiveJob();
-        };
-        init();
-    }, [entryId, passedJobId, user]);
-
-    const fetchActiveJob = async () => {
+    const fetchActiveJob = useCallback(async () => {
         if (!user) return;
         try {
             const db = await getDB();
             const profile: any = await db.getFirstAsync('SELECT current_job_id FROM profiles WHERE id = ?', [user.id]);
             if (profile?.current_job_id) setActiveJobId(profile.current_job_id);
-        } catch (e) { console.log(e); } finally { setInitialLoading(false); }
-    };
+        } catch (e) {
+            console.log(e);
+        } finally {
+            setInitialLoading(false);
+        }
+    }, [user]);
 
-    const fetchEntryDetails = async (id: string) => {
+    const fetchEntryDetails = useCallback(async (id: string) => {
         try {
             const db = await getDB();
             const entry: any = await db.getFirstAsync('SELECT * FROM accomplishments WHERE id = ?', [id]);
@@ -130,12 +125,27 @@ export default function AddEntryScreen() {
                     try {
                         const parsed = JSON.parse(entry.image_url);
                         setImages(Array.isArray(parsed) ? parsed : [entry.image_url]);
-                    } catch { setImages([entry.image_url]); }
+                    } catch {
+                        setImages([entry.image_url]);
+                    }
                 }
                 setIsDirty(false);
             }
-        } catch (e) { console.error(e); } finally { setInitialLoading(false); }
-    };
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setInitialLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        const init = async () => {
+            if (entryId) await fetchEntryDetails(entryId);
+            else if (passedJobId) { setActiveJobId(passedJobId); setInitialLoading(false); }
+            else await fetchActiveJob();
+        };
+        init();
+    }, [entryId, passedJobId, fetchEntryDetails, fetchActiveJob]);
 
     // --- Time Handlers ---
     const handleTimeConfirm = (setter: React.Dispatch<React.SetStateAction<Date | undefined>>) => 
@@ -189,7 +199,7 @@ export default function AddEntryScreen() {
                 setImages(prev => [...prev, result.assets[0].uri]);
                 setIsDirty(true);
             }
-        } catch (e) { 
+        } catch { 
             setAlertConfig({ visible: true, type: 'error', title: 'Error', message: 'Could not capture image.', confirmText: 'Okay', onConfirm: () => setAlertConfig({ visible: false }) });
         }
     };

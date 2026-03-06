@@ -159,7 +159,7 @@ function RootLayoutNav() {
           <Stack.Screen name="settings/appearance" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/privacy-policy" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/about" options={{ animation: "slide_from_right" }} />
-          <Stack.Screen name="settings/gemini" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="settings/apikey" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/feedback" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/docs/privacy-details" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/docs/terms-of-service" options={{ animation: "slide_from_right" }} />

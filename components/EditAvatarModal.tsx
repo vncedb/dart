@@ -57,7 +57,7 @@ export default function EditAvatarModal({
                 easing: Easing.out(Easing.quad) 
             });
         }
-    }, [visible]);
+    }, [visible, translateY]);
 
     const close = () => {
         translateY.value = withTiming(SNAP_CLOSE, { duration: 250 }, () => {

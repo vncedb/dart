@@ -53,7 +53,7 @@ export default function OvertimeModal({
       opacity.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.ease) });
       translateY.value = withTiming(0, { duration: 250, easing: Easing.out(Easing.cubic) });
     }
-  }, [visible]);
+  }, [visible, opacity, translateY]);
 
   const handleClose = () => {
     opacity.value = withTiming(0, { duration: 200 });

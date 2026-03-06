@@ -14,7 +14,7 @@ import {
     TouchableWithoutFeedback,
     View
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import Button from '../../components/Button';
 import Footer from '../../components/Footer';
@@ -31,7 +31,6 @@ const MAX_WORDS = 1000;
 export default function FeedbackScreen() {
     const theme = useAppTheme();
     const router = useRouter();
-    const insets = useSafeAreaInsets();
     const { user } = useAuth(); 
 
     const scrollViewRef = useRef<ScrollView>(null);
@@ -94,7 +93,7 @@ export default function FeedbackScreen() {
                 message: 'Your feedback was sent directly to our team. Thank you for helping improve DART.', 
                 onConfirm: () => { setAlertConfig({ visible: false }); router.back(); } 
             });
-        } catch (error) {
+        } catch {
             try {
                 await supabase.from('app_feedback').insert({ user_id: user?.id, email: user?.email, message: `[${category}] ${feedback}` });
                 setFeedback('');

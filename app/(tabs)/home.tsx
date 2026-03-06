@@ -17,6 +17,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
     ActivityIndicator,
     AppState,
+    InteractionManager,
     RefreshControl,
     StatusBar,
     StyleSheet,
@@ -27,10 +28,7 @@ import {
 import Animated, {
     useAnimatedScrollHandler,
     useAnimatedStyle,
-    useSharedValue,
-    withRepeat,
-    withSequence,
-    withTiming
+    useSharedValue
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
@@ -46,6 +44,7 @@ import DynamicHeader from '../../components/DynamicHeader';
 import ModernAlert from '../../components/ModernAlert';
 import NoActiveJobCard from '../../components/NoActiveJobCard';
 import OvertimeModal from '../../components/OvertimeModal';
+import { SkeletonBlock, SkeletonCircle } from '../../components/Skeleton';
 
 import { useAppTheme } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
@@ -112,24 +111,6 @@ const getPeriodStartDate = (payoutType: string) => {
     }
 };
 
-const SkeletonItem = ({ style, borderRadius = 4, color }: { style?: any, borderRadius?: number, color?: string }) => {
-    const theme = useAppTheme();
-    const opacity = useSharedValue(0.5);
-
-    useEffect(() => {
-        opacity.value = withRepeat(
-            withSequence(withTiming(1, { duration: 1000 }), withTiming(0.5, { duration: 1000 })), 
-            -1, 
-            true
-        );
-    }, [opacity]);
-
-    const animatedStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
-    const bgColor = color || (theme.dark ? 'rgba(255,255,255,0.1)' : '#E5E7EB');
-
-    return <Animated.View style={[{ backgroundColor: bgColor, borderRadius }, style, animatedStyle]} />;
-};
-
 const HomeContentSkeleton = () => {
     const theme = useAppTheme();
     const borderColor = theme.colors.border;
@@ -138,40 +119,40 @@ const HomeContentSkeleton = () => {
     return (
         <View style={styles.skeletonContainer}>
             <View style={{ alignItems: 'center', marginBottom: 40 }}>
-                <View style={[styles.skeletonDynamicBar, { borderColor, backgroundColor: cardBg }]}>
-                     <SkeletonItem style={{ width: 48, height: 48, borderRadius: 24, marginRight: 14 }} />
-                     <View style={{ gap: 6 }}>
-                         <SkeletonItem style={{ width: 80, height: 10, borderRadius: 4 }} />
-                         <SkeletonItem style={{ width: 120, height: 14, borderRadius: 4 }} />
-                     </View>
+                <View style={[styles.skeletonDynamicBar, { borderColor, backgroundColor: cardBg }]}> 
+                    <SkeletonCircle size={48} style={{ marginRight: 14 }} />
+                    <View style={{ gap: 6 }}>
+                        <SkeletonBlock style={{ width: 80, height: 10, borderRadius: 4 }} />
+                        <SkeletonBlock style={{ width: 120, height: 14, borderRadius: 4 }} />
+                    </View>
                 </View>
 
                 <View style={{ alignItems: 'center', marginTop: 32 }}>
-                     <View style={{ width: 120, height: 120, borderRadius: 60, borderWidth: 6, borderColor: borderColor + '40', alignItems: 'center', justifyContent: 'center', backgroundColor: cardBg }}>
-                         <SkeletonItem style={{ width: 52, height: 52, borderRadius: 26 }} color={theme.dark ? undefined : '#F3F4F6'} />
-                     </View>
-                     <SkeletonItem style={{ width: 140, height: 12, marginTop: 24, borderRadius: 6 }} />
+                    <View style={{ width: 120, height: 120, borderRadius: 60, borderWidth: 6, borderColor: borderColor + '40', alignItems: 'center', justifyContent: 'center', backgroundColor: cardBg }}>
+                        <SkeletonCircle size={52} />
+                    </View>
+                    <SkeletonBlock style={{ width: 140, height: 12, marginTop: 24, borderRadius: 6 }} />
                 </View>
             </View>
 
             <View style={[styles.skeletonCard, { backgroundColor: cardBg, borderColor, marginBottom: 24 }]}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 20, paddingBottom: 16 }}>
                     <View>
-                        <SkeletonItem style={{ width: 80, height: 20, marginBottom: 12, borderRadius: 6 }} />
-                        <SkeletonItem style={{ width: 150, height: 38, marginBottom: 4, borderRadius: 6 }} />
+                        <SkeletonBlock style={{ width: 80, height: 20, marginBottom: 12, borderRadius: 6 }} />
+                        <SkeletonBlock style={{ width: 150, height: 38, marginBottom: 4, borderRadius: 6 }} />
                     </View>
                     <View style={{ width: 100, height: 100, borderRadius: 50, borderWidth: 8, borderColor: borderColor + '30', alignItems: 'center', justifyContent: 'center' }}>
-                         <SkeletonItem style={{ width: 40, height: 14 }} />
+                        <SkeletonBlock style={{ width: 40, height: 14, borderRadius: 7 }} />
                     </View>
                 </View>
-                
+
                 <View style={{ height: 1, backgroundColor: borderColor, opacity: 0.5 }} />
-                
+
                 <View style={{ flexDirection: 'row', paddingVertical: 14, paddingHorizontal: 8 }}>
                     {[1, 2, 3].map((i) => (
                         <View key={i} style={{ flex: 1, alignItems: 'center', gap: 6, borderRightWidth: i < 3 ? 1 : 0, borderColor: borderColor + '40' }}>
-                            <SkeletonItem style={{ width: 30, height: 8 }} />
-                            <SkeletonItem style={{ width: 50, height: 12 }} />
+                            <SkeletonBlock style={{ width: 30, height: 8, borderRadius: 4 }} />
+                            <SkeletonBlock style={{ width: 50, height: 12, borderRadius: 6 }} />
                         </View>
                     ))}
                 </View>
@@ -274,7 +255,7 @@ export default function Home() {
         return 'User';
     })() : 'User';
 
-    const activityTitle = isToday(selectedDate) ? "Today's Activity" : `Activity • ${format(selectedDate, 'MMM d')}`;
+    const activityTitle = isToday(selectedDate) ? "Today's Activity" : `Activity \u2022 ${format(selectedDate, 'MMM d')}`;
 
     useEffect(() => {
         initNotificationSystem();
@@ -494,7 +475,7 @@ export default function Home() {
             }
             
             if (appSettings?.soundEnabled && successPlayer) {
-                try { successPlayer.seekTo(0); successPlayer.play(); } catch (e) {}
+                try { successPlayer.seekTo(0); successPlayer.play(); } catch {}
             }
             if (appSettings?.vibrationEnabled !== false) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
             
@@ -625,7 +606,7 @@ export default function Home() {
             }
         };
         updateBreakState();
-    }, [isBreakMode]);
+    }, [isBreakMode, latestRecord, breakStartTimestamp, accumulatedBreakMs]);
 
     useEffect(() => {
         const timer = setInterval(async () => {
@@ -711,7 +692,13 @@ export default function Home() {
         }); 
     };
 
-    const handleTitlePress = () => { setCalendarLoading(true); setTimeout(() => { setTimelinePickerVisible(true); setCalendarLoading(false); }, 50); };
+    const handleTitlePress = () => {
+        setCalendarLoading(true);
+        InteractionManager.runAfterInteractions(() => {
+            setTimelinePickerVisible(true);
+            setCalendarLoading(false);
+        });
+    };
 
     const shiftEndTarget = useMemo(() => {
         if (!latestRecord?.clock_in || !jobSettings?.work_schedule?.end) return undefined;

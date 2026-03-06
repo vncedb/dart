@@ -2,7 +2,6 @@ import { createMaterialTopTabNavigator, MaterialTopTabNavigationEventMap, Materi
 import { ParamListBase, TabNavigationState } from '@react-navigation/native';
 import { withLayoutContext } from 'expo-router';
 import React from 'react';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CustomTabBar from '../../components/CustomTabBar';
 
 const { Navigator } = createMaterialTopTabNavigator();
@@ -15,12 +14,11 @@ export const MaterialTopTabs = withLayoutContext<
 >(Navigator);
 
 export default function TabsLayout() {
-  const insets = useSafeAreaInsets(); // Get the safe area insets
 
   return (
     <MaterialTopTabs
       tabBarPosition="bottom"
-      tabBar={(props) => <CustomTabBar {...props} insets={insets} />} // Pass down the insets
+      tabBar={(props) => <CustomTabBar {...props} />}
       screenOptions={{
         swipeEnabled: false,
         animationEnabled: true,

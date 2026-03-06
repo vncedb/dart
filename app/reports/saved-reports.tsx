@@ -41,7 +41,7 @@ const getSafeFileInfo = async (uri: string | null) => {
     try {
         const info = await FileSystem.getInfoAsync(uri);
         return { exists: info.exists, size: info.exists ? info.size : 0 };
-    } catch (e) {
+    } catch {
         return { exists: false, size: 0 };
     }
 };
@@ -168,7 +168,15 @@ export default function SavedReportsScreen() {
                         const { data } = supabase.storage.from('generated_reports').getPublicUrl(fileName);
                         const newUrl = data.publicUrl;
                         
-                        await db.runAsync('UPDATE saved_reports SET file_url = ?, remote_url = ?, is_synced = 1 WHERE id = ?', [newUrl, newUrl, report.id]);
+                        try {
+                            await db.runAsync('UPDATE saved_reports SET file_url = ?, remote_url = ?, is_synced = 1 WHERE id = ?', [newUrl, newUrl, report.id]);
+                        } catch (dbError: any) {
+                            if (dbError?.message?.includes('no such column: file_url')) {
+                                await db.runAsync('UPDATE saved_reports SET remote_url = ?, is_synced = 1 WHERE id = ?', [newUrl, report.id]);
+                            } else {
+                                throw dbError;
+                            }
+                        }
                         await queueSyncItem('saved_reports', report.id, 'UPDATE', { file_url: newUrl, remote_url: newUrl, is_synced: 1 });
                         
                         setReports(prev => prev.map(r => r.id === report.id ? { ...r, file_url: newUrl, remote_url: newUrl, is_synced: 1 } : r));

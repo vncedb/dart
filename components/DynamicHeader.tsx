@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useAppTheme } from '../constants/theme';
 import { FontFamily, Typography } from '../constants/typography';
+import { SkeletonBlock } from './Skeleton';
 
 interface DynamicHeaderProps {
     selectedDate: Date;
@@ -29,24 +30,6 @@ const shadowStyle = Platform.select({
     ios: { shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 12 },
     android: { elevation: 3 }
 });
-
-const SkeletonBox = ({ width, height, borderRadius = 4, style }: any) => {
-    const theme = useAppTheme();
-    return (
-        <View 
-            style={[
-                { 
-                    width, 
-                    height, 
-                    borderRadius, 
-                    backgroundColor: theme.colors.border, 
-                    opacity: 0.3 
-                }, 
-                style
-            ]} 
-        />
-    );
-};
 
 export default function DynamicHeader({ 
     selectedDate, 
@@ -132,7 +115,7 @@ export default function DynamicHeader({
                         {/* Left Side: Date and Time */}
                         <View style={{ justifyContent: 'center', flex: 1, paddingRight: 8 }}>
                             {isLoading ? (
-                                <SkeletonBox width={90} height={12} borderRadius={4} style={{marginBottom: 4}} />
+                                <SkeletonBlock style={{ width: 90, height: 12, borderRadius: 4, marginBottom: 4 }} />
                             ) : (
                                 <Text style={[styles.dateText, { color: theme.colors.text }]}>
                                     {format(selectedDate, 'EEEE, MMM d')}
@@ -140,7 +123,7 @@ export default function DynamicHeader({
                             )}
                             
                             {isLoading ? (
-                                <SkeletonBox width={50} height={20} borderRadius={6} />
+                                <SkeletonBlock style={{ width: 50, height: 20, borderRadius: 6 }} />
                             ) : (
                                 <View style={{ flexDirection: 'row', alignItems: 'baseline' }}>
                                     <Text style={[styles.timeText, { color: theme.colors.text }]}>
@@ -156,7 +139,7 @@ export default function DynamicHeader({
                         {/* Right Side: Status Badge */}
                         <View style={{ alignItems: 'flex-end', justifyContent: 'center', maxWidth: '45%', height: '100%' }}>
                             {isLoading ? (
-                                <SkeletonBox width={60} height={26} borderRadius={13} />
+                                <SkeletonBlock style={{ width: 60, height: 26, borderRadius: 13 }} />
                             ) : (
                                 <Animated.View layout={LinearTransition.duration(300)} style={[styles.badge, { backgroundColor: theme.dark ? theme.colors.background : status.bg, borderColor: theme.colors.border }]}>
                                     <View style={[styles.dot, { backgroundColor: status.color }]} />

@@ -17,6 +17,7 @@ import {
   SectionList,
   StatusBar,
   StyleSheet,
+  InteractionManager,
   Text,
   TouchableOpacity,
   View,
@@ -87,10 +88,10 @@ export default function ReportsScreen() {
 
   const handleCalendarPress = () => {
     setCalendarLoading(true);
-    setTimeout(() => {
-        setShowDatePicker(true);
-        setCalendarLoading(false);
-    }, 100);
+    InteractionManager.runAfterInteractions(() => {
+      setShowDatePicker(true);
+      setCalendarLoading(false);
+    });
   };
 
   const applyFilter = useCallback((range: DateRange, data: any[]) => {
@@ -346,7 +347,7 @@ export default function ReportsScreen() {
       <OfflineIndicator isOffline={isOffline} theme={theme} />
 
       {isLoading ? (
-        <LoadingScreen message="Loading Reports..." />
+        <LoadingScreen variant="reports" message="Loading Reports..." />
       ) : (
         <View style={{ flex: 1 }}>
           <View ref={filterBarRef} collapsable={false} style={{ zIndex: 10 }}>

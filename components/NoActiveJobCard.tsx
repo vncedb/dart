@@ -35,7 +35,7 @@ export default function NoActiveJobCard({ theme, isOffline, highlightTrigger = 0
                 withTiming(1, { duration: 150 })
             );
         }
-    }, [highlightTrigger]);
+    }, [highlightTrigger, buttonScale]);
 
     const animatedButtonStyle = useAnimatedStyle(() => ({
         transform: [{ scale: buttonScale.value }]

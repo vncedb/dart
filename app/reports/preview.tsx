@@ -293,7 +293,7 @@ export default function PreviewReportScreen() {
               await FileSystem.makeDirectoryAsync(reportsDir, { intermediates: true });
           }
           destPath = `${reportsDir}${finalReportName}.${ext}`;
-          if (overwriteId) { try { await FileSystem.deleteAsync(destPath, { idempotent: true }); } catch(_ignore) {} }
+          if (overwriteId) { try { await FileSystem.deleteAsync(destPath, { idempotent: true }); } catch {} }
           await FileSystem.copyAsync({ from: fileUri!, to: destPath });
       }
 
@@ -402,7 +402,7 @@ export default function PreviewReportScreen() {
                   </View>
                   <View style={styles.detailRow}>
                       <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Generated On</Text>
-                      <Text style={[styles.detailValue, { color: theme.colors.text }]}>{format(new Date(), "MMM d, yyyy • h:mm a")}</Text>
+                      <Text style={[styles.detailValue, { color: theme.colors.text }]}>{format(new Date(), "MMM d, yyyy \u2022 h:mm a")}</Text>
                   </View>
                   <View style={[styles.detailRow, { marginBottom: 0 }]}>
                       <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>File Size</Text>

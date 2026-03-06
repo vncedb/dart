@@ -108,7 +108,7 @@ export default function AboutScreen() {
             if (apkUrl) {
                 try {
                     await downloadAndInstallApk(apkUrl);
-                } catch (e) {
+                } catch {
                     setAlertConfig({
                         visible: true,
                         type: 'error',
@@ -209,7 +209,7 @@ export default function AboutScreen() {
                             {loading ? 'Checking...' : 'Tap to check'}
                         </Text>
                         <Text style={[styles.metaValue, { color: theme.colors.text }]}>
-                            {updateResult?.latestVersion || '—'}
+                            {updateResult?.latestVersion || 'â€”'}
                         </Text>
                     </View>
                 </TouchableOpacity>
@@ -234,7 +234,7 @@ export default function AboutScreen() {
                         Developed by Project Vdb
                     </Text>
                     <Text style={[styles.footerCopy, { color: theme.colors.textSecondary }]}>
-                        © {new Date().getFullYear()} DART.
+                        Â© {new Date().getFullYear()} DART.
                     </Text>
                 </View>
 

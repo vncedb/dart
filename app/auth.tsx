@@ -64,7 +64,6 @@ export default function AuthScreen() {
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("");
-  const [successMode, setSuccessMode] = useState(false);
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -185,9 +184,7 @@ export default function AuthScreen() {
       } catch (e) {
           console.error("Failed to fetch initial sync data", e);
       }
-      
-      setSuccessMode(true); 
-      setLoadingMessage("Success!");
+setLoadingMessage("Success!");
       
       setTimeout(() => {
           setLoading(false);

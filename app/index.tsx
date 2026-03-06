@@ -46,7 +46,7 @@ export default function Index() {
     if (user) {
         router.replace(isOnboarded ? '/(tabs)/home' : '/onboarding');
     }
-  }, [user, isLoading, isOnboarded, rootNavigationState?.key]);
+  }, [user, isLoading, isOnboarded, rootNavigationState?.key, router]);
 
   useEffect(() => {
     const backAction = () => { BackHandler.exitApp(); return true; };
@@ -128,7 +128,7 @@ export default function Index() {
                 setLoadingMessage("Getting your data...");
                 try {
                     await syncPull(data.user.id);
-                } catch(e) {}
+                } catch {}
                 setLoadingMessage("Success!");
 
                 setTimeout(() => {

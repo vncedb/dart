@@ -3,9 +3,7 @@ import { SecurityCheckIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
-import {
-    Dimensions,
-    Modal,
+import {    Modal,
     Pressable,
     StyleSheet,
     Text,
@@ -27,7 +25,6 @@ import { useAppTheme } from '../constants/theme';
 import Button from './Button';
 import ModalHeader from './ModalHeader';
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const SHEET_HEIGHT = 440; 
 const SNAP_OPEN = 0;
@@ -58,7 +55,7 @@ export default function PrivacyModal({ visible, onClose, onAgree, isLoading = fa
                 mass: 0.8 
             });
         }
-    }, [visible]);
+    }, [visible, translateY]);
 
     const close = () => {
         // Smooth timing for close to avoid bottom bouncing

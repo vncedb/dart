@@ -29,6 +29,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActionMenu from '../../components/ActionMenu';
 import BannerAdComponent from '../../components/BannerAdComponent'; // <-- ADDED AD COMPONENT
+import Button from '../../components/Button';
+import Footer from '../../components/Footer';
 import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
 import LoadingScreen from '../../components/LoadingScreen';
@@ -169,7 +171,7 @@ const InactiveJobItem = ({ item, onActivate, onEdit, onDelete, isEditMode, theme
                 <View style={styles.listTextContainer}>
                     <Text style={[styles.listTitle, { color: theme.colors.text }]} numberOfLines={1}>{item.title}</Text>
                     <Text style={[styles.listSubtitle, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-                        {item.company} {item.department ? ` • ${item.department}` : ''}
+                        {item.company} {item.department ? ` \u2022 ${item.department}` : ''}
                     </Text>
                     <View style={{ alignSelf: 'flex-start', marginTop: 8 }}>
                         <StatusPill status={item.employment_status || 'Status N/A'} theme={theme} />
@@ -219,19 +221,29 @@ export default function MyJobsScreen() {
     const [menuAnchor, setMenuAnchor] = useState({ x: 0, y: 0 });
     const [isEditMode, setIsEditMode] = useState(false);
 
+    const handleScreenBack = useCallback(() => {
+        if (isEditMode) {
+            void Haptics.selectionAsync();
+            setIsEditMode(false);
+            return;
+        }
+
+        if (router.canGoBack()) {
+            router.back();
+        } else {
+            router.replace('/(tabs)/profile');
+        }
+    }, [isEditMode, router]);
+
     useFocusEffect(
         useCallback(() => {
             const onBackPress = () => {
-                if (router.canGoBack()) {
-                    router.back();
-                } else {
-                    router.replace('/(tabs)/profile');
-                }
-                return true; 
+                handleScreenBack();
+                return true;
             };
             const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
             return () => subscription.remove();
-        }, [router])
+        }, [handleScreenBack])
     );
 
     const fetchJobs = useCallback(async () => {
@@ -342,7 +354,7 @@ export default function MyJobsScreen() {
                         setActiveJobId(null);
                     }
                     fetchJobs();
-                } catch(e) { /* handle error */ } finally { setProcessing(false); }
+                } catch { /* handle error */ } finally { setProcessing(false); }
             },
             onCancel: () => setAlertConfig((p:any)=>({...p, visible: false}))
         });
@@ -354,15 +366,16 @@ export default function MyJobsScreen() {
             <LoadingOverlay visible={processing} message={loadingMessage} />
             
             <Header 
-                title="My Jobs" 
+                title="My Jobs"
+                onBack={handleScreenBack}
                 rightElement={
-                    jobs.length > 0 ? (
+                    jobs.length > 0 && !isEditMode ? (
                         <TouchableOpacity 
-                            onPress={isEditMode ? handleToggleEditMode : handleMoreOptions} 
+                            onPress={handleMoreOptions} 
                             style={[styles.headerAddBtn, { backgroundColor: 'transparent' }]}
                         >
                             <HugeiconsIcon 
-                                icon={isEditMode ? Tick01Icon : MoreVerticalIcon} 
+                                icon={MoreVerticalIcon} 
                                 size={24} 
                                 color={theme.colors.primary} 
                             />
@@ -374,10 +387,10 @@ export default function MyJobsScreen() {
             <OfflineIndicator isOffline={isOffline} theme={theme} />
             
             {loading ? (
-                <View style={{ flex: 1 }}><LoadingScreen message="" /></View>
+                <View style={{ flex: 1 }}><LoadingScreen variant="jobs" message="Loading jobs..." /></View>
             ) : (
                 <ScrollView 
-                    contentContainerStyle={styles.scrollContent} 
+                    contentContainerStyle={[styles.scrollContent, { paddingBottom: isEditMode ? 120 : 24 }]} 
                     showsVerticalScrollIndicator={false}
                     refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={theme.colors.primary} />}
                 >
@@ -445,6 +458,16 @@ export default function MyJobsScreen() {
                     }
                 ]} 
             />
+
+            {isEditMode && jobs.length > 0 && (
+                <Footer style={{ backgroundColor: theme.colors.background, borderTopColor: theme.colors.border }}>
+                    <Button
+                        title="Done"
+                        onPress={handleToggleEditMode}
+                        style={{ width: '100%', height: 56, borderRadius: 16 }}
+                    />
+                </Footer>
+            )}
 
             {/* ADDED AD COMPONENT AT THE BOTTOM */}
             <BannerAdComponent />

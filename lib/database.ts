@@ -45,7 +45,10 @@ export const initDatabase = async () => {
       file_path TEXT NOT NULL,
       file_type TEXT NOT NULL,
       file_size INTEGER DEFAULT 0,
+      file_url TEXT,
+      public_url TEXT,
       remote_url TEXT,
+      metadata TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
       is_synced INTEGER DEFAULT 0,
@@ -180,6 +183,9 @@ export const initDatabase = async () => {
   await addColumn("accomplishments", "is_synced", "INTEGER DEFAULT 0");
   await addColumn("saved_reports", "is_read", "INTEGER DEFAULT 0");
   await addColumn("saved_reports", "period_key", "TEXT");
+  await addColumn("saved_reports", "file_url", "TEXT");
+  await addColumn("saved_reports", "public_url", "TEXT");
+  await addColumn("saved_reports", "metadata", "TEXT");
   await addColumn("notifications", "created_at", "TEXT"); 
   await addColumn("notifications", "updated_at", "TEXT");
   await addColumn("notifications", "type", "TEXT");
@@ -331,10 +337,53 @@ export const saveAccomplishmentLocal = async (acc: any) => {
 export const saveReportLocal = async (report: any) => {
   const db = await getDB();
   const now = new Date().toISOString();
-  await db.runAsync(
-    `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, remote_url, created_at, updated_at, is_synced, is_read, period_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-    [report.id, report.user_id, report.title, report.file_path, report.file_type, report.file_size, report.remote_url, report.created_at || now, now, report.is_read ? 1 : 0, report.period_key || null],
-  );
+
+  try {
+    await db.runAsync(
+      `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, file_url, public_url, remote_url, metadata, created_at, updated_at, is_synced, is_read, period_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      [
+        report.id,
+        report.user_id,
+        report.title,
+        report.file_path,
+        report.file_type,
+        report.file_size,
+        report.file_url || report.remote_url || null,
+        report.public_url || null,
+        report.remote_url || null,
+        report.metadata || null,
+        report.created_at || now,
+        now,
+        report.is_read ? 1 : 0,
+        report.period_key || null,
+      ],
+    );
+  } catch (error: any) {
+    if (!error?.message?.includes('no such column: file_url')) {
+      throw error;
+    }
+
+    // Backward compatibility for pre-migration local databases.
+    await db.runAsync(
+      `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, public_url, remote_url, metadata, created_at, updated_at, is_synced, is_read, period_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      [
+        report.id,
+        report.user_id,
+        report.title,
+        report.file_path,
+        report.file_type,
+        report.file_size,
+        report.public_url || null,
+        report.remote_url || report.file_url || null,
+        report.metadata || null,
+        report.created_at || now,
+        now,
+        report.is_read ? 1 : 0,
+        report.period_key || null,
+      ],
+    );
+  }
+
   await queueSyncItem("saved_reports", report.id, "UPSERT", report);
 };
 

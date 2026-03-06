@@ -13,11 +13,10 @@ import {
     UserIcon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import NetInfo from '@react-native-community/netinfo'; // <-- ADDED: To check connection before fallback
+import NetInfo from '@react-native-community/netinfo';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
     KeyboardAvoidingView,
     Modal,
     Platform,
@@ -31,10 +30,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AddBreakModal from '../../components/AddBreakModal';
+import Button from '../../components/Button';
 import DatePicker from '../../components/DatePicker';
 import DurationPicker from '../../components/DurationPicker';
+import Footer from '../../components/Footer';
 import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import LoadingScreen from '../../components/LoadingScreen';
 import ModernAlert from '../../components/ModernAlert';
 import SearchableSelectionModal from '../../components/SearchableSelectionModal';
 import TimePickerModal from '../../components/TimePicker';
@@ -107,7 +109,7 @@ const Tooltip = ({ message, theme }: { message: string, theme: any }) => (
     </View>
 );
 
-const StyledInput = ({ label, value, onChange, placeholder, icon, prefix, required, errorKey, readonly, onPress, theme, errors, setErrors, visibleTooltip, setVisibleTooltip }: any) => {
+const StyledInput = ({ label, value, onChange, placeholder, icon, prefix, keyboardType = 'default', required, errorKey, readonly, onPress, theme, errors, setErrors, visibleTooltip, setVisibleTooltip }: any) => {
     const isError = errorKey && errors[errorKey];
     const showTooltip = errorKey && visibleTooltip === errorKey;
     const hasValue = value && value.length > 0;
@@ -126,12 +128,14 @@ const StyledInput = ({ label, value, onChange, placeholder, icon, prefix, requir
                         borderColor: isError ? '#ef4444' : theme.colors.border,
                         height: 56, paddingHorizontal: 16 
                     }}>
+                        {icon ? (
+                            <HugeiconsIcon icon={icon} size={22} color={isError ? "#ef4444" : (readonly && hasValue ? theme.colors.primary : theme.colors.textSecondary)} />
+                        ) : null}
+
                         {prefix ? (
-                            <Text style={{ fontSize: 20, fontFamily: 'Nunito_500Medium', color: isError ? "#ef4444" : (readonly && hasValue ? theme.colors.primary : theme.colors.textSecondary) }}>
+                            <Text style={{ marginLeft: icon ? 10 : 0, fontSize: 20, fontFamily: 'Nunito_500Medium', color: isError ? "#ef4444" : (readonly && hasValue ? theme.colors.primary : theme.colors.textSecondary) }}>
                                 {prefix}
                             </Text>
-                        ) : icon ? (
-                            <HugeiconsIcon icon={icon} size={22} color={isError ? "#ef4444" : (readonly && hasValue ? theme.colors.primary : theme.colors.textSecondary)} />
                         ) : null}
 
                         {readonly ? (
@@ -145,7 +149,7 @@ const StyledInput = ({ label, value, onChange, placeholder, icon, prefix, requir
                                 style={{ flex: 1, marginLeft: 12, padding: 0, fontSize: 15, fontFamily: 'Nunito_500Medium', color: theme.colors.text }} 
                                 placeholder={placeholder} 
                                 placeholderTextColor={theme.colors.textSecondary}
-                                keyboardType={prefix ? 'numeric' : 'default'}
+                                keyboardType={keyboardType}
                                 onFocus={() => setVisibleTooltip(null)}
                             />
                         )}
@@ -219,6 +223,36 @@ export default function JobForm() {
         setIsDirty(true); 
     };
 
+    const targetTotalHours = useMemo(() => {
+        const h = parseInt(targetHours || '0', 10);
+        const m = parseInt(targetMinutes || '0', 10);
+        if (isNaN(h) && isNaN(m)) return 0;
+        return Math.max(0, (isNaN(h) ? 0 : h) + (isNaN(m) ? 0 : m) / 60);
+    }, [targetHours, targetMinutes]);
+
+    const estimatedPeriodPay = useMemo(() => {
+        const salary = parseCurrency(salaryDisplay);
+        if (!salary || salary <= 0) return null;
+
+        if (rateType === 'monthly') {
+            return salary;
+        }
+
+        if (targetTotalHours <= 0) {
+            return null;
+        }
+
+        if (rateType === 'daily') {
+            return salary * (targetTotalHours / 8);
+        }
+
+        return salary * targetTotalHours;
+    }, [rateType, salaryDisplay, targetTotalHours]);
+
+    const formatPeso = useCallback((value: number) => {
+        return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(value);
+    }, []);
+
     const isOvernightShift = () => {
         const startMins = workStart.getHours() * 60 + workStart.getMinutes();
         const endMins = workEnd.getHours() * 60 + workEnd.getMinutes();
@@ -234,7 +268,7 @@ export default function JobForm() {
 
     useEffect(() => {
         const unsubscribe = navigation.addListener('beforeRemove', (e) => {
-            if (!isDirty) return;
+            if (saving || !isDirty) return;
             e.preventDefault();
             setAlertConfig({
                 visible: true, type: 'confirmation', title: 'Discard Changes?', message: 'Unsaved changes will be lost.', confirmText: 'Discard', cancelText: "Keep Editing",
@@ -243,11 +277,9 @@ export default function JobForm() {
             });
         });
         return unsubscribe;
-    }, [navigation, isDirty]);
+    }, [navigation, isDirty, saving]);
 
-    useEffect(() => { fetchJobData(); }, []);
-
-    const fetchJobData = async () => {
+    const fetchJobData = useCallback(async () => {
         if (!jobId) { setInitialLoading(false); return; }
         try {
             const db = await getDB();
@@ -268,7 +300,7 @@ export default function JobForm() {
                 const breakSched = typeof data.break_schedule === 'string' ? JSON.parse(data.break_schedule) : data.break_schedule;
 
                 setPosition(data.title);
-                if (!jobOptions.some(o => o.value === data.title)) { setJobOptions(prev => [{ label: data.title, value: data.title }, ...prev]); }
+                setJobOptions(prev => prev.some(o => o.value === data.title) ? prev : [{ label: data.title, value: data.title }, ...prev]);
 
                 setCompany(data.company || '');
                 setDepartment(data.department || '');
@@ -299,7 +331,9 @@ export default function JobForm() {
             }
         } catch (error) { console.log('Error fetching job:', error); } 
         finally { setInitialLoading(false); setTimeout(() => setIsDirty(false), 100); }
-    };
+    }, [jobId]);
+
+    useEffect(() => { fetchJobData(); }, [fetchJobData]);
 
     const openPicker = (mode: string, breakId?: string) => {
         let currentValue = new Date();
@@ -421,7 +455,7 @@ export default function JobForm() {
         }
     };
 
-    if (initialLoading) return <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={theme.colors.primary} /></View>;
+    if (initialLoading) return <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}><LoadingScreen variant="job-form" message="Loading Job..." /></SafeAreaView>;
     
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
@@ -471,7 +505,7 @@ export default function JobForm() {
                 style={{ flex: 1 }}
             >
                 <ScrollView 
-                    contentContainerStyle={styles.scrollContent} 
+                    contentContainerStyle={[styles.scrollContent, { paddingBottom: isDirty ? 150 : 40 }]} 
                     showsVerticalScrollIndicator={false}
                     keyboardShouldPersistTaps="handled"
                     keyboardDismissMode="on-drag"
@@ -491,7 +525,7 @@ export default function JobForm() {
                         <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontFamily: 'Nunito_500Medium', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>Compensation</Text>
                         <View style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border, borderWidth: 1, borderRadius: 24, padding: 20, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }}>
                             
-                            <StyledInput label="Pay Rate" prefix="₱" value={salaryDisplay} onChange={handleSalaryChange} placeholder="0.00" required errorKey="salary" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
+                                                        <StyledInput label="Pay Rate" prefix={String.fromCharCode(0x20b1)} keyboardType="decimal-pad" value={salaryDisplay} onChange={handleSalaryChange} placeholder="0.00" required errorKey="salary" theme={theme} errors={errors} setErrors={setErrors} visibleTooltip={visibleTooltip} setVisibleTooltip={setVisibleTooltip} />
                             
                             <View style={{ flexDirection: 'row', backgroundColor: theme.colors.background, padding: 4, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, marginBottom: 20 }}>
                                 {(['hourly', 'daily', 'monthly'] as const).map((type) => (
@@ -545,6 +579,23 @@ export default function JobForm() {
                             </View>
                         </View>
                     </View>
+
+
+                    {estimatedPeriodPay !== null && (
+                        <View style={{ marginBottom: 20, marginTop: -6, backgroundColor: theme.colors.primary + '12', borderColor: theme.colors.primary + '28', borderWidth: 1, borderRadius: 16, padding: 14 }}>
+                            <Text style={{ fontSize: 11, fontFamily: 'Nunito_700Bold', textTransform: 'uppercase', color: theme.colors.textSecondary, marginBottom: 4 }}>
+                                Estimated {rateType === 'monthly' ? 'Monthly' : payoutType} Gross
+                            </Text>
+                            <Text style={{ fontSize: 22, fontFamily: 'Nunito_800ExtraBold', color: theme.colors.primary }}>
+                                {formatPeso(estimatedPeriodPay)}
+                            </Text>
+                            {rateType === 'daily' && (
+                                <Text style={{ fontSize: 11, fontFamily: 'Nunito_500Medium', color: theme.colors.textSecondary, marginTop: 4 }}>
+                                    Daily rate conversion uses an 8-hour workday baseline.
+                                </Text>
+                            )}
+                        </View>
+                    )}
 
                     <View style={{ marginBottom: 24 }}>
                         <Text style={{ color: theme.colors.textSecondary, fontSize: 11, fontFamily: 'Nunito_500Medium', letterSpacing: 1, marginBottom: 12, marginLeft: 4, textTransform: 'uppercase' }}>
@@ -609,29 +660,17 @@ export default function JobForm() {
                     </View>
                 </ScrollView>
 
-                <View style={{ padding: 24, paddingTop: 12, backgroundColor: theme.colors.background, borderTopWidth: 1, borderColor: theme.colors.border }}>
-                    <TouchableOpacity 
-                        onPress={handleSave} 
-                        disabled={saving} 
-                        style={{ 
-                            flexDirection: 'row', 
-                            alignItems: 'center', 
-                            justifyContent: 'center', 
-                            backgroundColor: theme.colors.primary, 
-                            height: 56, 
-                            borderRadius: 16, 
-                            shadowColor: theme.colors.primary, 
-                            shadowOffset: { width: 0, height: 4 }, 
-                            shadowOpacity: 0.3, 
-                            shadowRadius: 10, 
-                            elevation: 5 
-                        }}
-                    >
-                        <Text style={{ color: 'white', fontSize: 16, fontFamily: 'Nunito_500Medium' }}>
-                            {jobId ? 'Update Job Profile' : 'Save Job Profile'}
-                        </Text>
-                    </TouchableOpacity>
-                </View>
+                {isDirty && (
+                    <Footer style={{ backgroundColor: theme.colors.background, borderTopColor: theme.colors.border }}>
+                        <Button
+                            title={jobId ? 'Update Job Profile' : 'Save Job Profile'}
+                            onPress={handleSave}
+                            disabled={saving}
+                            isLoading={saving}
+                            style={{ width: '100%', height: 56, borderRadius: 16 }}
+                        />
+                    </Footer>
+                )}
             </KeyboardAvoidingView>
         </SafeAreaView>
     );
@@ -640,3 +679,4 @@ export default function JobForm() {
 const styles = StyleSheet.create({
     scrollContent: { padding: 24, paddingBottom: 150, flexGrow: 1 }
 });
+

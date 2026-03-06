@@ -164,7 +164,7 @@ export default function NotificationsSettings() {
                 <View style={{ marginBottom: 28 }}>
                     <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>ATTENDANCE</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
-                        <SettingItem label="Shift Reminders" desc="Get notified 15 mins before your shift starts." value={settings.clockInReminder} onToggle={() => toggleSwitch('clockInReminder')} icon={Calendar03Icon} />
+                        <SettingItem label="Shift Reminders" desc="Get notified when your shift start time arrives." value={settings.clockInReminder} onToggle={() => toggleSwitch('clockInReminder')} icon={Calendar03Icon} />
                         <SettingItem label="Persistent Timer" desc="Show an ongoing timer notification while you are clocked in." value={settings.persistentTimer} onToggle={() => toggleSwitch('persistentTimer')} icon={Clock01Icon} />
                         <SettingItem label="Break Reminders" desc="Notification when your break time is over." value={settings.breakReminders} onToggle={() => toggleSwitch('breakReminders')} icon={AlarmClockIcon} isLast />
                     </View>

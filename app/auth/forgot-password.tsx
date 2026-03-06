@@ -95,7 +95,7 @@ export default function ForgotPassword() {
         };
         const backHandler = BackHandler.addEventListener('hardwareBackPress', backAction);
         return () => backHandler.remove();
-    }, [step]);
+    }, [step, router]);
 
     // --- STEP 1: SEND EMAIL ---
     const handleSendCode = async () => {

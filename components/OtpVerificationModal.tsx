@@ -65,7 +65,7 @@ export default function OtpVerificationModal({
         withTiming(0, { duration: 50 })
       );
     }
-  }, [isError]);
+  }, [isError, offset]);
 
   const handleVerifyPress = async () => {
     if (code.length < 6) { setIsError(true); return; }
@@ -75,7 +75,7 @@ export default function OtpVerificationModal({
     try {
       const result = await onVerify(code);
       if (result === false) setIsError(true);
-    } catch (e) {
+    } catch {
       setIsError(true);
     } finally {
       setLoading(false);

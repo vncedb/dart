@@ -81,7 +81,7 @@ export default function PlanScreen() {
             -1, // Infinite repeat
             true // Reverse
         );
-    }, []);
+    }, [buttonScale]);
 
     const animatedYearlyBg = useAnimatedStyle(() => ({ opacity: yearlyOpacity.value }));
     const animatedMonthlyBg = useAnimatedStyle(() => ({ opacity: monthlyOpacity.value }));
@@ -192,14 +192,14 @@ export default function PlanScreen() {
                                 </View>
                                 
                                 <View style={styles.priceRow}>
-                                    <Text style={[styles.priceLarge, { color: theme.colors.text }]}>₱50</Text>
-                                    <Text style={[styles.priceOriginal, { color: theme.colors.textSecondary }]}>₱60</Text>
+                                    <Text style={[styles.priceLarge, { color: theme.colors.text }]}>{'\u20B1'}50</Text>
+                                    <Text style={[styles.priceOriginal, { color: theme.colors.textSecondary }]}>{'\u20B1'}60</Text>
                                     <Text style={[styles.priceSuffix, { color: theme.colors.textSecondary }]}> / month</Text>
                                 </View>
                                 
                                 <View style={styles.billingInfoBox}>
                                     <Text style={[styles.billingText, { color: theme.colors.textSecondary }]}>
-                                        ₱50 for the first month, then ₱60/month
+                                        {'\u20B1'}50 for the first month, then {'\u20B1'}60/month
                                     </Text>
                                     <Text style={[styles.billingTextBold, { color: theme.colors.textSecondary }]}>
                                         Billed Monthly
@@ -240,14 +240,14 @@ export default function PlanScreen() {
                                 </View>
                                 
                                 <View style={styles.priceRow}>
-                                    <Text style={[styles.priceLarge, { color: theme.colors.text }]}>₱540</Text>
-                                    <Text style={[styles.priceOriginal, { color: theme.colors.textSecondary }]}>₱720</Text>
+                                    <Text style={[styles.priceLarge, { color: theme.colors.text }]}>{'\u20B1'}540</Text>
+                                    <Text style={[styles.priceOriginal, { color: theme.colors.textSecondary }]}>{'\u20B1'}720</Text>
                                     <Text style={[styles.priceSuffix, { color: theme.colors.textSecondary }]}> / year</Text>
                                 </View>
                                 
                                 <View style={styles.billingInfoBox}>
                                     <Text style={[styles.billingText, { color: theme.colors.textSecondary }]}>
-                                        ₱45 / month
+                                        {'\u20B1'}45 / month
                                     </Text>
                                     <Text style={[styles.billingTextBold, { color: theme.colors.textSecondary }]}>
                                         Billed Annually

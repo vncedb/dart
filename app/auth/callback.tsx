@@ -1,11 +1,10 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 import { supabase } from '../../lib/supabase';
 
 export default function AuthCallback() {
   const router = useRouter();
-  const params = useLocalSearchParams();
 
   useEffect(() => {
     // 1. Handle the callback
@@ -36,7 +35,7 @@ export default function AuthCallback() {
     };
 
     handleSession();
-  }, []);
+  }, [router]);
 
   return (
     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>

@@ -293,7 +293,7 @@ export default function DatePicker({
   
   const translateY = useSharedValue(CONTENT_HEIGHT + 350);
   const backdropOpacity = useSharedValue(0);
-
+  const markedDateSet = useMemo(() => new Set(markedDates), [markedDates]);
   useEffect(() => {
     if (visible) {
       setShowModal(true);
@@ -303,10 +303,13 @@ export default function DatePicker({
 
       backdropOpacity.value = withTiming(1, { duration: 250 });
       translateY.value = withSpring(0, { damping: 20, stiffness: 150, mass: 0.8 });
-    } else {
-      if (showModal) closeModal();
+    } else if (showModal) {
+      translateY.value = withTiming(CONTENT_HEIGHT + 350, { duration: 250 });
+      backdropOpacity.value = withTiming(0, { duration: 250 }, (finished) => {
+        if (finished) runOnJS(setShowModal)(false);
+      });
     }
-  }, [visible, selectedDate]);
+  }, [visible, selectedDate, showModal, backdropOpacity, translateY]);
 
   const closeModal = (callback?: () => void) => {
     translateY.value = withTiming(CONTENT_HEIGHT + 350, { duration: 250 });
@@ -331,6 +334,14 @@ export default function DatePicker({
   const handleDaySelect = useCallback((day: Date) => {
     setTempDate(day);
     setCurrentMonth(day);
+    if (Platform.OS !== "web") Haptics.selectionAsync();
+  }, []);
+
+  const handleToday = useCallback(() => {
+    const today = new Date();
+    setTempDate(today);
+    setCurrentMonth(today);
+    setViewMode("calendar");
     if (Platform.OS !== "web") Haptics.selectionAsync();
   }, []);
 
@@ -379,7 +390,7 @@ export default function DatePicker({
           const isSelected = isSameDay(day, tempDate);
           const isCurrentMonth = isSameMonth(day, currentMonth);
           const isToday = isSameDay(day, new Date());
-          const hasIndicator = markedDates.includes(dateStr);
+          const hasIndicator = markedDateSet.has(dateStr);
 
           return (
             <DayCell
@@ -420,8 +431,7 @@ export default function DatePicker({
               onPress={() => {
                 if (viewMode === "calendar") {
                   setCurrentMonth((prev) => subMonths(prev, 1));
-                  setTempDate((prev) => subMonths(prev, 1)); 
-                } else setViewMode("calendar");
+} else setViewMode("calendar");
               }}
               style={styles.navBtn}
             >
@@ -470,15 +480,25 @@ export default function DatePicker({
               onPress={() => {
                 if (viewMode === "calendar") {
                   setCurrentMonth((prev) => addMonths(prev, 1));
-                  setTempDate((prev) => addMonths(prev, 1)); 
-                } else setViewMode("calendar");
+} else setViewMode("calendar");
               }}
               style={styles.navBtn}
             >
               <HugeiconsIcon icon={ArrowRight01Icon} size={20} color={theme.colors.text} />
             </TouchableOpacity>
           </View>
-
+          <View style={styles.quickActions}>
+            <TouchableOpacity
+              onPress={handleToday}
+              activeOpacity={0.8}
+              style={[styles.todayBtn, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+            >
+              <Text style={[styles.todayBtnText, { color: theme.colors.text }]}>Today</Text>
+            </TouchableOpacity>
+            <Text style={[styles.selectedDatePreview, { color: theme.colors.textSecondary }]}> 
+              Selected: {format(tempDate, "MMM d, yyyy")}
+            </Text>
+          </View>
           <View style={styles.contentFrame}>
             {viewMode === "calendar" && renderCalendar()}
             {viewMode === "month" && (
@@ -562,6 +582,24 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   dropdownText: { fontSize: 15, fontFamily: "Nunito_700Bold", letterSpacing: 0.3 },
+  quickActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 22,
+    marginBottom: 2,
+  },
+  todayBtn: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  todayBtnText: { fontSize: 12, fontFamily: "Nunito_700Bold" },
+  selectedDatePreview: {
+    fontSize: 12,
+    fontFamily: "Nunito_600SemiBold",
+  },
   contentFrame: { height: CONTENT_HEIGHT, overflow: "hidden", marginVertical: 8 },
   calendarContainer: { flex: 1, paddingHorizontal: 20 },
   weekHeader: {

@@ -1,13 +1,13 @@
 import { File02Icon, Home01Icon, UserCircleIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { MaterialTopTabBarProps } from '@react-navigation/material-top-tabs';
 import React, { memo } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppTheme } from '../constants/theme';
 
-export default function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+export default function CustomTabBar({ state, descriptors, navigation }: MaterialTopTabBarProps) {
   const insets = useSafeAreaInsets();
   const theme = useAppTheme();
   
@@ -25,7 +25,6 @@ export default function CustomTabBar({ state, descriptors, navigation }: BottomT
         ]}
       >
         {state.routes.map((route, index) => {
-          const { options } = descriptors[route.key];
           const isFocused = state.index === index;
 
           const onPress = () => {
@@ -75,7 +74,7 @@ const TabIcon = memo(function TabIcon({ isFocused, onPress, IconComponent, theme
         damping: 20,
         mass: 0.5 
     });
-  }, [isFocused]);
+  }, [isFocused, scale]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }]

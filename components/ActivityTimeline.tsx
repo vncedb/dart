@@ -13,16 +13,13 @@ import { Image } from 'expo-image';
 import { format } from 'date-fns';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    Dimensions,
-    ScrollView,
+    ActivityIndicator,    ScrollView,
     StyleSheet,
     Text,
     TouchableOpacity,
     View
 } from 'react-native';
 
-const { width } = Dimensions.get('window');
 
 const ActivityImageContent = ({ uri, theme }: { uri: string, theme: any }) => {
     const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');

@@ -249,7 +249,10 @@ export const syncPush = async (userId: string, progressCallback?: (progress: num
 
         if (table_name === "saved_reports" && payload.file_path?.startsWith("file://") && action !== "DELETE") {
           const remoteUrl = await uploadFileToSupabase(payload.file_path, payload.user_id, "reports");
-          if (remoteUrl) payload.remote_url = remoteUrl;
+          if (remoteUrl) {
+            payload.remote_url = remoteUrl;
+            payload.file_url = remoteUrl;
+          }
         }
         
         if (table_name === "profiles" && payload.local_avatar_path?.startsWith("file://") && action !== "DELETE") {
@@ -334,7 +337,9 @@ export const syncPush = async (userId: string, progressCallback?: (progress: num
                         const { error: err } = await supabase.from(tableName).update(payload).eq("id", rowId);
                         if (err) throw err;
                     } else if (action === "DELETE") {
-                        if (tableName === 'saved_reports' && payload.remote_url) await deleteFileFromSupabase(payload.remote_url, "reports");
+                        if (tableName === 'saved_reports' && (payload.remote_url || payload.file_url || payload.public_url)) {
+                          await deleteFileFromSupabase(payload.remote_url || payload.file_url || payload.public_url, "reports");
+                        }
                         else if (tableName === 'accomplishments' && payload.image_url) {
                             try {
                                 const urlsToDelete = payload.image_url.startsWith('[') ? JSON.parse(payload.image_url) : [payload.image_url];
@@ -505,10 +510,24 @@ export const syncPull = async (userId: string, progressCallback?: (progress: num
           localFilePath = await downloadFile(row.remote_url, 'reports', `${row.id}.${ext}`) || "";
       }
 
-      const isConflict = await safeUpsert(db, 'saved_reports', row.id,
-        `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, remote_url, created_at, updated_at, is_read, period_key, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-        [row.id, row.user_id, row.title || "Untitled", localFilePath, row.file_type || "pdf", row.file_size || 0, row.remote_url || null, row.created_at, row.updated_at || row.created_at, isRead, row.period_key || null]
-      );
+            let isConflict = false;
+      try {
+        isConflict = await safeUpsert(db, 'saved_reports', row.id,
+          `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, file_url, public_url, remote_url, metadata, created_at, updated_at, is_read, period_key, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+          [row.id, row.user_id, row.title || "Untitled", localFilePath, row.file_type || "pdf", row.file_size || 0, row.file_url || row.remote_url || null, row.public_url || null, row.remote_url || null, row.metadata || null, row.created_at, row.updated_at || row.created_at, isRead, row.period_key || null]
+        );
+      } catch (error: any) {
+        if (!error?.message?.includes('no such column: file_url')) {
+          throw error;
+        }
+
+        // Backward compatibility for pre-migration local databases.
+        isConflict = await safeUpsert(db, 'saved_reports', row.id,
+          `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, public_url, remote_url, metadata, created_at, updated_at, is_read, period_key, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+          [row.id, row.user_id, row.title || "Untitled", localFilePath, row.file_type || "pdf", row.file_size || 0, row.public_url || null, row.remote_url || row.file_url || null, row.metadata || null, row.created_at, row.updated_at || row.created_at, isRead, row.period_key || null]
+        );
+      }
+
       if (isConflict) conflicts++;
     }
     if (progressCallback) progressCallback(83);

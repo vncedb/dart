@@ -188,7 +188,7 @@ export default function AccountSecurityScreen() {
             const idToken = userInfo?.data?.idToken || (userInfo as any)?.idToken;
 
             if (idToken) {
-                const { data, error } = await supabase.auth.linkIdentity({
+                const { error } = await supabase.auth.linkIdentity({
                     provider: 'google',
                     token: idToken,
                 });
