@@ -3,27 +3,21 @@ import {
   Briefcase01Icon,
   Clock01Icon,
   HourglassIcon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react-native";
-import React, { useEffect, useState } from "react";
+} from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react-native';
+import React, { useMemo, useState } from 'react';
 import {
   Modal,
   Pressable,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
-} from "react-native";
-import Animated, {
-  Easing,
-  runOnJS,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from "react-native-reanimated";
-import Button from "./Button";
-import DurationPicker from "./DurationPicker";
-import TimePicker from "./TimePicker";
+  View,
+} from 'react-native';
+
+import Button from './Button';
+import DurationPicker from './DurationPicker';
+import TimePicker from './TimePicker';
 
 interface OvertimeModalProps {
   visible: boolean;
@@ -32,7 +26,7 @@ interface OvertimeModalProps {
   theme: any;
 }
 
-const MODAL_OFFSET = 500;
+const OVERTIME_COLOR = '#f59e0b';
 
 export default function OvertimeModal({
   visible,
@@ -42,143 +36,145 @@ export default function OvertimeModal({
 }: OvertimeModalProps) {
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [showDurationPicker, setShowDurationPicker] = useState(false);
-  const [showModal, setShowModal] = useState(visible);
+  const [inlineError, setInlineError] = useState('');
 
-  const opacity = useSharedValue(0);
-  const translateY = useSharedValue(MODAL_OFFSET);
-
-  useEffect(() => {
-    if (visible) {
-      setShowModal(true);
-      opacity.value = withTiming(1, { duration: 200, easing: Easing.out(Easing.ease) });
-      translateY.value = withTiming(0, { duration: 250, easing: Easing.out(Easing.cubic) });
-    }
-  }, [visible, opacity, translateY]);
+  const currentTimeLabel = useMemo(() => {
+    const now = new Date();
+    return now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }, []);
 
   const handleClose = () => {
-    opacity.value = withTiming(0, { duration: 200 });
-    translateY.value = withTiming(MODAL_OFFSET, { duration: 250, easing: Easing.in(Easing.cubic) }, (finished) => {
-        if (finished) {
-            runOnJS(onClose)();
-            runOnJS(setShowModal)(false);
-        }
-    });
+    setInlineError('');
+    onClose();
+  };
+
+  const confirmOvertime = (hours: number) => {
+    if (hours <= 0) {
+      setInlineError('Enter a valid overtime value greater than zero.');
+      return;
+    }
+
+    handleClose();
+    setTimeout(() => onConfirm(hours), 100);
   };
 
   const handleDurationConfirm = (h: number, m: number) => {
-    const totalHours = h + m / 60;
-    if (totalHours > 0) {
-      handleClose();
-      setTimeout(() => onConfirm(totalHours), 100);
-    }
+    confirmOvertime(h + m / 60);
   };
 
-  const handleTimeConfirm = (h: number, m: number, p?: "AM" | "PM") => {
+  const handleQuickDuration = (hours: number) => {
+    setInlineError('');
+    confirmOvertime(hours);
+  };
+
+  const handleTimeConfirm = (h: number, m: number, p?: 'AM' | 'PM') => {
     const now = new Date();
-    const targetDate = new Date();
+    const targetDate = new Date(now);
     let hour = h;
 
-    if (p === "PM" && h < 12) hour += 12;
-    if (p === "AM" && h === 12) hour = 0;
+    if (p === 'PM' && h < 12) hour += 12;
+    if (p === 'AM' && h === 12) hour = 0;
 
-    targetDate.setHours(hour);
-    targetDate.setMinutes(m);
+    targetDate.setHours(hour, m, 0, 0);
 
     const diff = (targetDate.getTime() - now.getTime()) / 3600000;
-    const finalHours = Math.max(0, diff);
-
-    if (finalHours >= 0) {
-      handleClose();
-      setTimeout(() => onConfirm(finalHours), 100);
+    if (diff <= 0) {
+      setInlineError('Choose a checkout time later than your current time.');
+      return;
     }
+
+    setInlineError('');
+    confirmOvertime(diff);
   };
-
-  const backdropStyle = useAnimatedStyle(() => ({ 
-      opacity: opacity.value,
-      backgroundColor: 'rgba(0,0,0,0.5)'
-  }));
-  
-  const containerStyle = useAnimatedStyle(() => ({
-      transform: [{ translateY: translateY.value }]
-  }));
-
-  if (!showModal) return null;
 
   return (
     <Modal
       transparent
       visible={visible}
-      animationType="none"
+      animationType="fade"
       onRequestClose={handleClose}
       statusBarTranslucent
     >
-      <View style={styles.overlay}>
-        <Animated.View style={[StyleSheet.absoluteFill, backdropStyle]}>
-            <Pressable onPress={handleClose} style={StyleSheet.absoluteFill} />
-        </Animated.View>
-
-        <Pressable onPress={(e) => e.stopPropagation()} style={{ width: '100%', alignItems: 'center' }}>
-          <Animated.View
+      <Pressable style={styles.overlay} onPress={handleClose}>
+        <Pressable onPress={(e) => e.stopPropagation()} style={styles.modalFrame}>
+          <View
             style={[
               styles.container,
-              { backgroundColor: theme.colors.card, borderColor: theme.colors.border },
-              containerStyle,
+              {
+                backgroundColor: theme.colors.card,
+                borderColor: theme.colors.border,
+                shadowColor: theme.dark ? '#000' : OVERTIME_COLOR,
+              },
             ]}
           >
             <View style={styles.headerContent}>
-              <View
-                style={[
-                  styles.iconWrapper,
-                  { backgroundColor: theme.colors.warning + "15" },
-                ]}
-              >
-                <HugeiconsIcon
-                  icon={Briefcase01Icon}
-                  size={32}
-                  color={theme.colors.warning}
-                />
+              <View style={[styles.iconWrapper, { backgroundColor: `${OVERTIME_COLOR}16` }]}>
+                <HugeiconsIcon icon={Briefcase01Icon} size={30} color={OVERTIME_COLOR} />
               </View>
-              <Text style={[styles.title, { color: theme.colors.text }]}>
-                Overtime Log
+              <Text style={[styles.title, { color: theme.colors.text }]}>Log Overtime</Text>
+              <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
+                Your shift has already reached its scheduled end. Choose how much additional time you expect to render.
               </Text>
-              <Text
-                style={[styles.subtitle, { color: theme.colors.textSecondary }]}
-              >
-                Your session has exceeded your scheduled shift. Please log the excess time appropriately.
-              </Text>
+            </View>
+
+            <View style={styles.quickRow}>
+              {[0.5, 1, 2].map((hours) => (
+                <TouchableOpacity
+                  key={hours}
+                  activeOpacity={0.78}
+                  onPress={() => handleQuickDuration(hours)}
+                  style={[styles.quickChip, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+                >
+                  <Text style={[styles.quickChipText, { color: theme.colors.text }]}>
+                    {hours === 0.5 ? '30 min' : `${hours} hr${hours > 1 ? 's' : ''}`}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
 
             <View style={styles.actionList}>
               <TouchableOpacity
-                onPress={() => setShowDurationPicker(true)}
-                activeOpacity={0.7}
-                style={[styles.actionCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+                onPress={() => {
+                  setInlineError('');
+                  setShowDurationPicker(true);
+                }}
+                activeOpacity={0.78}
+                style={[styles.actionCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
               >
-                <View style={[styles.actionIconBox, { backgroundColor: theme.colors.primary + "10" }]}>
+                <View style={[styles.actionIconBox, { backgroundColor: theme.colors.primary + '10' }]}>
                   <HugeiconsIcon icon={HourglassIcon} size={20} color={theme.colors.primary} />
                 </View>
                 <View style={styles.actionTextContent}>
-                  <Text style={[styles.actionTitle, { color: theme.colors.text }]}>Set Duration</Text>
-                  <Text style={[styles.actionSub, { color: theme.colors.textSecondary }]}>Add the exact total of hours</Text>
+                  <Text style={[styles.actionTitle, { color: theme.colors.text }]}>Set duration</Text>
+                  <Text style={[styles.actionSub, { color: theme.colors.textSecondary }]}>Choose the exact total overtime duration.</Text>
                 </View>
                 <HugeiconsIcon icon={ArrowRight01Icon} size={18} color={theme.colors.icon} />
               </TouchableOpacity>
 
               <TouchableOpacity
-                onPress={() => setShowTimePicker(true)}
-                activeOpacity={0.7}
-                style={[styles.actionCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+                onPress={() => {
+                  setInlineError('');
+                  setShowTimePicker(true);
+                }}
+                activeOpacity={0.78}
+                style={[styles.actionCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}
               >
-                <View style={[styles.actionIconBox, { backgroundColor: theme.colors.primary + "10" }]}>
-                  <HugeiconsIcon icon={Clock01Icon} size={20} color={theme.colors.primary} />
+                <View style={[styles.actionIconBox, { backgroundColor: `${OVERTIME_COLOR}14` }]}>
+                  <HugeiconsIcon icon={Clock01Icon} size={20} color={OVERTIME_COLOR} />
                 </View>
                 <View style={styles.actionTextContent}>
-                  <Text style={[styles.actionTitle, { color: theme.colors.text }]}>Set End Time</Text>
-                  <Text style={[styles.actionSub, { color: theme.colors.textSecondary }]}>Pick your actual checkout time</Text>
+                  <Text style={[styles.actionTitle, { color: theme.colors.text }]}>Set checkout time</Text>
+                  <Text style={[styles.actionSub, { color: theme.colors.textSecondary }]}>Set your actual time out based on {currentTimeLabel}.</Text>
                 </View>
                 <HugeiconsIcon icon={ArrowRight01Icon} size={18} color={theme.colors.icon} />
               </TouchableOpacity>
             </View>
+
+            {inlineError ? (
+              <View style={[styles.errorCard, { backgroundColor: theme.colors.dangerLight, borderColor: `${theme.colors.danger}30` }]}>
+                <Text style={[styles.errorText, { color: theme.colors.danger }]}>{inlineError}</Text>
+              </View>
+            ) : null}
 
             <View style={[styles.footer, { borderTopColor: theme.colors.border, backgroundColor: theme.colors.card }]}>
               <Button
@@ -188,10 +184,9 @@ export default function OvertimeModal({
                 style={{ flex: 1 }}
               />
             </View>
-          </Animated.View>
+          </View>
         </Pressable>
 
-        {/* Pickers */}
         <TimePicker
           visible={showTimePicker}
           onClose={() => setShowTimePicker(false)}
@@ -202,7 +197,7 @@ export default function OvertimeModal({
               : new Date().getHours() === 0 ? 12 : new Date().getHours()
           }
           initialMinutes={new Date().getMinutes()}
-          initialPeriod={new Date().getHours() >= 12 ? "PM" : "AM"}
+          initialPeriod={new Date().getHours() >= 12 ? 'PM' : 'AM'}
           title="Set Check Out Time"
         />
 
@@ -213,7 +208,7 @@ export default function OvertimeModal({
           initialHours={0}
           initialMinutes={0}
         />
-      </View>
+      </Pressable>
     </Modal>
   );
 }
@@ -221,83 +216,122 @@ export default function OvertimeModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 24, // Matches standard Selection Modal padding
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
     zIndex: 999,
   },
+  modalFrame: {
+    width: '100%',
+    alignItems: 'center',
+  },
   container: {
-    width: '100%', // Removes max-width constraint to match selection modal
+    width: '100%',
     borderRadius: 28,
     borderWidth: 1,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.15,
-    shadowRadius: 24,
-    elevation: 15,
+    overflow: 'hidden',
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.16,
+    shadowRadius: 28,
+    elevation: 16,
   },
   headerContent: {
-    alignItems: "center",
-    paddingTop: 32,
+    alignItems: 'center',
+    paddingTop: 28,
     paddingHorizontal: 24,
-    marginBottom: 24,
+    marginBottom: 22,
   },
   iconWrapper: {
     width: 64,
     height: 64,
     borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
   },
   title: {
-    fontSize: 20,
-    fontFamily: "Nunito_700Bold",
+    fontSize: 22,
+    fontFamily: 'Nunito_800ExtraBold',
     marginBottom: 8,
-    textAlign: "center",
-    letterSpacing: -0.3,
+    textAlign: 'center',
+    letterSpacing: -0.4,
   },
   subtitle: {
     fontSize: 14,
-    fontFamily: "Nunito_500Medium",
-    textAlign: "center",
+    fontFamily: 'Nunito_500Medium',
+    textAlign: 'center',
     lineHeight: 22,
-    opacity: 0.7,
+    opacity: 0.84,
+  },
+  quickRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 20,
+    marginBottom: 16,
+  },
+  quickChip: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickChipText: {
+    fontSize: 13,
+    fontFamily: 'Nunito_700Bold',
+    letterSpacing: -0.1,
   },
   actionList: {
     gap: 12,
     paddingHorizontal: 20,
-    marginBottom: 24,
+    marginBottom: 16,
   },
   actionCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 16,
-    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 15,
+    borderRadius: 18,
     borderWidth: 1,
   },
   actionIconBox: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 14,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
   actionTextContent: {
     flex: 1,
+    paddingRight: 10,
   },
   actionTitle: {
-    fontSize: 15,
-    fontFamily: "Nunito_700Bold",
-    marginBottom: 2,
+    fontSize: 14,
+    fontFamily: 'Nunito_700Bold',
+    marginBottom: 3,
     letterSpacing: -0.2,
   },
   actionSub: {
+    fontSize: 11,
+    fontFamily: 'Nunito_600SemiBold',
+    opacity: 0.72,
+    lineHeight: 16,
+  },
+  errorCard: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  errorText: {
     fontSize: 12,
-    fontFamily: "Nunito_600SemiBold",
-    opacity: 0.6,
+    fontFamily: 'Nunito_700Bold',
+    lineHeight: 18,
   },
   footer: {
     padding: 20,
@@ -305,3 +339,4 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
 });
+

@@ -1,11 +1,11 @@
 /**
  * GitHub Release Update Check
  * Fetches latest release from GitHub and compares with current app version.
- * On Android: can download APK and trigger install.
  */
 
 const GITHUB_REPO = "vncedb/dart";
 const GITHUB_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
+const GITHUB_RELEASE_BASE = `https://github.com/${GITHUB_REPO}/releases/tag/`;
 
 export interface ReleaseInfo {
   tag_name: string;
@@ -29,18 +29,18 @@ export interface UpdateCheckResult {
   error?: string;
 }
 
-/**
- * Parse semver-like version string (e.g. "1.0.3", "v1.0.4") to comparable numbers
- */
+function normalizeVersion(v: string): string {
+  const input = String(v || '').trim();
+  const match = input.match(/\d+(?:\.\d+){1,3}/);
+  return match ? match[0] : '';
+}
+
 function parseVersion(v: string): number[] {
-  const cleaned = v.replace(/^v/i, "").trim();
-  const parts = cleaned.split(".").map((n) => parseInt(n, 10) || 0);
+  const cleaned = normalizeVersion(v);
+  const parts = cleaned.split('.').map((n) => parseInt(n, 10) || 0);
   return parts;
 }
 
-/**
- * Compare two version strings. Returns: 1 if a > b, -1 if a < b, 0 if equal
- */
 function compareVersions(a: string, b: string): number {
   const va = parseVersion(a);
   const vb = parseVersion(b);
@@ -54,66 +54,71 @@ function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-/**
- * Check if a newer release is available on GitHub
- */
 export async function checkForUpdate(currentVersion: string): Promise<UpdateCheckResult> {
+  const normalizedCurrentVersion = normalizeVersion(currentVersion);
+
   try {
     const res = await fetch(GITHUB_API, {
-      headers: { Accept: "application/vnd.github.v3+json" },
+      headers: { Accept: 'application/vnd.github.v3+json' },
     });
 
     if (!res.ok) {
       return {
         hasUpdate: false,
-        currentVersion,
-        latestVersion: currentVersion,
+        currentVersion: normalizedCurrentVersion,
+        latestVersion: normalizedCurrentVersion,
         release: null,
         error: `API error: ${res.status}`,
       };
     }
 
     const release: ReleaseInfo = await res.json();
-    const latestVersion = (release.tag_name || release.name || "").replace(/^v/i, "").trim();
+    const latestVersion = normalizeVersion(release.tag_name || release.name || '');
 
     if (!latestVersion) {
       return {
         hasUpdate: false,
-        currentVersion,
-        latestVersion: currentVersion,
+        currentVersion: normalizedCurrentVersion,
+        latestVersion: normalizedCurrentVersion,
         release: null,
-        error: "No version in release",
+        error: 'No version in release',
       };
     }
 
-    const hasUpdate = compareVersions(latestVersion, currentVersion) > 0;
+    const hasUpdate = compareVersions(latestVersion, normalizedCurrentVersion) > 0;
 
     return {
       hasUpdate,
-      currentVersion,
+      currentVersion: normalizedCurrentVersion,
       latestVersion,
       release,
     };
   } catch (e: any) {
     return {
       hasUpdate: false,
-      currentVersion,
-      latestVersion: currentVersion,
+      currentVersion: normalizedCurrentVersion,
+      latestVersion: normalizedCurrentVersion,
       release: null,
-      error: e?.message || "Network error",
+      error: e?.message || 'Network error',
     };
   }
 }
 
-/**
- * Get the APK download URL from release assets (Android)
- */
+export function getReleaseTagUrl(release: ReleaseInfo | null, version?: string | null): string | null {
+  const candidate = normalizeVersion(version || release?.tag_name || release?.name || '');
+  if (!candidate) {
+    return release?.html_url || null;
+  }
+  return `${GITHUB_RELEASE_BASE}v${candidate}`;
+}
+
 export function getApkDownloadUrl(release: ReleaseInfo | null): string | null {
   if (!release?.assets?.length) return null;
   const apk = release.assets.find(
     (a) =>
-      a.name.toLowerCase().endsWith(".apk") ||
-      a.content_type === "application/vnd.android.package-archive"
+      a.name.toLowerCase().endsWith('.apk') ||
+      a.content_type === 'application/vnd.android.package-archive'
   );
   return apk?.browser_download_url ?? null;
 }
+

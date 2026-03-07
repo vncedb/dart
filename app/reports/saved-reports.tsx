@@ -22,6 +22,7 @@ import { useAuth } from '../../context/AuthContext';
 import { queueSyncItem } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
 import { supabase } from '../../lib/supabase';
+import { ensureDartReportsDirectory } from '../../lib/saf-directory';
 
 const iconPdf = require('../../assets/icons/custom-icons/pdf.png');
 const iconXlsx = require('../../assets/icons/custom-icons/xlsx.png');
@@ -53,25 +54,6 @@ const formatBytes = (bytes: number, decimals = 2) => {
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
-};
-
-const setupSAFDirectory = async (baseUri: string) => {
-    let target = baseUri;
-    try {
-        target = await FileSystem.StorageAccessFramework.makeDirectoryAsync(target, 'DART');
-    } catch {
-        const contents = await FileSystem.StorageAccessFramework.readDirectoryAsync(target);
-        const found = contents.find(uri => decodeURIComponent(uri).endsWith('/DART') || decodeURIComponent(uri).endsWith('%3ADART'));
-        if (found) target = found;
-    }
-    try {
-        target = await FileSystem.StorageAccessFramework.makeDirectoryAsync(target, 'Reports');
-    } catch {
-        const contents = await FileSystem.StorageAccessFramework.readDirectoryAsync(target);
-        const found = contents.find(uri => decodeURIComponent(uri).endsWith('/Reports') || decodeURIComponent(uri).endsWith('%3AReports'));
-        if (found) target = found;
-    }
-    return target;
 };
 
 export default function SavedReportsScreen() {
@@ -112,7 +94,7 @@ export default function SavedReportsScreen() {
         try {
             const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
             if (permissions.granted) {
-                const finalUri = await setupSAFDirectory(permissions.directoryUri);
+                const finalUri = await ensureDartReportsDirectory(permissions.directoryUri);
                 await AsyncStorage.setItem('reports_directory_uri', finalUri);
                 setHasStoragePermission(true);
                 fetchReports();
@@ -695,3 +677,4 @@ const styles = StyleSheet.create({
     emptyTitle: { fontSize: 20, fontFamily: 'Nunito_800ExtraBold', marginBottom: 8, letterSpacing: -0.3 },
     emptySubtitle: { fontSize: 14, fontFamily: 'Nunito_500Medium', textAlign: 'center', lineHeight: 22 }
 });
+

@@ -1,4 +1,4 @@
-﻿import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import notifee, {
     AndroidImportance,
     AndroidStyle,
@@ -269,7 +269,7 @@ export const updateAttendanceNotification = async (
 
         const body = isBreakMode
             ? `Paused. Time In: ${timeInStr}`
-            : `Time In: ${timeInStr} • Elapsed: ${elapsedText}`;
+            : `Time In: ${timeInStr} � Elapsed: ${elapsedText}`;
 
         const androidBase = {
             channelId: 'attendance_timer',
@@ -300,7 +300,7 @@ export const updateAttendanceNotification = async (
                 id: 'attendance_persistent',
                 title,
                 body,
-                android: { ...androidBase, asForegroundService: true },
+                android: { ...androidBase, asForegroundService: false },
             });
         } catch {
             await notifee.displayNotification({
@@ -347,3 +347,5 @@ export const showStandardNotification = async (title: string, body: string) => {
         },
     });
 };
+
+

@@ -1,22 +1,26 @@
 // filepath: app/settings.tsx
 import {
+    ChatFeedback01Icon,
     CreditCardIcon,
-    Download04Icon,
+    DashboardSquare03Icon,
+    Delete02Icon,
     InformationCircleIcon,
+    Key01Icon,
     Logout01Icon,
     Mail01Icon,
     Notification01Icon,
     PaintBoardIcon,
-    PencilEdit02Icon,
     ReloadIcon,
     SecurityCheckIcon,
     Share08Icon,
-    SparklesIcon,
+    SmartPhone03Icon,
     VolumeHighIcon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Application from 'expo-application';
 import Constants from 'expo-constants';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter } from 'expo-router';
 import { useColorScheme } from 'nativewind';
 import React, { useEffect, useRef, useState } from 'react';
@@ -42,6 +46,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import FloatingAlert from '../components/FloatingAlert';
 import Header from '../components/Header';
 import LoadingOverlay from '../components/LoadingOverlay';
 import ModernAlert from '../components/ModernAlert';
@@ -52,9 +57,61 @@ import { useAuth } from '../context/AuthContext';
 import { useSync } from '../context/SyncContext';
 import { performFullSync } from '../lib/sync';
 import { checkForUpdate } from '../lib/updateCheck';
-import { ExportService } from '../services/ExportService';
 
 type ThemeOption = 'system' | 'light' | 'dark';
+
+type CacheEntry = {
+    uri: string;
+    type: 'file' | 'directory';
+    size: number;
+};
+
+const formatBytes = (bytes: number) => {
+    if (bytes <= 0) return '0 B';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    const value = bytes / Math.pow(1024, index);
+    return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
+};
+
+const collectCacheEntries = async (directoryUri: string): Promise<CacheEntry[]> => {
+    const directory = directoryUri.endsWith('/') ? directoryUri : `${directoryUri}/`;
+    const names = await FileSystem.readDirectoryAsync(directory);
+    const entries: CacheEntry[] = [];
+
+    for (const name of names) {
+        const uri = `${directory}${name}`;
+        const info = await FileSystem.getInfoAsync(uri);
+        if (!info.exists) continue;
+
+        if (info.isDirectory) {
+            const nested = await collectCacheEntries(uri);
+            entries.push(...nested, { uri, type: 'directory', size: 0 });
+        } else {
+            entries.push({ uri, type: 'file', size: (info as any).size ?? 0 });
+        }
+    }
+
+    return entries;
+};
+
+const clearAppCache = async () => {
+    if (!FileSystem.cacheDirectory) {
+        return { deletedBytes: 0, deletedItems: 0 };
+    }
+
+    const entries = await collectCacheEntries(FileSystem.cacheDirectory);
+    const sortedEntries = [...entries].sort((a, b) => b.uri.length - a.uri.length);
+
+    for (const entry of sortedEntries) {
+        await FileSystem.deleteAsync(entry.uri, { idempotent: true });
+    }
+
+    return {
+        deletedBytes: entries.filter((entry) => entry.type === 'file').reduce((total, entry) => total + entry.size, 0),
+        deletedItems: entries.length,
+    };
+};
 
 export default function SettingsScreen() {
     const router = useRouter();
@@ -64,13 +121,13 @@ export default function SettingsScreen() {
     const { triggerSync, pendingCount, failedCount } = useSync();
 
     const [soundEnabled, setSoundEnabled] = useState(true);
-    const [notificationsEnabled, setNotificationsEnabled] = useState(true);
     const [vibrationEnabled, setVibrationEnabled] = useState(true);
     const [themePreference, setThemePreference] = useState<ThemeOption>('system');
     
     const [isLoading, setIsLoading] = useState(false);
     const [loadingMessage, setLoadingMessage] = useState('');
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+    const [floatingAlert, setFloatingAlert] = useState({ visible: false, message: '', type: 'info' as 'success' | 'error' | 'info' | 'warning' });
     const [hasUpdate, setHasUpdate] = useState(false);
 
     // Swap Sync State
@@ -81,6 +138,7 @@ export default function SettingsScreen() {
     const hasGoogle = providers.includes('google');
     const isMounted = useRef(true);
     const dangerColor = theme.colors.danger || '#ef4444';
+    const installedVersion = Application.nativeApplicationVersion || Constants.expoConfig?.version || '1.0.0';
 
     useEffect(() => {
         if (isManualSyncing) {
@@ -116,11 +174,10 @@ export default function SettingsScreen() {
     }, [colorScheme]);
 
     useEffect(() => {
-        const version = Constants.expoConfig?.version || '1.0.0';
-        checkForUpdate(version).then((res) => {
-            if (res.hasUpdate) setHasUpdate(true);
+        checkForUpdate(installedVersion).then((res) => {
+            setHasUpdate(!res.error && res.hasUpdate);
         });
-    }, []);
+    }, [installedVersion]);
 
     const loadSettings = async () => {
         try {
@@ -128,7 +185,6 @@ export default function SettingsScreen() {
             if (storedSettings && isMounted.current) {
                 const parsed = JSON.parse(storedSettings);
                 if (parsed.soundEnabled !== undefined) setSoundEnabled(parsed.soundEnabled);
-                if (parsed.notificationsEnabled !== undefined) setNotificationsEnabled(parsed.notificationsEnabled);
                 if (parsed.vibrationEnabled !== undefined) setVibrationEnabled(parsed.vibrationEnabled);
                 if (parsed.themePreference) setThemePreference(parsed.themePreference);
             }
@@ -147,11 +203,6 @@ export default function SettingsScreen() {
     const toggleSound = (val: boolean) => {
         setSoundEnabled(val);
         saveSetting('soundEnabled', val);
-    };
-
-    const toggleNotificationsEnabled = (val: boolean) => {
-        setNotificationsEnabled(val);
-        saveSetting('notificationsEnabled', val);
     };
 
     const toggleVibrationEnabled = (val: boolean) => {
@@ -173,17 +224,46 @@ export default function SettingsScreen() {
         }
     };
 
-    const handleExportData = async () => {
-        if (!user) return;
-        setIsLoading(true);
-        setLoadingMessage("Packaging your data...");
-        try {
-            await ExportService.exportAllData(user.id);
-        } catch {
-            setAlertConfig({ visible: true, type: 'error', title: 'Export Failed', message: 'Could not export your data at this time.', confirmText: 'OK', onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })) });
-        } finally {
-            setIsLoading(false);
-        }
+    const handleClearCache = () => {
+        setAlertConfig({
+            visible: true,
+            type: 'confirm',
+            title: 'Clear Cache',
+            message: 'Remove temporary downloaded files and cached previews? Your saved reports and account data will stay intact.',
+            confirmText: 'Clear Cache',
+            cancelText: 'Cancel',
+            onConfirm: async () => {
+                setAlertConfig((prev: any) => ({ ...prev, visible: false }));
+                setIsLoading(true);
+                setLoadingMessage('Clearing cache...');
+
+                try {
+                    const result = await clearAppCache();
+                    setAlertConfig({
+                        visible: true,
+                        type: 'success',
+                        title: result.deletedItems > 0 ? 'Cache Cleared' : 'Cache Already Clear',
+                        message: result.deletedItems > 0
+                            ? `Removed ${result.deletedItems} cached item${result.deletedItems === 1 ? '' : 's'} and freed ${formatBytes(result.deletedBytes)}.`
+                            : 'No temporary files were found to remove.',
+                        confirmText: 'OK',
+                        onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
+                    });
+                } catch {
+                    setAlertConfig({
+                        visible: true,
+                        type: 'error',
+                        title: 'Cache Clear Failed',
+                        message: 'Could not clear cached files right now. Please try again.',
+                        confirmText: 'OK',
+                        onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
+                    });
+                } finally {
+                    setIsLoading(false);
+                }
+            },
+            onCancel: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
+        });
     };
 
     const handleManualSync = async () => {
@@ -243,6 +323,12 @@ export default function SettingsScreen() {
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
             <StatusBar barStyle={colorScheme === 'dark' ? "light-content" : "dark-content"} />
             <ModernAlert {...alertConfig} />
+            <FloatingAlert
+                visible={floatingAlert.visible}
+                message={floatingAlert.message}
+                type={floatingAlert.type}
+                onHide={() => setFloatingAlert(prev => ({ ...prev, visible: false }))}
+            />
             <LoadingOverlay visible={isLoading} message={loadingMessage} />
 
             <Header 
@@ -299,13 +385,6 @@ export default function SettingsScreen() {
                 </View>
 
                 <View style={{ marginBottom: 24 }}>
-                    <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>DATA MANAGEMENT</Text>
-                    <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
-                        <ModernSettingsItem icon={Download04Icon} label="Backup Data" subLabel="Save a local copy of your data" onPress={handleExportData} isLast theme={theme} />
-                    </View>
-                </View>
-
-                <View style={{ marginBottom: 24 }}>
                     <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>BILLING & SUBSCRIPTION</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
                         <ModernSettingsItem icon={CreditCardIcon} label="Manage Subscription" subLabel="View plans, invoices, and billing history" onPress={() => router.push('/settings/manage-subscriptions')} isLast theme={theme} />
@@ -315,16 +394,9 @@ export default function SettingsScreen() {
                 <View style={{ marginBottom: 24 }}>
                     <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>APP SETTINGS</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
-                        <ModernSettingsItem icon={Notification01Icon} label="Notifications" onPress={() => router.push('/settings/notifications')} theme={theme} />
-                        <ModernSettingsItem
-                            icon={Notification01Icon}
-                            label="Enable Notifications"
-                            subLabel="Master toggle for all notification surfaces"
-                            theme={theme}
-                            onPress={() => toggleNotificationsEnabled(!notificationsEnabled)}
-                            rightElement={<Switch value={notificationsEnabled} onValueChange={toggleNotificationsEnabled} trackColor={{ false: '#767577', true: theme.colors.primary }} thumbColor={'#fff'} style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }} />}
-                        />
+                        <ModernSettingsItem icon={Notification01Icon} label="Notifications" subLabel="Manage reminders, timer alerts, and report notifications" onPress={() => router.push('/settings/notifications')} theme={theme} />
                         <ModernSettingsItem icon={PaintBoardIcon} label="Appearance" subLabel={themePreference === 'system' ? 'System Default' : (themePreference === 'dark' ? 'Dark Mode' : 'Light Mode')} onPress={() => router.push('/settings/appearance')} theme={theme} />
+                        <ModernSettingsItem icon={DashboardSquare03Icon} label="Widgets" subLabel="Daily summary and quick time action for Android home screen" onPress={() => setFloatingAlert({ visible: true, message: 'Widgets coming soon.', type: 'info' })} theme={theme} />
                         <ModernSettingsItem
                             icon={VolumeHighIcon}
                             label="Sound Effects"
@@ -333,7 +405,7 @@ export default function SettingsScreen() {
                             rightElement={<Switch value={soundEnabled} onValueChange={toggleSound} trackColor={{ false: '#767577', true: theme.colors.primary }} thumbColor={'#fff'} style={{ transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }] }} />}
                         />
                         <ModernSettingsItem
-                            icon={SparklesIcon}
+                            icon={SmartPhone03Icon}
                             label="Haptic Feedback"
                             isLast
                             theme={theme}
@@ -346,7 +418,7 @@ export default function SettingsScreen() {
                 <View style={{ marginBottom: 24 }}>
                     <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>SECURITY</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
-                        <ModernSettingsItem icon={SecurityCheckIcon} label="Account & Security" subLabel="Biometrics, Password, Danger Zone" onPress={() => router.push('/settings/account-security')} isLast theme={theme} />
+                        <ModernSettingsItem icon={SecurityCheckIcon} label="Account & Security" subLabel="Biometrics, Password, Account Deletion" onPress={() => router.push('/settings/account-security')} isLast theme={theme} />
                     </View>
                 </View>
 
@@ -354,7 +426,7 @@ export default function SettingsScreen() {
                 <View style={{ marginBottom: 24 }}>
                     <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>AI INTEGRATION</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
-                        <ModernSettingsItem icon={SparklesIcon} label="API Keys & AI Provider" subLabel="Manage OpenAI and Gemini integration" onPress={() => router.push('/settings/apikey')} isLast theme={theme} />
+                        <ModernSettingsItem icon={Key01Icon} label="API Keys & AI Provider" subLabel="Manage OpenAI and Gemini integration" onPress={() => router.push('/settings/apikey')} isLast theme={theme} />
                     </View>
                 </View>
 
@@ -363,7 +435,8 @@ export default function SettingsScreen() {
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
                         <ModernSettingsItem icon={InformationCircleIcon} label="Legal & Privacy" onPress={() => router.push('/settings/privacy-policy')} theme={theme} />
                         <ModernSettingsItem icon={Mail01Icon} label="Contact Support" onPress={handleContactSupport} theme={theme} />
-                        <ModernSettingsItem icon={PencilEdit02Icon} label="Report or Feedback" onPress={() => router.push('/settings/feedback')} theme={theme} />
+                        <ModernSettingsItem icon={ChatFeedback01Icon} label="Report or Feedback" onPress={() => router.push('/settings/feedback')} theme={theme} />
+                        <ModernSettingsItem icon={Delete02Icon} label="Clear Cache" subLabel="Remove temporary files and cached previews" onPress={handleClearCache} theme={theme} />
                         <ModernSettingsItem
                             icon={InformationCircleIcon} label="About" onPress={() => router.push('/settings/about')} isLast theme={theme}
                             rightElement={hasUpdate ? (<View style={[styles.updateBadge, { backgroundColor: theme.colors.primary }]} />) : undefined}
@@ -397,3 +470,10 @@ const styles = StyleSheet.create({
     signOutButton: { height: 56, borderRadius: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, borderWidth: 1, marginTop: 8, marginBottom: 16 },
     signOutText: { fontSize: 16, fontFamily: 'Nunito_700Bold', letterSpacing: 0.3 }
 });
+
+
+
+
+
+
+

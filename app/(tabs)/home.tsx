@@ -11,8 +11,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNetInfo } from '@react-native-community/netinfo';
 import { addDays, addHours, differenceInDays, differenceInSeconds, format, isToday, set, startOfMonth, startOfWeek } from 'date-fns';
 import { useAudioPlayer } from 'expo-audio';
+import { BlurView } from 'expo-blur';
+import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ActivityIndicator,
@@ -28,7 +30,8 @@ import {
 import Animated, {
     useAnimatedScrollHandler,
     useAnimatedStyle,
-    useSharedValue
+    useSharedValue,
+    withTiming
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
@@ -51,6 +54,8 @@ import { useAuth } from '../../context/AuthContext';
 import { useSync } from '../../context/SyncContext';
 import { generateUUID, getNotificationsLocal, queueSyncItem, saveAttendanceLocal, saveNotificationLocal } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
+import { getSameDayClockOut } from '../../lib/attendance-session';
+import { consumePendingWidgetAction, refreshWidgetSnapshot } from '../../lib/widgets';
 import {
     clearAttendanceNotification,
     initNotificationSystem,
@@ -120,10 +125,14 @@ const HomeContentSkeleton = () => {
         <View style={styles.skeletonContainer}>
             <View style={{ alignItems: 'center', marginBottom: 40 }}>
                 <View style={[styles.skeletonDynamicBar, { borderColor, backgroundColor: cardBg }]}> 
-                    <SkeletonCircle size={48} style={{ marginRight: 14 }} />
-                    <View style={{ gap: 6 }}>
-                        <SkeletonBlock style={{ width: 80, height: 10, borderRadius: 4 }} />
-                        <SkeletonBlock style={{ width: 120, height: 14, borderRadius: 4 }} />
+                    <View style={styles.skeletonDynamicBarTopRow}>
+                        <SkeletonBlock style={{ width: 84, height: 10, borderRadius: 999 }} />
+                        <SkeletonBlock style={{ width: 24, height: 24, borderRadius: 8 }} />
+                    </View>
+                    <View style={{ gap: 10 }}>
+                        <SkeletonBlock style={{ width: 72, height: 12, borderRadius: 999 }} />
+                        <SkeletonBlock style={{ width: '82%', height: 20, borderRadius: 8 }} />
+                        <SkeletonBlock style={{ width: '58%', height: 20, borderRadius: 8 }} />
                     </View>
                 </View>
 
@@ -164,6 +173,7 @@ const HomeContentSkeleton = () => {
 export default function Home() {
     const insets = useSafeAreaInsets();
     const router = useRouter();
+    const params = useLocalSearchParams<{ widgetAction?: string; widgetToken?: string }>();
     const theme = useAppTheme();
     const { user } = useAuth();
     const { triggerSync, syncStatus } = useSync();
@@ -213,31 +223,69 @@ export default function Home() {
     const [otModalVisible, setOtModalVisible] = useState(false);
 
     const [appSettings, setAppSettings] = useState<any>({ vibrationEnabled: true, soundEnabled: true, notificationsEnabled: true });
+    const [pendingWidgetAction, setPendingWidgetAction] = useState<string | null>(null);
 
     const scrollViewRef = useRef<any>(null);
+    const consumedWidgetTokenRef = useRef<string | null>(null);
     const [noJobCardY, setNoJobCardY] = useState(0);
     const [highlightNoJob, setHighlightNoJob] = useState(0);
 
     const scrollY = useSharedValue(0);
     const headerTranslateY = useSharedValue(0);
-    const HEADER_HEIGHT = 100 + insets.top; 
+    const isHeaderHidden = useSharedValue(false);
+    const HEADER_HEIGHT = 140 + insets.top; 
+    const dynamicBarOffsetY = useSharedValue(HEADER_HEIGHT + 28);
 
     const scrollHandler = useAnimatedScrollHandler({
         onScroll: (event) => {
-            const currentY = event.contentOffset.y;
+            const currentY = Math.max(event.contentOffset.y, 0);
             const diff = currentY - scrollY.value;
-            scrollY.value = currentY;
+            const movingDown = diff > 3;
+            const movingUp = diff < -3;
+            const dynamicBarAtTop = (dynamicBarOffsetY.value - currentY) <= insets.top;
 
-            if (currentY > 0) {
-                headerTranslateY.value = Math.max(-HEADER_HEIGHT, Math.min(0, headerTranslateY.value - diff));
-            } else {
-                headerTranslateY.value = 0;
+            if (currentY <= 4) {
+                if (isHeaderHidden.value) {
+                    isHeaderHidden.value = false;
+                    headerTranslateY.value = withTiming(0, { duration: 150 });
+                }
+                scrollY.value = currentY;
+                return;
             }
+
+            if (!dynamicBarAtTop) {
+                if (headerTranslateY.value !== 0 || isHeaderHidden.value) {
+                    isHeaderHidden.value = false;
+                    headerTranslateY.value = withTiming(0, { duration: 150 });
+                }
+                scrollY.value = currentY;
+                return;
+            }
+
+            if (movingDown) {
+                headerTranslateY.value = Math.max(-(HEADER_HEIGHT + 12), headerTranslateY.value - diff);
+                isHeaderHidden.value = headerTranslateY.value <= -(HEADER_HEIGHT + 8);
+            } else if (movingUp) {
+                isHeaderHidden.value = false;
+                headerTranslateY.value = withTiming(0, { duration: 150 });
+            }
+
+            scrollY.value = currentY;
         },
     });
 
     const headerAnimatedStyle = useAnimatedStyle(() => ({
         transform: [{ translateY: headerTranslateY.value }], zIndex: 10, position: 'absolute', top: 0, left: 0, right: 0,
+    }));
+
+    const headerBackdropAnimatedStyle = useAnimatedStyle(() => ({
+        opacity: 1 - Math.min(Math.abs(headerTranslateY.value) / (HEADER_HEIGHT + 12), 1),
+        transform: [{ translateY: headerTranslateY.value * 0.35 }],
+        zIndex: 9,
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
     }));
 
     const latestRecord = todaysRecords.length > 0 ? todaysRecords[0] : null;
@@ -301,7 +349,9 @@ export default function Home() {
             setActiveJobId(localProfile?.current_job_id);
 
             if (!localProfile?.current_job_id) {
-                setJobSettings(null); setTodaysRecords([]); setTasks([]); setLoading(false); return;
+                setJobSettings(null); setTodaysRecords([]); setTasks([]); setLoading(false);
+                await refreshWidgetSnapshot(user.id);
+                return;
             }
 
             const activeJob = await db.getFirstAsync('SELECT * FROM job_positions WHERE id = ?', [localProfile.current_job_id]);
@@ -404,6 +454,8 @@ export default function Home() {
             } else {
                 setJobSettings(null); 
             }
+
+            await refreshWidgetSnapshot(user.id);
         } catch (e: any) { 
             console.log("Load Data Error:", e);
         } finally { 
@@ -429,17 +481,30 @@ export default function Home() {
             setModernAlertConfig({ visible: true, type: 'warning', title: 'No Job Active', message: 'Please set an active job in your profile.', confirmText: 'Manage Jobs', onConfirm: () => { setModernAlertConfig((prev:any)=>({...prev, visible:false})); router.push('/job/job'); } });
             return;
         }
-
         setLoading(true);
         try {
-            const todayStr = format(new Date(), 'yyyy-MM-dd');
+            const db = await getDB();
+            const nowDate = new Date();
+            const todayStr = format(nowDate, 'yyyy-MM-dd');
+            const openRecord: any = await db.getFirstAsync(
+                'SELECT * FROM attendance WHERE user_id = ? AND job_id = ? AND clock_out IS NULL ORDER BY clock_in DESC LIMIT 1',
+                [user.id, activeJobId]
+            );
+
+            if (!isClockedIn && openRecord && format(new Date(openRecord.clock_in), 'yyyy-MM-dd') !== todayStr) {
+                const staleClockOut = getSameDayClockOut(openRecord.clock_in, nowDate).toISOString();
+                const staleRemarks = openRecord.remarks
+                    ? `${openRecord.remarks} | Auto-closed at day end`
+                    : 'Auto-closed at day end';
+                await saveAttendanceLocal({ ...openRecord, clock_out: staleClockOut, status: 'completed', remarks: staleRemarks });
+            }
 
             if (isClockedIn && latestRecord) {
-                const now = new Date().toISOString();
+                const now = getSameDayClockOut(latestRecord.clock_in, nowDate).toISOString();
                 let finalRemarks = latestRecord.remarks || '';
                 if (accumulatedBreakMs > 0) finalRemarks = finalRemarks ? `${finalRemarks} | BreakMs:${accumulatedBreakMs}` : `BreakMs:${accumulatedBreakMs}`;
 
-                const updatedRecord = { ...latestRecord, clock_out: now, status: 'Completed', remarks: finalRemarks };
+                const updatedRecord = { ...latestRecord, clock_out: now, status: 'completed', remarks: finalRemarks };
                 await saveAttendanceLocal(updatedRecord);
                 
                 await AsyncStorage.removeItem(`break_start_${latestRecord.id}`);
@@ -488,7 +553,7 @@ export default function Home() {
         } finally { setLoading(false); }
     }, [user, activeJobId, isClockedIn, latestRecord, appSettings, loadData, triggerSync, successPlayer, router, accumulatedBreakMs]);
 
-    const handleClockButtonPress = () => {
+    const handleClockButtonPress = useCallback(() => {
         if (!jobSettings || !activeJobId) {
             if (scrollViewRef.current) {
                 scrollViewRef.current.scrollTo({ y: Math.max(0, noJobCardY - 120), animated: true });
@@ -506,7 +571,7 @@ export default function Home() {
             }
         }
         processClockAction(false);
-    };
+    }, [activeJobId, isClockedIn, jobSettings, noJobCardY, processClockAction]);
 
     const handleAutoTimeoutLogic = useCallback(async () => {
         if (!isClockedIn || !latestRecord || !user) return;
@@ -515,7 +580,7 @@ export default function Home() {
         let reason = "";
 
         if (isSessionOvertime && otExpiry) {
-            targetTime = new Date(otExpiry); reason = "Overtime Duration Reached";
+            targetTime = getSameDayClockOut(latestRecord.clock_in, new Date(otExpiry)); reason = "Overtime Duration Reached";
         } else if (!isSessionOvertime && latestRecord?.clock_in && jobSettings?.work_schedule?.end) {
             const [endH, endM] = jobSettings.work_schedule.end.split(':').map(Number);
             let shiftEnd = set(new Date(latestRecord.clock_in), { hours: endH, minutes: endM, seconds: 0, milliseconds: 0 });
@@ -523,7 +588,7 @@ export default function Home() {
             const shiftStart = set(new Date(latestRecord.clock_in), { hours: startH, minutes: startM, seconds: 0, milliseconds: 0 });
             
             if (shiftEnd <= shiftStart) shiftEnd = addDays(shiftEnd, 1);
-            targetTime = shiftEnd; reason = "Shift Ended";
+            targetTime = getSameDayClockOut(latestRecord.clock_in, shiftEnd); reason = "Shift Ended";
         }
 
         if (!targetTime) return;
@@ -544,7 +609,7 @@ export default function Home() {
             let finalRemarks = `Auto-timeout: ${reason}`;
             if (accumulatedBreakMs > 0) finalRemarks += ` | BreakMs:${accumulatedBreakMs}`;
 
-            const updatedRecord = { ...latestRecord, clock_out: endIso, status: 'Completed', remarks: finalRemarks };
+            const updatedRecord = { ...latestRecord, clock_out: endIso, status: 'completed', remarks: finalRemarks };
             await saveAttendanceLocal(updatedRecord);
             
             await showStandardNotification("Auto Timed Out", `You have been timed out. (${reason})`);
@@ -643,7 +708,29 @@ export default function Home() {
         loadNotifications();
         AsyncStorage.getItem('appSettings').then(s => { if (s) setAppSettings(JSON.parse(s)); });
         AsyncStorage.getItem('active_ot_expiry').then(val => setOtExpiry(val));
-    }, [loadData, loadNotifications]));
+
+        const paramAction = typeof params.widgetAction === 'string' ? params.widgetAction : null;
+        const widgetToken = typeof params.widgetToken === 'string' ? params.widgetToken : null;
+        if (paramAction === 'clock' && widgetToken && consumedWidgetTokenRef.current !== widgetToken) {
+            consumedWidgetTokenRef.current = widgetToken;
+            setPendingWidgetAction('clock');
+        }
+
+        consumePendingWidgetAction().then(action => {
+            if (action === 'clock') {
+                setPendingWidgetAction('clock');
+            }
+        }).catch(() => {});
+    }, [loadData, loadNotifications, params.widgetAction, params.widgetToken]));
+
+    useEffect(() => {
+        if (pendingWidgetAction !== 'clock' || isInitialLoading || loading) return;
+        setPendingWidgetAction(null);
+        handleClockButtonPress();
+        if (params.widgetAction) {
+            router.replace('/(tabs)/home');
+        }
+    }, [pendingWidgetAction, isInitialLoading, loading, handleClockButtonPress, params.widgetAction, router]);
 
     const onRefresh = async () => { setRefreshing(true); await triggerSync(); await loadData(); };
 
@@ -707,7 +794,7 @@ export default function Home() {
         const [startH, startM] = jobSettings.work_schedule.start?.split(':').map(Number) || [0, 0];
         const shiftStart = set(new Date(latestRecord.clock_in), { hours: startH, minutes: startM, seconds: 0, milliseconds: 0 });
         if (shiftEnd <= shiftStart) shiftEnd = addDays(shiftEnd, 1);
-        return shiftEnd.toISOString();
+        return getSameDayClockOut(latestRecord.clock_in, shiftEnd).toISOString();
     }, [latestRecord?.clock_in, jobSettings?.work_schedule]);
 
     return (
@@ -730,8 +817,22 @@ export default function Home() {
                 </Svg>
             </View>
             
+            <Animated.View pointerEvents="none" style={[styles.headerBlurBackdrop, { height: HEADER_HEIGHT + 20 }, headerBackdropAnimatedStyle]}>
+                <BlurView intensity={theme.dark ? 42 : 58} tint={theme.dark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+                <ExpoLinearGradient
+                    colors={
+                        theme.dark
+                            ? ['rgba(7, 12, 20, 0.18)', 'rgba(7, 12, 20, 0.08)', 'rgba(7, 12, 20, 0)']
+                            : ['rgba(248, 250, 252, 0.28)', 'rgba(248, 250, 252, 0.12)', 'rgba(248, 250, 252, 0)']
+                    }
+                    start={{ x: 0.5, y: 0 }}
+                    end={{ x: 0.5, y: 1 }}
+                    style={StyleSheet.absoluteFill}
+                />
+            </Animated.View>
+
             <Animated.View style={headerAnimatedStyle}>
-                 <DynamicHeader selectedDate={selectedDate} onSelectDate={(date) => setSelectedDate(date)} isClockedIn={isClockedIn} isOvertime={isSessionOvertime} workedMinutes={workedMinutes} dailyGoal={dailyGoal} isLoading={false} />
+                 <DynamicHeader selectedDate={selectedDate} onSelectDate={(date) => setSelectedDate(date)} isClockedIn={isClockedIn} isOvertime={isSessionOvertime} workedMinutes={workedMinutes} dailyGoal={dailyGoal} isLoading={isInitialLoading} />
             </Animated.View>
 
             <Animated.ScrollView 
@@ -739,7 +840,7 @@ export default function Home() {
                 onScroll={scrollHandler} 
                 scrollEventThrottle={16} 
                 showsVerticalScrollIndicator={false} 
-                contentContainerStyle={{ padding: 24, paddingTop: 120 + insets.top, paddingBottom: 140 }} 
+                contentContainerStyle={{ padding: 24, paddingTop: HEADER_HEIGHT + 28, paddingBottom: 140 }} 
                 refreshControl={<RefreshControl refreshing={refreshing || syncStatus === 'syncing'} onRefresh={onRefresh} progressViewOffset={insets.top + 100} tintColor={theme.colors.primary} />}
             >
 
@@ -748,7 +849,9 @@ export default function Home() {
                 ) : (
                     <>
                         <View style={{ alignItems: 'center', marginBottom: 40 }}>
-                            <DynamicBar nameToDisplay={displayName} alertVisible={alertVisible} alertMessage={alertMessage} alertType={alertType} onHideAlert={handleHideAlert} customGreeting={isBreakMode ? "You are on break" : (isBreak ? "Happy Break Time" : null)} />
+                            <View style={{ width: '100%' }} onLayout={(event) => { dynamicBarOffsetY.value = event.nativeEvent.layout.y; }}>
+                                <DynamicBar nameToDisplay={displayName} alertVisible={alertVisible} alertMessage={alertMessage} alertType={alertType} onHideAlert={handleHideAlert} customGreeting={isBreakMode ? "You are on break" : (isBreak ? "Happy Break Time" : null)} shiftStartTime={jobSettings?.work_schedule?.start || null} />
+                            </View>
                             <View style={{ opacity: isBreakMode ? 0.5 : 1 }} pointerEvents={isBreakMode ? 'none' : 'auto'}>
                                 <BiometricButton onSuccess={handleClockButtonPress} isClockedIn={isClockedIn} isLoading={loading} settings={appSettings} />
                             </View>
@@ -812,7 +915,9 @@ export default function Home() {
 
 const styles = StyleSheet.create({
     skeletonContainer: { flex: 1, paddingHorizontal: 0 },
-    skeletonDynamicBar: { flexDirection: 'row', alignItems: 'center', padding: 6, borderRadius: 24, borderWidth: 1, width: '100%', maxWidth: 380, height: 64 },
+    skeletonDynamicBar: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14, borderRadius: 28, borderWidth: 1, width: '100%', maxWidth: 392, minHeight: 104, overflow: 'hidden' },
+    skeletonDynamicBarTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+    headerBlurBackdrop: { position: 'absolute', top: 0, left: 0, right: 0 },
     skeletonCard: { borderRadius: 24, borderWidth: 1.5, justifyContent: 'space-between', overflow: 'hidden' },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -822,3 +927,8 @@ const styles = StyleSheet.create({
     badge: { position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, borderWidth: 1.5 },
     timelineCard: { borderRadius: 24, borderWidth: 1, overflow: 'hidden' },
 });
+
+
+
+
+

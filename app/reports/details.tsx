@@ -14,7 +14,7 @@ import {
     TimeManagementCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
-import { format, isSameDay, parseISO } from "date-fns";
+import { format } from "date-fns";
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -56,8 +56,10 @@ import TimePicker from "../../components/TimePicker";
 import { useAppTheme } from "../../constants/theme";
 import { useAuth } from "../../context/AuthContext";
 import { useSync } from "../../context/SyncContext";
+import { remapTimestampToDay } from "../../lib/attendance-session";
 import { queueSyncItem, saveAttendanceLocal } from "../../lib/database";
 import { getDB } from "../../lib/db-client";
+import { refreshWidgetSnapshot } from "../../lib/widgets";
 
 export default function ReportDetailsScreen() {
   const router = useRouter();
@@ -137,7 +139,7 @@ export default function ReportDetailsScreen() {
 
       setAttendances(dbAtts.map(a => ({ ...a, _isDeleted: false, _isModified: false })));
       setTasks(processedTasks);
-      setReportStatus(dbAtts.length > 0 ? dbAtts[dbAtts.length - 1].status : "pending");
+      setReportStatus(dbAtts.length > 0 ? String(dbAtts[dbAtts.length - 1].status || 'pending').toLowerCase() : "pending");
       
       const [y, m, d] = dateStr.split('-').map(Number);
       setActiveDate(new Date(y, m - 1, d));
@@ -250,6 +252,7 @@ export default function ReportDetailsScreen() {
             }
         }
         triggerSync();
+        if (user?.id) await refreshWidgetSnapshot(user.id, { force: true });
         router.back();
       }
     } catch (err) { console.log(err); } finally { setSaving(false); }
@@ -276,27 +279,24 @@ export default function ReportDetailsScreen() {
       if (period === 'PM' && h < 12) h += 12;
       if (period === 'AM' && h === 12) h = 0;
 
-      let newDate: Date;
+      const newDate = new Date(y, m - 1, d);
+      newDate.setHours(h, minutes, 0, 0);
 
-      if (activePicker.type === 'in') {
-          newDate = new Date(y, m - 1, d);
-          newDate.setHours(h, minutes, 0, 0);
-
-          if (session.clock_out) {
-              const outDate = new Date(session.clock_out);
-              if (newDate > outDate) {
-                  setFloatingAlert({ visible: true, message: "Time In cannot be later than Time Out.", type: "warning" });
-                  setActivePicker(null);
-                  return;
-              }
+      if (activePicker.type === 'in' && session.clock_out) {
+          const outDate = remapTimestampToDay(session.clock_out, activeDate);
+          if (newDate > outDate) {
+              setFloatingAlert({ visible: true, message: "Time In cannot be later than Time Out.", type: "warning" });
+              setActivePicker(null);
+              return;
           }
-      } else {
-          const inDate = session.clock_in ? new Date(session.clock_in) : new Date(y, m - 1, d);
-          newDate = new Date(inDate);
-          newDate.setHours(h, minutes, 0, 0);
+      }
 
+      if (activePicker.type === 'out') {
+          const inDate = session.clock_in ? remapTimestampToDay(session.clock_in, activeDate) : new Date(y, m - 1, d);
           if (newDate < inDate) {
-              newDate.setDate(newDate.getDate() + 1);
+              setFloatingAlert({ visible: true, message: "Time Out must stay within the same day and cannot be earlier than Time In.", type: "warning" });
+              setActivePicker(null);
+              return;
           }
       }
 
@@ -349,24 +349,33 @@ export default function ReportDetailsScreen() {
                   await db.runAsync("DELETE FROM attendance WHERE id = ?", [att.id]);
                   await queueSyncItem("attendance", att.id, "DELETE");
               } else if (att._isModified || targetDateStr !== dateStr) {
+                  const mappedClockIn = att.clock_in ? remapTimestampToDay(att.clock_in, activeDate).toISOString() : att.clock_in;
+                  const mappedClockOut = att.clock_out ? remapTimestampToDay(att.clock_out, activeDate).toISOString() : att.clock_out;
+
+                  if (mappedClockIn && mappedClockOut && new Date(mappedClockOut).getTime() < new Date(mappedClockIn).getTime()) {
+                      setAlertConfig({ visible: true, type: 'warning', title: 'Invalid Session Time', message: 'Each session must stay within the selected day. Please adjust Time In and Time Out before saving.', confirmText: 'Okay', onConfirm: () => setAlertConfig({ visible: false }) });
+                      setSaving(false);
+                      return;
+                  }
+
                   const exists: any = await db.getFirstAsync("SELECT * FROM attendance WHERE id = ?", [att.id]);
                   if (exists) {
                       await db.runAsync(
                           "UPDATE attendance SET clock_in = ?, clock_out = ?, status = ?, date = ?, updated_at = ?, is_synced = 0 WHERE id = ?",
-                          [att.clock_in, att.clock_out, att.clock_out ? 'completed' : 'pending', targetDateStr, now, att.id]
+                          [mappedClockIn, mappedClockOut, mappedClockOut ? 'completed' : 'pending', targetDateStr, now, att.id]
                       );
-                      const payload = { 
-                          ...exists, 
-                          clock_in: att.clock_in, 
-                          clock_out: att.clock_out, 
-                          status: att.clock_out ? 'completed' : 'pending', 
-                          date: targetDateStr, 
-                          updated_at: now, 
-                          is_synced: 0 
+                      const payload = {
+                          ...exists,
+                          clock_in: mappedClockIn,
+                          clock_out: mappedClockOut,
+                          status: mappedClockOut ? 'completed' : 'pending',
+                          date: targetDateStr,
+                          updated_at: now,
+                          is_synced: 0
                       };
                       await queueSyncItem("attendance", att.id, "UPDATE", payload);
                   } else {
-                      const newAtt = { id: att.id, user_id: att.user_id, job_id: att.job_id, date: targetDateStr, clock_in: att.clock_in, clock_out: att.clock_out, status: att.clock_out ? 'completed' : 'pending', remarks: att.remarks, updated_at: now };
+                      const newAtt = { id: att.id, user_id: att.user_id, job_id: att.job_id, date: targetDateStr, clock_in: mappedClockIn, clock_out: mappedClockOut, status: mappedClockOut ? 'completed' : 'pending', remarks: att.remarks, updated_at: now };
                       await saveAttendanceLocal(newAtt);
                   }
               }
@@ -387,6 +396,7 @@ export default function ReportDetailsScreen() {
 
           setIsDirty(false);
           triggerSync();
+          if (user?.id) await refreshWidgetSnapshot(user.id, { force: true });
           
           if (targetDateStr !== dateStr) {
               router.setParams({ date: targetDateStr });
@@ -502,7 +512,7 @@ export default function ReportDetailsScreen() {
       />
       
       <LoadingOverlay visible={saving || loading} message={saving ? "Saving Report..." : "Loading..."} />
-      <ImageViewer visible={viewerVisible} imageUri={activeImageUri} onClose={() => setViewerVisible(false)} />
+      <ImageViewer visible={viewerVisible} imageUri={activeImageUri} onClose={() => setViewerVisible(false)} context={{ reportDate: activeDate }} />
 
       <DatePicker 
           visible={showDatePicker} 
@@ -596,15 +606,22 @@ export default function ReportDetailsScreen() {
             { label: "Edit Report", icon: PencilEdit02Icon, onPress: () => toggleEditMode(true), color: theme.colors.text },
             { label: "Share Overview", icon: Share08Icon, onPress: handleShare, color: theme.colors.primary },
             { label: "Generate Document", icon: File02Icon, onPress: () => { setMenuVisible(false); router.push({ pathname: "/reports/generate", params: { date } }); }, color: "#f97316" },
-            { label: "Delete Report", icon: Delete02Icon, onPress: () => {
+                        { label: "Delete Report", icon: Delete02Icon, onPress: () => {
                 setMenuVisible(false);
-                const isToday = isSameDay(parseISO(dateStr), new Date());
                 const isPending = reportStatus === "pending";
+                if (isPending) {
+                    setFloatingAlert({
+                        visible: true,
+                        message: "Time out first before deleting this report.",
+                        type: "warning"
+                    });
+                    return;
+                }
                 setAlertConfig({
                     visible: true, type: "warning", 
-                    title: isToday && isPending ? "Cancel Active Session?" : "Delete Report", 
-                    message: isToday && isPending ? "⚠️ You are currently TIMED IN.\n\nDeleting this report will CANCEL your current session. Are you sure?" : "This will permanently delete this daily report and all its tasks.", 
-                    confirmText: isToday && isPending ? "End Session & Delete" : "Delete Forever", 
+                    title: "Delete Report", 
+                    message: "This will permanently delete this daily report and all its tasks.", 
+                    confirmText: "Delete", 
                     cancelText: "Cancel",
                     onConfirm: async () => { setAlertConfig({ visible: false }); executeDeleteReport(); },
                     onCancel: () => setAlertConfig({ visible: false }),
@@ -806,3 +823,5 @@ const styles = StyleSheet.create({
   label: { fontSize: 14, fontFamily: 'Nunito_600SemiBold', flex: 1 },
   value: { fontSize: 14, fontFamily: 'Nunito_700Bold', maxWidth: '65%', textAlign: 'right', lineHeight: 20 },
 });
+
+

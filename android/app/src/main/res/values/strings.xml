@@ -1,5 +1,9 @@
-<resources>
+﻿<resources>
   <string name="app_name">DART</string>
+  <string name="widget_daily_summary_name">DART Daily Summary</string>
+  <string name="widget_daily_summary_description">Shows daily work summary from DART.</string>
+  <string name="widget_quick_action_name">DART Quick Time Action</string>
+  <string name="widget_quick_action_description">Open DART and run the quick time in or time out action.</string>
   <string name="expo_system_ui_user_interface_style" translatable="false">automatic</string>
   <string name="expo_splash_screen_resize_mode" translatable="false">contain</string>
   <string name="expo_splash_screen_status_bar_translucent" translatable="false">false</string>

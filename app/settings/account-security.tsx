@@ -315,7 +315,7 @@ export default function AccountSecurityScreen() {
                 </View>
 
                 <View style={{ marginBottom: 24 }}>
-                    <Text style={styles.sectionTitle}>DANGER ZONE</Text>
+                    <Text style={styles.sectionTitle}>ACCOUNT DELETION</Text>
                     <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                          <ModernSettingsItem icon={Alert02Icon} label="Delete Account" desc="Permanently remove all data" onPress={handleDeleteRequest} destructive isLast theme={theme} />
                     </View>

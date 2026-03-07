@@ -43,5 +43,17 @@
         <data android:scheme="exp+dart-app"/>
       </intent-filter>
     </activity>
+    <receiver android:name=".DailySummaryWidgetProvider" android:exported="true" android:label="@string/widget_daily_summary_name">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+      </intent-filter>
+      <meta-data android:name="android.appwidget.provider" android:resource="@xml/daily_summary_widget_info"/>
+    </receiver>
+    <receiver android:name=".QuickActionWidgetProvider" android:exported="true" android:label="@string/widget_quick_action_name">
+      <intent-filter>
+        <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+      </intent-filter>
+      <meta-data android:name="android.appwidget.provider" android:resource="@xml/quick_action_widget_info"/>
+    </receiver>
   </application>
 </manifest>

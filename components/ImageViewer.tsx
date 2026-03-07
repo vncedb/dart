@@ -5,13 +5,15 @@ import {
     Share08Icon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { format, parseISO } from 'date-fns';
 import * as FileSystem from 'expo-file-system/legacy';
-import * as MediaLibrary from 'expo-media-library';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Dimensions,
     Modal,
+    Platform,
     Share,
     StyleSheet,
     Text,
@@ -32,15 +34,54 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ensureDartDocumentationsDirectory } from '../lib/saf-directory';
+
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const DOCUMENTATIONS_URI_KEY = 'documentations_directory_uri';
+
+type ViewerContext = {
+    reportDate?: string | Date | null;
+};
 
 interface ImageViewerProps {
     visible: boolean;
     imageUri: string | null;
     onClose: () => void;
+    context?: ViewerContext;
 }
 
-export default function ImageViewer({ visible, imageUri, onClose }: ImageViewerProps) {
+const normalizeReportDate = (value?: string | Date | null) => {
+    if (!value) return new Date();
+    if (value instanceof Date) return value;
+
+    const parsed = parseISO(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+
+    const fallback = new Date(value);
+    return Number.isNaN(fallback.getTime()) ? new Date() : fallback;
+};
+
+const inferExtension = (uri: string) => {
+    const cleanUri = uri.split('?')[0].toLowerCase();
+    if (cleanUri.endsWith('.png')) return { extension: 'png', mimeType: 'image/png' };
+    if (cleanUri.endsWith('.webp')) return { extension: 'webp', mimeType: 'image/webp' };
+    if (cleanUri.endsWith('.heic')) return { extension: 'heic', mimeType: 'image/heic' };
+    return { extension: 'jpg', mimeType: 'image/jpeg' };
+};
+
+const ensureDocumentationsUri = async () => {
+    const savedUri = await AsyncStorage.getItem(DOCUMENTATIONS_URI_KEY);
+    if (savedUri) return savedUri;
+
+    const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+    if (!permissions.granted) return null;
+
+    const finalUri = await ensureDartDocumentationsDirectory(permissions.directoryUri);
+    await AsyncStorage.setItem(DOCUMENTATIONS_URI_KEY, finalUri);
+    return finalUri;
+};
+
+export default function ImageViewer({ visible, imageUri, onClose, context }: ImageViewerProps) {
     const insets = useSafeAreaInsets();
     const [loading, setLoading] = useState(false);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -164,24 +205,54 @@ export default function ImageViewer({ visible, imageUri, onClose }: ImageViewerP
 
     const handleSave = async () => {
         if (!imageUri) return;
+
+        const reportDate = normalizeReportDate(context?.reportDate);
+        const generatedDate = new Date();
+        const fileBaseName = `DOCUMENTATION_${format(reportDate, 'MMddyy')}${format(generatedDate, 'MMddyy')}`;
+        const { extension, mimeType } = inferExtension(imageUri);
+
         try {
-            const { status } = await MediaLibrary.requestPermissionsAsync();
-            if (status !== 'granted') {
-                setToast({ message: 'Permission required to save photos', type: 'error' });
+            setLoading(true);
+
+            if (Platform.OS === 'android') {
+                const safUri = await ensureDocumentationsUri();
+                if (!safUri) {
+                    setToast({ message: 'Storage access is required to save documentation', type: 'error' });
+                    return;
+                }
+
+                const tempUri = `${FileSystem.cacheDirectory || FileSystem.documentDirectory}${fileBaseName}.${extension}`;
+                if (imageUri.startsWith('http')) {
+                    await FileSystem.downloadAsync(imageUri, tempUri);
+                } else {
+                    await FileSystem.copyAsync({ from: imageUri, to: tempUri });
+                }
+
+                const base64 = await FileSystem.readAsStringAsync(tempUri, { encoding: 'base64' });
+                const destinationUri = await FileSystem.StorageAccessFramework.createFileAsync(safUri, fileBaseName, mimeType);
+                await FileSystem.writeAsStringAsync(destinationUri, base64, { encoding: 'base64' });
+                await FileSystem.deleteAsync(tempUri, { idempotent: true });
+
+                setToast({ message: 'Saved to Documents/DART/Documentations', type: 'success' });
                 return;
             }
-            setLoading(true);
-            let uriToSave = imageUri;
-            if (imageUri.startsWith('http')) {
-                const filename = imageUri.split('/').pop() || `img_${Date.now()}.jpg`;
-                const fileUri = (FileSystem.documentDirectory || FileSystem.cacheDirectory || '') + filename;
-                const { uri } = await FileSystem.downloadAsync(imageUri, fileUri);
-                uriToSave = uri;
+
+            const fallbackDir = `${FileSystem.documentDirectory || FileSystem.cacheDirectory}DART/Documentations/`;
+            const dirInfo = await FileSystem.getInfoAsync(fallbackDir);
+            if (!dirInfo.exists) {
+                await FileSystem.makeDirectoryAsync(fallbackDir, { intermediates: true });
             }
-            await MediaLibrary.saveToLibraryAsync(uriToSave);
-            setToast({ message: 'Saved to gallery', type: 'success' });
+
+            const destination = `${fallbackDir}${fileBaseName}.${extension}`;
+            if (imageUri.startsWith('http')) {
+                await FileSystem.downloadAsync(imageUri, destination);
+            } else {
+                await FileSystem.copyAsync({ from: imageUri, to: destination });
+            }
+
+            setToast({ message: 'Saved to DART/Documentations', type: 'success' });
         } catch {
-            setToast({ message: 'Failed to save', type: 'error' });
+            setToast({ message: 'Failed to save documentation', type: 'error' });
         } finally {
             setLoading(false);
         }
@@ -202,7 +273,6 @@ export default function ImageViewer({ visible, imageUri, onClose }: ImageViewerP
         <Modal visible={visible} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
             <GestureHandlerRootView style={styles.root}>
                 <Animated.View style={[StyleSheet.absoluteFill, animatedBackdropStyle]}>
-                    {/* Header - minimal, auto-hide */}
                     {controlsVisible && (
                         <Animated.View
                             entering={FadeIn.duration(200)}
@@ -236,7 +306,6 @@ export default function ImageViewer({ visible, imageUri, onClose }: ImageViewerP
                         </Animated.View>
                     )}
 
-                    {/* Hint - tap to toggle controls */}
                     {!controlsVisible && (
                         <TouchableOpacity
                             style={StyleSheet.absoluteFill}
@@ -245,7 +314,6 @@ export default function ImageViewer({ visible, imageUri, onClose }: ImageViewerP
                         />
                     )}
 
-                    {/* Toast */}
                     {toast && (
                         <Animated.View
                             entering={FadeInUp.duration(250)}
@@ -261,7 +329,6 @@ export default function ImageViewer({ visible, imageUri, onClose }: ImageViewerP
                         </Animated.View>
                     )}
 
-                    {/* Image */}
                     <GestureDetector gesture={composedGesture}>
                         <View style={styles.imageContainer}>
                             <Animated.Image
@@ -272,14 +339,13 @@ export default function ImageViewer({ visible, imageUri, onClose }: ImageViewerP
                         </View>
                     </GestureDetector>
 
-                    {/* Bottom hint - only when controls visible */}
                     {controlsVisible && (
                         <Animated.View
                             entering={FadeIn.duration(200)}
                             exiting={FadeOut.duration(150)}
                             style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 24) }]}
                         >
-                            <Text style={styles.footerHint}>Pinch to zoom \u2022 Double-tap to zoom \u2022 Swipe down to close</Text>
+                            <Text style={styles.footerHint}>Pinch to zoom • Double-tap to zoom • Swipe down to close</Text>
                         </Animated.View>
                     )}
                 </Animated.View>

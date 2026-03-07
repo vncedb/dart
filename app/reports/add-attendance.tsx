@@ -33,6 +33,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useSync } from '../../context/SyncContext';
 import { generateUUID, queueSyncItem } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
+import { refreshWidgetSnapshot } from '../../lib/widgets';
 
 export default function AddAttendanceScreen() {
     const router = useRouter();
@@ -141,7 +142,11 @@ export default function AddAttendanceScreen() {
             if (timeOut) {
                 cOut = new Date(selectedDate);
                 cOut.setHours(timeOut.getHours(), timeOut.getMinutes(), 0, 0);
-                if (cOut < cIn) cOut.setDate(cOut.getDate() + 1);
+                if (cOut < cIn) {
+                    setAlertConfig({ visible: true, type: 'warning', title: 'Invalid Time', message: 'Time Out must stay within the same day and cannot be earlier than Time In.', confirmText: 'OK', onConfirm: () => setAlertConfig({ visible: false }) });
+                    setLoading(false);
+                    return;
+                }
                 status = 'completed'; 
             }
 
@@ -168,6 +173,7 @@ export default function AddAttendanceScreen() {
 
             setIsDirty(false);
             triggerSync(); 
+            await refreshWidgetSnapshot(user.id, { force: true });
             router.back(); 
         } catch (e: any) { 
             setAlertConfig({ visible: true, type: 'error', title: 'Save Failed', message: e.message || 'An error occurred.', confirmText: 'Okay', onConfirm: () => setAlertConfig({ visible: false }) });

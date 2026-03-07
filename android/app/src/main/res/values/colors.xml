@@ -4,4 +4,14 @@
   <color name="colorPrimary">#023c69</color>
   <color name="colorPrimaryDark">#f9f9f9</color>
   <color name="notification_icon_color">#4f46e5</color>
+  <color name="widget_surface">#FFFFFFFF</color>
+  <color name="widget_border">#E2E8F0</color>
+  <color name="widget_border_soft">#EEF2F7</color>
+  <color name="widget_chip_bg">#F8FAFC</color>
+  <color name="widget_chip_border">#E2E8F0</color>
+  <color name="widget_section_bg">#F8FAFC</color>
+  <color name="widget_progress_track">#E2E8F0</color>
+  <color name="widget_text_primary">#0F172A</color>
+  <color name="widget_text_muted">#64748B</color>
+  <color name="widget_text_faint">#94A3B8</color>
 </resources>

@@ -25,7 +25,9 @@ import { SyncProvider } from "../context/SyncContext";
 import "../global.css";
 import { initDatabase, queueSyncItem } from "../lib/database";
 import { getDB } from "../lib/db-client";
+import { getSameDayClockOut } from "../lib/attendance-session";
 import { supabase } from "../lib/supabase";
+import { refreshWidgetSnapshot } from "../lib/widgets";
 import {
   clearAttendanceNotification,
   syncPersistentNotification,
@@ -45,12 +47,6 @@ if (__DEV__) {
     };
     LogBox.ignoreAllLogs(true);
 }
-
-notifee.registerForegroundService((notification) => {
-    return new Promise(() => {
-        // Keeps the service alive
-    });
-});
 
 // BACKGROUND EVENT HANDLER
 notifee.onBackgroundEvent(async ({ type, detail }) => {
@@ -76,7 +72,7 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
                         );
 
                         if (activeShift) {
-                            const clockOutTime = new Date().toISOString();
+                            const clockOutTime = getSameDayClockOut(activeShift.clock_in, new Date()).toISOString();
                             // FIX: Status must strictly be lowercase 'completed' to match cloud database schema
                             await db.runAsync(
                                 "UPDATE attendance SET clock_out = ?, status = 'completed', updated_at = ?, is_synced = 0 WHERE id = ?",
@@ -90,6 +86,7 @@ notifee.onBackgroundEvent(async ({ type, detail }) => {
                                 status: 'completed',
                                 updated_at: clockOutTime 
                             });
+                            await refreshWidgetSnapshot(userId, { force: true });
                         }
                     }
                 }
@@ -114,6 +111,7 @@ function RootLayoutNav() {
   useEffect(() => {
       if (user?.id) {
           syncPersistentNotification(user.id);
+          refreshWidgetSnapshot(user.id, { force: true }).catch(() => {});
       } else if (!loading) {
           clearAttendanceNotification();
       }
@@ -161,6 +159,7 @@ function RootLayoutNav() {
           <Stack.Screen name="settings/about" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/apikey" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/feedback" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="settings/widgets" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/docs/privacy-details" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="settings/docs/terms-of-service" options={{ animation: "slide_from_right" }} />
           
@@ -241,3 +240,8 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+
+
+
+

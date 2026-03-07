@@ -97,6 +97,7 @@ const WheelPicker = React.memo(function WheelPicker({
   const startIndex = isInfinite ? Math.floor(multiplier / 2) * baseLength + initialBaseIndex : initialBaseIndex;
 
   const scrollY = useSharedValue(startIndex * ITEM_HEIGHT);
+  const lastScrollNotifiedIndex = useSharedValue(startIndex);
   const flatListRef = useRef<FlatList<string | number>>(null);
   const lastCommittedIndex = useRef(startIndex);
   const lastHapticMs = useRef(0);
@@ -147,6 +148,16 @@ const WheelPicker = React.memo(function WheelPicker({
 
   const onScroll = useAnimatedScrollHandler((event) => {
     scrollY.value = event.contentOffset.y;
+
+    const rawIndex = Math.round(event.contentOffset.y / ITEM_HEIGHT);
+    const normalizedIndex = isInfinite
+      ? Math.floor(multiplier / 2) * baseLength + (((rawIndex % baseLength) + baseLength) % baseLength)
+      : rawIndex;
+
+    if (normalizedIndex !== lastScrollNotifiedIndex.value) {
+      lastScrollNotifiedIndex.value = normalizedIndex;
+      runOnJS(commitIndex)(normalizedIndex);
+    }
   });
 
   const handleMomentumEnd = useCallback(
@@ -419,3 +430,4 @@ const styles = StyleSheet.create({
   wheelItem: { height: ITEM_HEIGHT, width: "100%", justifyContent: "center", alignItems: "center" },
   wheelText: { fontSize: 22, fontFamily: "Nunito_700Bold", textAlign: "center" },
 });
+

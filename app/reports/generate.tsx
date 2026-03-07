@@ -40,7 +40,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import Button from "../../components/Button";
 import Footer from "../../components/Footer";
 import Header from "../../components/Header";
-import IconButton from "../../components/IconButton";
 import ImageViewer from "../../components/ImageViewer";
 import LoadingOverlay from "../../components/LoadingOverlay";
 import { ModernAlert } from "../../components/ModernUI";
@@ -50,28 +49,9 @@ import { useAppTheme } from "../../constants/theme";
 import { getDB } from "../../lib/db-client";
 import { supabase } from "../../lib/supabase";
 import { ReportService } from "../../services/ReportService";
+import { ensureDartReportsDirectory } from '../../lib/saf-directory';
 
 const SETTINGS_KEY = "report_generation_settings";
-
-// Setup SAF matching the saved-reports logic
-const setupSAFDirectory = async (baseUri: string) => {
-    let target = baseUri;
-    try {
-        target = await FileSystem.StorageAccessFramework.makeDirectoryAsync(target, 'DART');
-    } catch {
-        const contents = await FileSystem.StorageAccessFramework.readDirectoryAsync(target);
-        const found = contents.find(uri => decodeURIComponent(uri).endsWith('/DART') || decodeURIComponent(uri).endsWith('%3ADART'));
-        if (found) target = found;
-    }
-    try {
-        target = await FileSystem.StorageAccessFramework.makeDirectoryAsync(target, 'Reports');
-    } catch {
-        const contents = await FileSystem.StorageAccessFramework.readDirectoryAsync(target);
-        const found = contents.find(uri => decodeURIComponent(uri).endsWith('/Reports') || decodeURIComponent(uri).endsWith('%3AReports'));
-        if (found) target = found;
-    }
-    return target;
-};
 
 export default function GenerateReportScreen() {
   const router = useRouter();
@@ -79,7 +59,10 @@ export default function GenerateReportScreen() {
   const theme = useAppTheme();
   
   const params = useLocalSearchParams();
-  const { startDate, endDate, date } = params;
+  const toSingleParam = (value: string | string[] | undefined) => Array.isArray(value) ? value[0] : value;
+  const startDate = toSingleParam(params.startDate);
+  const endDate = toSingleParam(params.endDate);
+  const date = toSingleParam(params.date);
 
   // --- Data State ---
   const [loading, setLoading] = useState(true);
@@ -87,7 +70,7 @@ export default function GenerateReportScreen() {
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [selectedDates, setSelectedDates] = useState<Set<string>>(new Set());
   const [periodLabel, setPeriodLabel] = useState("");
-  const [previewImages, setPreviewImages] = useState<string[]>([]);
+  const [previewImages, setPreviewImages] = useState<{ uri: string; date: string }[]>([]);
 
   // --- Config State (Default Toggled ON) ---
   const [formatType, setFormatType] = useState<"pdf" | "xlsx">("pdf");
@@ -119,7 +102,7 @@ export default function GenerateReportScreen() {
   const [shouldSaveSettings, setShouldSaveSettings] = useState(false);
   const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
   const [viewerVisible, setViewerVisible] = useState(false);
-  const [activeImage, setActiveImage] = useState<string | null>(null);
+  const [activeImage, setActiveImage] = useState<{ uri: string; date: string } | null>(null);
 
   const today = new Date();
   const isProceeding = useRef(false);
@@ -260,15 +243,19 @@ export default function GenerateReportScreen() {
         setAvailableDates(sortedDates);
         setSelectedDates(new Set(sortedDates));
 
-        const imagesFound: string[] = [];
+        const imagesFound: { uri: string; date: string }[] = [];
         (items.tasks || []).forEach((t: any) => {
           if (t.image_url) {
             try {
               if (t.image_url.trim().startsWith("[")) {
                 const parsed = JSON.parse(t.image_url);
-                if (Array.isArray(parsed)) imagesFound.push(...parsed);
-              } else { imagesFound.push(t.image_url); }
-            } catch { imagesFound.push(t.image_url); }
+                if (Array.isArray(parsed)) parsed.forEach((uri: string) => imagesFound.push({ uri, date: t.date }));
+              } else {
+                imagesFound.push({ uri: t.image_url, date: t.date });
+              }
+            } catch {
+              imagesFound.push({ uri: t.image_url, date: t.date });
+            }
           }
         });
         setPreviewImages(imagesFound);
@@ -307,7 +294,7 @@ export default function GenerateReportScreen() {
             try {
                 const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
                 if (permissions.granted) {
-                    const finalUri = await setupSAFDirectory(permissions.directoryUri);
+                    const finalUri = await ensureDartReportsDirectory(permissions.directoryUri);
                     await AsyncStorage.setItem('reports_directory_uri', finalUri);
                 } else {
                     setAlertConfig({
@@ -425,7 +412,7 @@ export default function GenerateReportScreen() {
         title={activeSigner === "primary" ? "Your Signature" : "Approver Signature"}
       />
 
-      <ImageViewer visible={viewerVisible} imageUri={activeImage} onClose={() => setViewerVisible(false)} />
+      <ImageViewer visible={viewerVisible} imageUri={activeImage?.uri || null} onClose={() => setViewerVisible(false)} context={{ reportDate: activeImage?.date || date || startDate || null }} />
 
       <View style={{ flex: 1 }}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
@@ -434,7 +421,7 @@ export default function GenerateReportScreen() {
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>REPORT SUMMARY</Text>
               <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
                   <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
                     <View style={[styles.iconBox, { backgroundColor: theme.colors.primary + "15" }]}>
                       <HugeiconsIcon icon={Calendar03Icon} size={20} color={theme.colors.primary} />
@@ -444,26 +431,52 @@ export default function GenerateReportScreen() {
                       <Text style={{ fontSize: 16, color: theme.colors.text, fontFamily: 'Nunito_800ExtraBold', marginTop: 2 }}>{periodLabel || "Loading..."}</Text>
                     </View>
                   </View>
-                  <SelectDropdown
-                      label="Customize Inclusion"
-                      multiple
-                      value={Array.from(selectedDates)}
-                      options={availableDates.map(d => ({ label: format(new Date(d), 'MMMM dd, yyyy'), value: d }))}
-                      onChange={(val) => setSelectedDates(new Set(val))}
-                      customTrigger={
-                          <View pointerEvents="none">
-                              <IconButton icon={CustomizeIcon} size={18} />
-                          </View>
-                      }
-                  />
-                </View>
-                <View style={[styles.divider, { backgroundColor: theme.colors.border, marginVertical: 14 }]} />
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
-                  <Text style={{ fontSize: 14, color: theme.colors.textSecondary, fontFamily: 'Nunito_600SemiBold' }}>Total Included Reports</Text>
                   <View style={[styles.badge, { backgroundColor: theme.colors.success + "15" }]}>
                     <Text style={{ fontSize: 13, color: theme.colors.success, fontFamily: 'Nunito_800ExtraBold' }}>{selectedDates.size} {selectedDates.size === 1 ? "Day" : "Days"}</Text>
                   </View>
                 </View>
+                <View style={[styles.divider, { backgroundColor: theme.colors.border, marginVertical: 14 }]} />
+                <SelectDropdown
+                  label="Customize Inclusion"
+                  multiple
+                  value={Array.from(selectedDates)}
+                  options={availableDates.map(d => ({ label: format(new Date(d), 'MMMM dd, yyyy'), value: d }))}
+                  onChange={(val) => setSelectedDates(new Set(val))}
+                  customTrigger={
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.customizeTrigger,
+                        {
+                          backgroundColor: theme.colors.background,
+                          borderColor: theme.colors.border,
+                        }
+                      ]}
+                    >
+                      <View style={[styles.customizeTriggerIcon, { backgroundColor: theme.colors.primary + '12' }]}>
+                        <HugeiconsIcon icon={CustomizeIcon} size={18} color={theme.colors.primary} />
+                      </View>
+
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.customizeTriggerTitle, { color: theme.colors.text }]}>Customize Included Dates</Text>
+                        <Text style={[styles.customizeTriggerMeta, { color: theme.colors.textSecondary }]}> 
+                          {availableDates.length === 0
+                            ? 'No report dates available.'
+                            : selectedDates.size === availableDates.length
+                              ? `All ${availableDates.length} report days are included.`
+                              : `${selectedDates.size} of ${availableDates.length} report days selected.`}
+                        </Text>
+                      </View>
+
+                      <View style={[styles.customizeTriggerCount, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}> 
+                        <Text style={[styles.customizeTriggerCountText, { color: theme.colors.text }]}> 
+                          {selectedDates.size}/{availableDates.length || 0}
+                        </Text>
+                        <HugeiconsIcon icon={ArrowRight01Icon} size={16} color={theme.colors.textSecondary} />
+                      </View>
+                    </View>
+                  }
+                />
               </View>
             </View>
 
@@ -548,9 +561,9 @@ export default function GenerateReportScreen() {
                     {includeDocs && previewImages.length > 0 && (
                       <View style={{ padding: 16, paddingTop: 0 }}>
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-                          {previewImages.map((uri, i) => (
-                            <TouchableOpacity key={i} onPress={() => { setActiveImage(uri); setViewerVisible(true); }}>
-                              <Image source={{ uri }} style={{ width: 64, height: 64, borderRadius: 10, backgroundColor: theme.colors.border }} resizeMode="cover" />
+                          {previewImages.map((image, i) => (
+                            <TouchableOpacity key={`${image.uri}-${i}`} onPress={() => { setActiveImage(image); setViewerVisible(true); }}>
+                              <Image source={{ uri: image.uri }} style={{ width: 64, height: 64, borderRadius: 10, backgroundColor: theme.colors.border }} resizeMode="cover" />
                             </TouchableOpacity>
                           ))}
                         </ScrollView>
@@ -710,6 +723,49 @@ const styles = StyleSheet.create({
   card: { borderRadius: 20, borderWidth: 1, overflow: "hidden" },
   iconBox: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   badge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
+  customizeTrigger: {
+    minHeight: 78,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  customizeTriggerIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  customizeTriggerTitle: {
+    fontSize: 14,
+    fontFamily: "Nunito_800ExtraBold",
+    marginBottom: 3,
+    letterSpacing: -0.2,
+  },
+  customizeTriggerMeta: {
+    fontSize: 12,
+    lineHeight: 18,
+    fontFamily: "Nunito_600SemiBold",
+  },
+  customizeTriggerCount: {
+    minWidth: 72,
+    height: 40,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  customizeTriggerCountText: {
+    fontSize: 13,
+    fontFamily: "Nunito_800ExtraBold",
+  },
   checkRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16, paddingVertical: 14 },
   checkLabel: { fontSize: 15, fontFamily: "Nunito_700Bold" },
   checkSub: { fontSize: 12, marginTop: 4, opacity: 0.6, fontFamily: 'Nunito_500Medium' },

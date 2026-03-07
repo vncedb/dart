@@ -39,6 +39,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useSync } from '../../context/SyncContext';
 import { generateUUID, queueSyncItem } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
+import { refreshWidgetSnapshot } from '../../lib/widgets';
 
 const MAX_PHOTOS = 4;
 
@@ -298,6 +299,7 @@ export default function AddEntryScreen() {
 
             setIsDirty(false);
             triggerSync(); 
+            await refreshWidgetSnapshot(user.id, { force: true });
             router.back(); 
         } catch (e: any) { 
             setAlertConfig({ visible: true, type: 'error', title: 'Save Failed', message: e.message || 'An error occurred.', confirmText: 'Okay', onConfirm: () => setAlertConfig({ visible: false }) });
