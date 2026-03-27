@@ -50,6 +50,11 @@ export default function ActionMenu({ visible, onClose, actions, anchor }: Action
 
                 const color = action.destructive ? theme.colors.danger : (action.color || theme.colors.text);
                 const isActive = action.isActive;
+                const iconBg = action.destructive
+                    ? theme.colors.danger + '12'
+                    : action.color
+                        ? action.color + '12'
+                        : theme.colors.background;
                 return (
                     <TouchableOpacity
                         key={index}
@@ -62,7 +67,11 @@ export default function ActionMenu({ visible, onClose, actions, anchor }: Action
                         activeOpacity={0.7}
                     >
                         <View style={styles.menuItemLeft}>
-                            {action.icon && <HugeiconsIcon icon={action.icon} size={16} color={color} />}
+                            {action.icon ? (
+                                <View style={[styles.popoverIconWrapper, { backgroundColor: iconBg }]}>
+                                    <HugeiconsIcon icon={action.icon} size={16} color={color} />
+                                </View>
+                            ) : null}
                             <Text style={[styles.menuText, { color, fontFamily: isActive ? 'Nunito_800ExtraBold' : 'Nunito_600SemiBold' }]}>{action.label}</Text>
                         </View>
                         {isActive && <HugeiconsIcon icon={Tick02Icon} size={18} color={theme.colors.primary} />}
@@ -103,7 +112,11 @@ export default function ActionMenu({ visible, onClose, actions, anchor }: Action
                                     }
 
                                     const color = action.destructive ? theme.colors.danger : (action.color || theme.colors.text);
-                                    const iconBg = action.destructive ? theme.colors.danger + '10' : (action.isActive ? theme.colors.primary + '10' : theme.colors.background);
+                                    const iconBg = action.destructive
+                                        ? theme.colors.danger + '12'
+                                        : action.color
+                                            ? action.color + '12'
+                                            : (action.isActive ? theme.colors.primary + '10' : theme.colors.background);
                                     
                                     return (
                                         <TouchableOpacity
@@ -144,6 +157,7 @@ const styles = StyleSheet.create({
     popoverContainer: { borderRadius: 16, borderWidth: 1, overflow: 'hidden' },
     popoverItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, paddingHorizontal: 14 },
     menuItemLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+    popoverIconWrapper: { width: 28, height: 28, borderRadius: 9, alignItems: 'center', justifyContent: 'center' },
     menuText: { fontSize: 13 },
     
     bottomSheetOverlay: { 

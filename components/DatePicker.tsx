@@ -93,15 +93,19 @@ const DayCell = React.memo(
     textColor: string;
     textSecondaryColor: string;
   }) => {
-    
-    let cellTextColor = textColor;
-    if (isToday && !isSelected) cellTextColor = primaryColor;
-    if (isSelected) cellTextColor = "#FFFFFF";
+    const isMuted = !isCurrentMonth && !isSelected;
+    const cellTextColor = isSelected
+      ? "#FFFFFF"
+      : isToday
+        ? primaryColor
+        : isCurrentMonth
+          ? textColor
+          : textSecondaryColor;
 
-    let cellOpacity = (isCurrentMonth || isSelected) ? 1 : 0.4; 
-
-    // Using exact font families instead of font weights
-    let cellFontFamily = isSelected ? "Nunito_700Bold" : (isToday ? "Nunito_700Bold" : "Nunito_600SemiBold");
+    const cellOpacity = isMuted ? 0.45 : 1;
+    const cellFontFamily = isSelected || isToday ? "Nunito_700Bold" : "Nunito_600SemiBold";
+    const cellBackgroundColor = isSelected ? primaryColor : (isToday ? `${primaryColor}12` : "transparent");
+    const cellBorderColor = isSelected ? primaryColor : (isToday ? primaryColor : "transparent");
 
     return (
       <View style={styles.dayCellWrapper}>
@@ -109,8 +113,11 @@ const DayCell = React.memo(
           onPress={() => onSelect(day)}
           style={[
             styles.dayCell,
-            { backgroundColor: isSelected ? primaryColor : "transparent" },
-            !isSelected && isToday && { borderWidth: 1.5, borderColor: primaryColor },
+            {
+              backgroundColor: cellBackgroundColor,
+              borderWidth: isToday || isSelected ? 1.5 : 0,
+              borderColor: cellBorderColor,
+            },
           ]}
         >
           <Text

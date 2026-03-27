@@ -41,6 +41,7 @@ import BannerAdComponent from '../components/BannerAdComponent';
 import Header from '../components/Header';
 import { useAppTheme } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
+import { getDB } from '../lib/db-client';
 import {
     deleteNotificationLocal,
     getNotificationsLocal,
@@ -59,6 +60,39 @@ interface NotificationItem {
     read: boolean;
     type?: string;
 }
+
+const getReportRangeFromStartDate = (startDateStr: string, payoutType: string) => {
+    const [year, month, day] = startDateStr.split('-').map(Number);
+    if (!year || !month || !day) return null;
+
+    const start = new Date(year, month - 1, day);
+    let end = new Date(start);
+
+    switch (payoutType) {
+        case 'Weekly':
+            end = new Date(year, month - 1, day + 6);
+            break;
+        case 'Bi-Weekly':
+            end = new Date(year, month - 1, day + 13);
+            break;
+        case 'Monthly':
+            end = new Date(year, month, 0);
+            break;
+        case 'Semi-Monthly':
+        default:
+            if (day <= 15) {
+                end = new Date(year, month - 1, 15);
+            } else {
+                end = new Date(year, month, 0);
+            }
+            break;
+    }
+
+    return {
+        startDate: format(start, 'yyyy-MM-dd'),
+        endDate: format(end, 'yyyy-MM-dd'),
+    };
+};
 
 const getIconTheme = (item: NotificationItem, theme: any) => {
     const t = item.type || '';
@@ -259,6 +293,44 @@ export default function NotificationsScreen() {
         bodyTranslateX.value = withTiming(-SCREEN_WIDTH, { duration: 350, easing: Easing.out(Easing.cubic) });
     };
 
+    const handleGenerateReportFromNotification = async (item: NotificationItem) => {
+        try {
+            if (!user) {
+                router.push('/(tabs)/reports');
+                return;
+            }
+
+            const match = String(item.body || '').match(/\b(\d{4}-\d{2}-\d{2})\b/);
+            if (!match) {
+                router.push('/(tabs)/reports');
+                return;
+            }
+
+            const db = await getDB();
+            const profile: any = await db.getFirstAsync('SELECT current_job_id FROM profiles WHERE id = ? AND deleted_at IS NULL', [user.id]);
+            const job: any = profile?.current_job_id
+                ? await db.getFirstAsync('SELECT payout_type FROM job_positions WHERE id = ? AND deleted_at IS NULL', [profile.current_job_id])
+                : null;
+
+            const range = getReportRangeFromStartDate(match[1], job?.payout_type || 'Semi-Monthly');
+            if (!range) {
+                router.push('/(tabs)/reports');
+                return;
+            }
+
+            router.push({
+                pathname: '/reports/generate',
+                params: {
+                    startDate: range.startDate,
+                    endDate: range.endDate,
+                },
+            });
+        } catch (error) {
+            console.log('Generate report notification action failed', error);
+            router.push('/(tabs)/reports');
+        }
+    };
+
     const handleCloseDetail = useCallback(() => {
         bodyTranslateX.value = withTiming(0, { duration: 350, easing: Easing.out(Easing.cubic) }, (finished) => {
             if (finished) runOnJS(setSelectedItem)(null);
@@ -379,7 +451,7 @@ export default function NotificationsScreen() {
                                             {(currentItem.type === 'report_ready' || currentItem.title?.toLowerCase().includes("report's ready")) && (
                                                 <TouchableOpacity
                                                     activeOpacity={0.8}
-                                                    onPress={() => router.push('/reports/generate')}
+                                                    onPress={() => handleGenerateReportFromNotification(currentItem)}
                                                     style={[styles.primaryActionBtn, { backgroundColor: theme.colors.primary, shadowColor: theme.colors.primary }]}
                                                 >
                                                     <Text style={styles.primaryActionBtnText}>Generate Report</Text>

@@ -4,6 +4,9 @@ import * as FileSystem from 'expo-file-system';
 import { generateUUID, getUnreadReportsCount, queueSyncItem, saveReportLocal } from '../lib/database';
 import { getDB } from '../lib/db-client';
 import { scheduleReportNotification } from '../lib/notifications';
+import { formatMinutesAsHours, summarizeAttendances } from '../lib/report-helpers';
+import { buildReportStorageFileName, buildSavedReportRecord } from '../lib/reporting';
+import { saveReportFileOffline } from '../lib/report-storage';
 import { generateReport } from '../utils/reportGenerator';
 
 export const ReportService = {
@@ -14,14 +17,14 @@ export const ReportService = {
     
     const job: any = await db.getFirstAsync('SELECT * FROM job_positions WHERE id = ? AND deleted_at IS NULL', [profile.current_job_id]);
     if (!job) return null;
-    return { ...job, userName: profile.full_name, userTitle: profile.title };
+    return { ...job, userName: profile.full_name, userTitle: job.title || profile.title };
   },
 
   getDailyReport: async (userId: string, date: string) => {
     const db = await getDB();
-    const attendance = await db.getFirstAsync('SELECT * FROM attendance WHERE user_id = ? AND date = ? AND deleted_at IS NULL', [userId, date]);
+    const attendance = await db.getAllAsync('SELECT * FROM attendance WHERE user_id = ? AND date = ? AND deleted_at IS NULL ORDER BY clock_in ASC', [userId, date]);
     const tasks = await db.getAllAsync('SELECT * FROM accomplishments WHERE user_id = ? AND date = ? AND deleted_at IS NULL', [userId, date]);
-    return { attendance, tasks: tasks || [] };
+    return { attendance: attendance || [], tasks: tasks || [] };
   },
 
   getReportRange: async (userId: string, jobId: string | null, startDate: string, endDate: string) => {
@@ -127,26 +130,57 @@ export const ReportService = {
                 const { attendance, tasks } = await ReportService.getReportRange(userId, job.id, period.start, period.end);
                 if ((!attendance || attendance.length === 0) && (!tasks || tasks.length === 0)) continue; 
                 
-                const groupedData = ReportService.groupReportsByPayout(attendance.map((i:any) => ({...i, date: i.date})), payoutType);
-                const flatData = Object.values(groupedData).flatMap((g: any) => g.data).map((item: any) => {
-                     const dailyTasks = tasks.filter((t:any) => t.date === item.date).map((t:any) => {
-                         let images: string[] = [];
-                         if (t.image_url) {
-                             try { images = JSON.parse(t.image_url); } catch { images = [t.image_url]; }
-                             if (!Array.isArray(images)) images = [t.image_url];
-                         }
-                         return { description: t.description, remarks: t.remarks, images };
-                     });
-                     return {
-                         date: format(new Date(item.date), 'MMM d, yyyy\nEEEE'),
-                         clockIn: item.clock_in ? format(new Date(`1970-01-01T${item.clock_in}`), 'h:mm a') : '--:--',
-                         clockOut: item.clock_out ? format(new Date(`1970-01-01T${item.clock_out}`), 'h:mm a') : '--:--',
-                         duration: '--',
-                         summary: dailyTasks
-                     };
+                const allDates = Array.from(new Set([
+                  ...attendance.map((item: any) => item.date),
+                  ...tasks.map((item: any) => item.date),
+                ])).sort();
+                const flatData = allDates.map((day) => {
+                  const dailyAttendances = attendance
+                    .filter((item: any) => item.date === day)
+                    .sort((a: any, b: any) => new Date(a.clock_in).getTime() - new Date(b.clock_in).getTime());
+                  const attendanceSummary = summarizeAttendances(dailyAttendances, 'exact_hm', { breakSchedule: job.break_schedule });
+                  const dailyTasks = tasks
+                    .filter((task: any) => task.date === day)
+                    .sort((a: any, b: any) => new Date(a.created_at || a.updated_at || 0).getTime() - new Date(b.created_at || b.updated_at || 0).getTime())
+                    .map((task: any) => {
+                      let images: string[] = [];
+                      if (task.image_url) {
+                        try { images = JSON.parse(task.image_url); } catch { images = [task.image_url]; }
+                        if (!Array.isArray(images)) images = [task.image_url];
+                      }
+                      return {
+                        description: task.description,
+                        remarks: task.remarks,
+                        images,
+                        doneAt: task.created_at ? format(new Date(task.created_at), 'h:mm a') : null,
+                      };
+                    });
+
+                  return {
+                    date: format(new Date(day), 'MMM d, yyyy\nEEEE'),
+                    clockIn: attendanceSummary.earliestClockIn ? format(new Date(attendanceSummary.earliestClockIn), 'h:mm a') : '--:--',
+                    clockOut: attendanceSummary.latestClockOut ? format(new Date(attendanceSummary.latestClockOut), 'h:mm a') : '--:--',
+                    duration: attendanceSummary.durationText,
+                    totalMinutes: attendanceSummary.totalMinutes,
+                    summary: dailyTasks,
+                  };
                 });
 
-                const uri = await generateReport({ userName: job.userName || 'Employee', userTitle: job.userTitle || 'Staff', company: job.company, department: job.department, reportTitle: `Auto-Report: ${period.label}`, period: period.label, data: flatData, paperSize: 'Letter', style: 'minimal' });
+                const totalMinutes = flatData.reduce((sum, item) => sum + (item.totalMinutes || 0), 0);
+                const totalHours = formatMinutesAsHours(totalMinutes);
+
+                const uri = await generateReport({
+                  userName: job.userName || 'Employee',
+                  userTitle: job.userTitle || 'Staff',
+                  company: job.company,
+                  department: job.department,
+                  reportTitle: `Auto-Report: ${period.label}`,
+                  period: period.label,
+                  data: flatData,
+                  paperSize: 'Letter',
+                  style: 'minimal',
+                  totals: { totalDays: flatData.length, totalHours: totalHours || `${Math.floor(totalMinutes / 60)}h` },
+                });
                 
                 let fileSize = 0;
                 try {
@@ -155,10 +189,41 @@ export const ReportService = {
                 } catch {}
                 
                 const reportId = generateUUID();
-                const newReport = { id: reportId, user_id: userId, title: `Auto: ${period.label}`, file_path: uri, file_type: 'application/pdf', file_size: fileSize, is_read: false, period_key: period.key, created_at: new Date().toISOString() };
+                const createdAt = new Date();
+                const savedFile = await saveReportFileOffline({
+                  sourceUri: uri,
+                  fileName: buildReportStorageFileName({
+                    generatedAt: createdAt,
+                    format: 'pdf',
+                  }),
+                  fileType: 'pdf',
+                });
+                await FileSystem.deleteAsync(uri, { idempotent: true });
+                const newReport = buildSavedReportRecord({
+                  reportId,
+                  userId,
+                  title: `Auto: ${period.label}`,
+                  filePath: savedFile.filePath,
+                  fileSize: savedFile.fileSize || fileSize,
+                  format: 'pdf',
+                  createdAt,
+                  periodKey: period.key,
+                  metadata: {
+                    source: 'auto',
+                    format: 'pdf',
+                    fileName: savedFile.fileName,
+                    reportDate: period.label,
+                    periodLabel: period.label,
+                    startDate: new Date(period.start).toISOString(),
+                    endDate: new Date(period.end).toISOString(),
+                    generatedAt: createdAt.toISOString(),
+                    totalDays: flatData.length,
+                    totalMinutes,
+                    totalHours,
+                  },
+                });
 
-                await saveReportLocal(newReport);
-                await queueSyncItem('saved_reports', reportId, 'INSERT', newReport);
+                await saveReportLocal(newReport, { queueSync: true, synced: false });
                 await scheduleReportNotification(newReport.title);
             }
         }

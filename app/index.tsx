@@ -21,6 +21,7 @@ import ScaleButton from '../components/ScaleButton';
 import { useAuth } from '../context/AuthContext';
 import { queueSyncItem, saveProfileLocal } from '../lib/database';
 import { getDB } from '../lib/db-client';
+import { requireOnlineFeature } from '../lib/offline-access';
 import { supabase } from '../lib/supabase';
 import { syncPull } from '../lib/sync';
 
@@ -106,6 +107,9 @@ export default function Index() {
   };
 
   const handleGoogleLogin = async () => {
+    const canProceed = await requireOnlineFeature('google_login', setAlertConfig);
+    if (!canProceed) return;
+
     setGoogleLoading(true);
     setLoadingMessage("Connecting...");
     try {

@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import notifee, {
     AndroidImportance,
     AndroidStyle,
@@ -7,6 +6,7 @@ import notifee, {
     TriggerType,
     type TimestampTrigger,
 } from '@notifee/react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Appearance, Platform } from 'react-native';
 import { getDB } from '../lib/db-client';
 
@@ -269,7 +269,7 @@ export const updateAttendanceNotification = async (
 
         const body = isBreakMode
             ? `Paused. Time In: ${timeInStr}`
-            : `Time In: ${timeInStr} • Elapsed: ${elapsedText}`;
+            : `Time In: ${timeInStr} Elapsed: ${elapsedText}`;
 
         const androidBase = {
             channelId: 'attendance_timer',

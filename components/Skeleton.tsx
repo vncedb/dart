@@ -23,8 +23,20 @@ interface SkeletonCircleProps {
     style?: StyleProp<ViewStyle>;
 }
 
-export function SkeletonBlock({ style }: SkeletonBlockProps) {
+export function useSkeletonPalette() {
     const theme = useAppTheme();
+
+    return {
+        base: theme.dark ? '#2A2F37' : '#E2E8F0',
+        highlight: theme.dark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.78)',
+        surface: theme.dark ? '#1C2128' : '#F4F7FA',
+        mutedSurface: theme.dark ? '#171B21' : '#EEF2F6',
+        border: theme.dark ? '#313844' : '#D8E0E8',
+    };
+}
+
+export function SkeletonBlock({ style }: SkeletonBlockProps) {
+    const { base, highlight } = useSkeletonPalette();
     const progress = useSharedValue(0);
     const [width, setWidth] = useState(0);
 
@@ -61,13 +73,10 @@ export function SkeletonBlock({ style }: SkeletonBlockProps) {
         };
     });
 
-    const baseColor = theme.dark ? 'rgba(148, 163, 184, 0.12)' : '#E7ECF2';
-    const highlightColor = theme.dark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.78)';
-
     return (
-        <View onLayout={handleLayout} style={[styles.block, { backgroundColor: baseColor }, style]}>
+        <View onLayout={handleLayout} style={[styles.block, { backgroundColor: base }, style]}>
             <AnimatedLinearGradient
-                colors={['transparent', highlightColor, 'transparent']}
+                colors={['transparent', highlight, 'transparent']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={[styles.shimmer, shimmerStyle]}

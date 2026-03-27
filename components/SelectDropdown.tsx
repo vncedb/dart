@@ -17,6 +17,7 @@ import {
     View
 } from 'react-native';
 import { useAppTheme } from '../constants/theme';
+import Button from './Button';
 
 interface Option {
     label: string;
@@ -199,7 +200,7 @@ export default function SelectDropdown({ label, value, options, onChange, placeh
                                                                     styles.sheetText,
                                                                     {
                                                                         color: isSelected && !multiple ? theme.colors.primary : theme.colors.text,
-                                                                        fontFamily: isSelected ? 'Nunito_800ExtraBold' : 'Nunito_600SemiBold',
+                                                                        fontFamily: 'Nunito_600SemiBold',
                                                                     },
                                                                 ]}
                                                             >
@@ -229,6 +230,12 @@ export default function SelectDropdown({ label, value, options, onChange, placeh
                                         })
                                     )}
                                 </ScrollView>
+
+                                {multiple ? (
+                                    <View style={[styles.footer, { borderTopColor: theme.colors.border }]}>
+                                        <Button title="Done" variant="primary" onPress={closeDropdown} style={{ width: '100%' }} />
+                                    </View>
+                                ) : null}
                             </Animated.View>
                         </TouchableWithoutFeedback>
                     </View>
@@ -270,6 +277,7 @@ const styles = StyleSheet.create({
     dragHandle: { width: 42, height: 5, borderRadius: 999, opacity: 0.78, marginBottom: 12 },
     sheetTitle: { fontSize: 16, fontFamily: 'Nunito_800ExtraBold', letterSpacing: -0.2 },
     sheetContent: { paddingHorizontal: 10, paddingBottom: 18 },
+    footer: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: Platform.OS === 'ios' ? 30 : 18, borderTopWidth: 1 },
     emptyText: { textAlign: 'center', fontFamily: 'Nunito_600SemiBold', marginVertical: 20 },
     sheetItem: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 13, paddingHorizontal: 14, borderRadius: 16, marginBottom: 4 },
     sheetItemContent: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },

@@ -2,6 +2,7 @@
 import {
     Alert02Icon,
     ArrowRight01Icon,
+    File02Icon,
     CloudSavingDone01Icon,
     CloudUploadIcon,
     Rocket01Icon,
@@ -10,10 +11,11 @@ import {
     Time04Icon
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import { differenceInMinutes, format } from 'date-fns';
+import { format } from 'date-fns';
 import React, { useMemo } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAppTheme } from '../constants/theme';
+import { summarizeAttendances } from '../lib/report-helpers';
 import InfoTooltip from './InfoTooltip'; // Ensure the path is correct
 
 interface ReportItemProps {
@@ -51,33 +53,34 @@ const ReportItem = ({
 
     const { durationText, isOvertime, isEarly, isGoalMet, earliestIn, latestOut } = useMemo(() => {
         if (!hasAttendance) return { durationText: '0h', isOvertime: false, isEarly: false, isGoalMet: false, earliestIn: null, latestOut: null };
-        
-        let totalMins = 0;
-        let firstIn = new Date(attendances[0].clock_in);
-        let lastOut: Date | null = null;
-
-        attendances.forEach((a: any) => {
-            const s = new Date(a.clock_in);
-            const e = a.clock_out ? new Date(a.clock_out) : new Date(); 
-            
-            if (a.clock_out) {
-                const outDate = new Date(a.clock_out);
-                if (!lastOut || outDate > lastOut) lastOut = outDate;
-            }
-            
-            let diff = differenceInMinutes(e, s);
-            if (diff < 0) diff = 0; 
-            
-            if (a.remarks && a.remarks.includes('BreakMs:')) {
-                const match = a.remarks.match(/BreakMs:(\d+)/);
-                if (match) diff -= Math.floor(parseInt(match[1], 10) / 60000);
-            }
-            totalMins += Math.max(0, diff);
-        });
+        const summary = summarizeAttendances(attendances, 'exact_hm', { breakSchedule: job?.break_schedule });
+        const totalMins = summary.totalMinutes;
+        const firstIn = summary.earliestClockIn ? new Date(summary.earliestClockIn) : new Date(attendances[0].clock_in);
+        const lastOut = summary.latestClockOut ? new Date(summary.latestClockOut) : null;
 
         const hours = Math.floor(totalMins / 60);
         const minutes = totalMins % 60;
-        const isGoal = totalMins >= 480; 
+        const goalMinutes = (() => {
+            if (!job?.work_schedule) return 480;
+            const schedule = typeof job.work_schedule === 'string' ? JSON.parse(job.work_schedule) : job.work_schedule;
+            const breaks = typeof job.break_schedule === 'string' ? JSON.parse(job.break_schedule) : job.break_schedule;
+            const toMinutes = (value: string) => {
+                const [h, m] = String(value || '').split(':').map(Number);
+                return (h || 0) * 60 + (m || 0);
+            };
+            let workMinutes = toMinutes(schedule?.end) - toMinutes(schedule?.start);
+            if (workMinutes < 0) workMinutes += 24 * 60;
+            let breakMinutes = 0;
+            if (Array.isArray(breaks)) {
+                breakMinutes = breaks.reduce((sum: number, current: any) => {
+                    let minutes = toMinutes(current?.end) - toMinutes(current?.start);
+                    if (minutes < 0) minutes += 24 * 60;
+                    return sum + Math.max(0, minutes);
+                }, 0);
+            }
+            return Math.max(0, workMinutes - breakMinutes) || 480;
+        })();
+        const isGoal = totalMins >= goalMinutes; 
         
         const formattedDuration = totalMins > 0 ? `${hours}h ${minutes > 0 ? minutes + 'm' : ''}`.trim() : '0h';
 
@@ -125,7 +128,8 @@ const ReportItem = ({
         
         if (isEarly) activeTags.push({ id: 'early', icon: Rocket01Icon, color: theme.colors.success, tooltip: "Clocked in Early" });
         if (isCompleted && isOvertime) activeTags.push({ id: 'ot', text: 'OT', color: theme.colors.warning, tooltip: "Overtime Logged" });
-        if (isCompleted && isGoalMet && !isOvertime && !isEarly) activeTags.push({ id: 'goal', icon: Target02Icon, color: theme.colors.success, tooltip: "Target Goal Reached" });
+        if (isCompleted && isGoalMet && !isOvertime) activeTags.push({ id: 'goal', icon: Target02Icon, color: theme.colors.success, tooltip: "Target Goal Reached" });
+        if ((item.generatedReports || 0) > 0) activeTags.push({ id: 'generated', icon: File02Icon, color: theme.colors.primary, tooltip: `${item.generatedReports} generated report${item.generatedReports === 1 ? '' : 's'} saved for this date` });
         if (hasAttendance) activeTags.push({ id: 'sync', icon: isSynced ? CloudSavingDone01Icon : CloudUploadIcon, color: isSynced ? theme.colors.primary : theme.colors.danger, tooltip: isSynced ? "Synced to Cloud" : "Pending Sync" });
         else activeTags.push({ id: 'absent', icon: Alert02Icon, color: theme.colors.danger, tooltip: absentTooltip });
 

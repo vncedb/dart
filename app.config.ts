@@ -6,7 +6,7 @@ const currentEnv = {
   slug: 'dart-app',
   package: 'com.projectvdb.dart',
   scheme: 'dartapp',
-  version: '1.0.4',
+  version: '1.0.5',
 };
 
 // This function receives your existing app.json config

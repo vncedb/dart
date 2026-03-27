@@ -174,6 +174,7 @@ function RootLayoutNav() {
           <Stack.Screen name="reports/generate" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="reports/preview" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="reports/details" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="reports/analytics" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="reports/ai-summary" options={{ animation: "slide_from_right" }} />
         </Stack>
 

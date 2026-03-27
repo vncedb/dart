@@ -13,6 +13,52 @@ export interface ChangelogEntry {
 
 export const AppChangelog: ChangelogEntry[] = [
     {
+        version: "1.0.5",
+        date: "March 27, 2026",
+        categories: [
+            {
+                type: "Highlights",
+                items: [
+                    "Refined reporting, saved-report backup, session management, and AI-assisted entry writing into a more production-ready offline-first workflow.",
+                    "Polished high-traffic UI flows across reports, loading states, navigation surfaces, dynamic headers, and AI settings for a cleaner and more consistent release."
+                ]
+            },
+            {
+                type: "What's New",
+                items: [
+                    "Added manual online backup for saved reports to Supabase storage with clearer backup progress and device/cloud status states.",
+                    "Standardized generated report naming to DART Report - Date - Time and improved scanned-file timestamp handling using metadata, filename parsing, and file properties.",
+                    "Expanded Session Log into the single place for attendance time editing, worked-session add/delete, and structured work-break management.",
+                    "Upgraded Excel export into a real workbook with dedicated Summary, Daily Log, and Activities sheets.",
+                    "Added report analytics for streaks, overtime, and output trends.",
+                    "Added AI-assisted entry writing with note-based generation, bulk photo-to-description support, and rewrite modes for Shorter, More Professional, and Highlight Result."
+                ]
+            },
+            {
+                type: "Improvements",
+                items: [
+                    "Refined Generate, Preview, Report Settings, Saved Reports, and action-menu flows for stronger production readiness and better day-to-day usability.",
+                    "Improved loading behavior so Home keeps skeleton loading while report and profile-style screens use a shared full-screen loading experience.",
+                    "Polished the Dynamic Header, Dynamic Bar, calendar picker, searchable selection modal, and report-details/session-log layouts for a cleaner feel.",
+                    "Tightened image viewer zoom-and-pan behavior so double-tap zoom stays within image bounds without empty side gaps.",
+                    "Improved Session Log work-break presentation with clearer break categories, smarter add/edit/delete behavior, and tighter card hierarchy.",
+                    "Redesigned the API Keys and AI Provider screen with a cleaner provider-selection flow, clearer key management, and more polished settings presentation.",
+                    "Refined AI entry actions and provider setup so description generation, rewrites, and provider switching feel more intentional and easier to understand."
+                ]
+            },
+            {
+                type: "Fixes",
+                items: [
+                    "Fixed offline-first report save and sync behavior for PDF and Excel files, including proper backup state handling and upload reconciliation.",
+                    "Fixed scanned and saved report date display by using saved metadata, structured filename parsing, and file timestamps in a safer fallback order.",
+                    "Fixed multiple session-log and report-details interaction issues, including attendance edit routing, worked-session management, and break validation.",
+                    "Fixed calendar today-date visibility, dynamic-header rendering glitches, image-viewer overpan, and add-entry inline time-error messaging.",
+                    "Fixed online-only AI, auth, job, and profile-edit flows so offline access now shows a clear modern notice instead of failing ambiguously."
+                ]
+            }
+        ]
+    },
+    {
         version: "1.0.4",
         date: "March 6, 2026",
         categories: [

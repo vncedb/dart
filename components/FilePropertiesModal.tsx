@@ -1,10 +1,11 @@
 // filepath: components/FilePropertiesModal.tsx
-import { Cancel01Icon, CloudServerIcon, CloudUploadIcon, DocumentValidationIcon, File02Icon } from '@hugeicons/core-free-icons';
+import { Cancel01Icon, DocumentValidationIcon, File02Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
 import { format } from 'date-fns';
 import React from 'react';
 import { Modal, Platform, StyleSheet, Text, TouchableOpacity, TouchableWithoutFeedback, View } from 'react-native';
 import { useAppTheme } from '../constants/theme';
+import { inferReportMetadataFromFileName, parseSavedReportMetadata } from '../lib/reporting';
 
 interface FilePropertiesModalProps {
     visible: boolean;
@@ -28,12 +29,10 @@ export default function FilePropertiesModal({ visible, onClose, report }: FilePr
 
     const isPdf = report.file_type === 'pdf' || report.file_type === 'application/pdf';
     
-    let meta: any = {};
-    try {
-        if (report.metadata) meta = JSON.parse(report.metadata);
-    } catch { }
-
-    const reportDate = meta.reportDate || report.period_key || format(new Date(report.created_at), 'MMM dd, yyyy');
+    const meta = parseSavedReportMetadata(report.metadata);
+    const inferred = inferReportMetadataFromFileName(meta.fileName || report.title || '');
+    const reportDate = meta.reportDate || inferred?.reportDate || report.period_key || format(new Date(report.created_at), 'MMM dd, yyyy');
+    const generatedOn = meta.generatedAt || inferred?.generatedAt || report.created_at;
 
     const extension = isPdf ? '.pdf' : '.xlsx';
     const fullFileName = report.title?.toLowerCase().endsWith(extension) 
@@ -41,7 +40,8 @@ export default function FilePropertiesModal({ visible, onClose, report }: FilePr
         : `${report.title}${extension}`;
 
     const isLocal = report.isLocal;
-    const isSynced = report.is_synced === 1 || !!report.file_url || !!report.remote_url;
+    const isSavedOffline = !!report.file_path;
+    const isBackedUp = report.is_synced === 1 || !!report.remote_url || !!report.file_url || !!report.public_url;
     
     // Clean up the path for UI presentation
     let displayPath = '';
@@ -103,7 +103,7 @@ export default function FilePropertiesModal({ visible, onClose, report }: FilePr
                                 <View style={styles.propertyRow}>
                                     <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Generated On</Text>
                                     <Text style={[styles.value, { color: theme.colors.text }]}>
-                                        {format(new Date(report.created_at), "MMM d, yyyy • h:mm a")}
+                                        {format(new Date(generatedOn), "MMM d, yyyy • h:mm a")}
                                     </Text>
                                 </View>
 
@@ -115,20 +115,24 @@ export default function FilePropertiesModal({ visible, onClose, report }: FilePr
                                 <View style={[styles.propertyRow, { borderBottomWidth: isLocal ? 1 : 0, marginBottom: 0 }]}>
                                     <Text style={[styles.label, { color: theme.colors.textSecondary }]}>Status</Text>
                                     
-                                    {isLocal && isSynced ? (
+                                    {isLocal && isBackedUp ? (
                                         <View style={styles.statusRow}>
                                             <HugeiconsIcon icon={DocumentValidationIcon} size={14} color={theme.colors.success} />
-                                            <Text style={[styles.statusText, { color: theme.colors.success }]}>Saved to Device & Cloud</Text>
+                                            <Text style={[styles.statusText, { color: theme.colors.success }]}>Saved to device and backed up</Text>
                                         </View>
-                                    ) : isLocal && !isSynced ? (
-                                         <View style={styles.statusRow}>
-                                            <HugeiconsIcon icon={CloudUploadIcon} size={14} color={theme.colors.warning} />
-                                            <Text style={[styles.statusText, { color: theme.colors.warning }]}>Pending Cloud Backup</Text>
+                                    ) : isLocal && isSavedOffline ? (
+                                        <View style={styles.statusRow}>
+                                            <HugeiconsIcon icon={DocumentValidationIcon} size={14} color={theme.colors.warning} />
+                                            <Text style={[styles.statusText, { color: theme.colors.warning }]}>Saved to device only</Text>
+                                        </View>
+                                    ) : isBackedUp ? (
+                                        <View style={styles.statusRow}>
+                                            <HugeiconsIcon icon={DocumentValidationIcon} size={14} color={theme.colors.primary} />
+                                            <Text style={[styles.statusText, { color: theme.colors.primary }]}>Backed up online</Text>
                                         </View>
                                     ) : (
                                         <View style={styles.statusRow}>
-                                            <HugeiconsIcon icon={CloudServerIcon} size={14} color={theme.colors.primary} />
-                                            <Text style={[styles.statusText, { color: theme.colors.primary }]}>Saved to Cloud</Text>
+                                            <Text style={[styles.statusText, { color: theme.colors.textSecondary }]}>Remote copy only</Text>
                                         </View>
                                     )}
                                 </View>

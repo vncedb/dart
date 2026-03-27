@@ -33,6 +33,7 @@ import { useAuth } from '../context/AuthContext';
 import { useSync } from '../context/SyncContext';
 import { saveProfileLocal } from '../lib/database';
 import { getDB } from '../lib/db-client';
+import { requireOnlineFeature } from '../lib/offline-access';
 
 const Tooltip = ({ message, theme }: { message: string, theme: any }) => (
     <View style={{ position: 'absolute', right: 0, zIndex: 100, width: 220, marginTop: 8, top: '100%' }}>
@@ -252,6 +253,9 @@ export default function EditProfileScreen() {
             setAlertConfig({ visible: true, type: 'warning', title: 'Missing Info', message: 'Please complete required fields.', onConfirm: () => setAlertConfig({ visible: false }) });
             return;
         }
+
+        const canProceed = await requireOnlineFeature('profile_editor', setAlertConfig);
+        if (!canProceed) return;
 
         setSaving(true);
         try {

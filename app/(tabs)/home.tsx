@@ -11,8 +11,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNetInfo } from '@react-native-community/netinfo';
 import { addDays, addHours, differenceInDays, differenceInSeconds, format, isToday, set, startOfMonth, startOfWeek } from 'date-fns';
 import { useAudioPlayer } from 'expo-audio';
-import { BlurView } from 'expo-blur';
-import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -47,7 +45,7 @@ import DynamicHeader from '../../components/DynamicHeader';
 import ModernAlert from '../../components/ModernAlert';
 import NoActiveJobCard from '../../components/NoActiveJobCard';
 import OvertimeModal from '../../components/OvertimeModal';
-import { SkeletonBlock, SkeletonCircle } from '../../components/Skeleton';
+import { SkeletonBlock, SkeletonCircle, useSkeletonPalette } from '../../components/Skeleton';
 
 import { useAppTheme } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
@@ -55,6 +53,7 @@ import { useSync } from '../../context/SyncContext';
 import { generateUUID, getNotificationsLocal, queueSyncItem, saveAttendanceLocal, saveNotificationLocal } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
 import { getSameDayClockOut } from '../../lib/attendance-session';
+import { getAttendanceMinutes } from '../../lib/report-helpers';
 import { consumePendingWidgetAction, refreshWidgetSnapshot } from '../../lib/widgets';
 import {
     clearAttendanceNotification,
@@ -117,9 +116,10 @@ const getPeriodStartDate = (payoutType: string) => {
 };
 
 const HomeContentSkeleton = () => {
-    const theme = useAppTheme();
-    const borderColor = theme.colors.border;
-    const cardBg = theme.colors.card;
+    const skeleton = useSkeletonPalette();
+    const borderColor = skeleton.border;
+    const cardBg = skeleton.surface;
+    const mutedBg = skeleton.mutedSurface;
 
     return (
         <View style={styles.skeletonContainer}>
@@ -137,7 +137,7 @@ const HomeContentSkeleton = () => {
                 </View>
 
                 <View style={{ alignItems: 'center', marginTop: 32 }}>
-                    <View style={{ width: 120, height: 120, borderRadius: 60, borderWidth: 6, borderColor: borderColor + '40', alignItems: 'center', justifyContent: 'center', backgroundColor: cardBg }}>
+                    <View style={{ width: 120, height: 120, borderRadius: 60, borderWidth: 6, borderColor: borderColor, alignItems: 'center', justifyContent: 'center', backgroundColor: mutedBg }}>
                         <SkeletonCircle size={52} />
                     </View>
                     <SkeletonBlock style={{ width: 140, height: 12, marginTop: 24, borderRadius: 6 }} />
@@ -150,16 +150,16 @@ const HomeContentSkeleton = () => {
                         <SkeletonBlock style={{ width: 80, height: 20, marginBottom: 12, borderRadius: 6 }} />
                         <SkeletonBlock style={{ width: 150, height: 38, marginBottom: 4, borderRadius: 6 }} />
                     </View>
-                    <View style={{ width: 100, height: 100, borderRadius: 50, borderWidth: 8, borderColor: borderColor + '30', alignItems: 'center', justifyContent: 'center' }}>
+                    <View style={{ width: 100, height: 100, borderRadius: 50, borderWidth: 8, borderColor: borderColor, alignItems: 'center', justifyContent: 'center', backgroundColor: mutedBg }}>
                         <SkeletonBlock style={{ width: 40, height: 14, borderRadius: 7 }} />
                     </View>
                 </View>
 
-                <View style={{ height: 1, backgroundColor: borderColor, opacity: 0.5 }} />
+                <View style={{ height: 1, backgroundColor: borderColor }} />
 
                 <View style={{ flexDirection: 'row', paddingVertical: 14, paddingHorizontal: 8 }}>
                     {[1, 2, 3].map((i) => (
-                        <View key={i} style={{ flex: 1, alignItems: 'center', gap: 6, borderRightWidth: i < 3 ? 1 : 0, borderColor: borderColor + '40' }}>
+                        <View key={i} style={{ flex: 1, alignItems: 'center', gap: 6, borderRightWidth: i < 3 ? 1 : 0, borderColor: borderColor }}>
                             <SkeletonBlock style={{ width: 30, height: 8, borderRadius: 4 }} />
                             <SkeletonBlock style={{ width: 50, height: 12, borderRadius: 6 }} />
                         </View>
@@ -234,40 +234,41 @@ export default function Home() {
     const headerTranslateY = useSharedValue(0);
     const isHeaderHidden = useSharedValue(false);
     const HEADER_HEIGHT = 140 + insets.top; 
-    const dynamicBarOffsetY = useSharedValue(HEADER_HEIGHT + 28);
+    const HEADER_TRAVEL = HEADER_HEIGHT + 12;
+    const HEADER_HIDE_TRIGGER = 24;
+    const HEADER_SHOW_TRIGGER = 10;
 
     const scrollHandler = useAnimatedScrollHandler({
         onScroll: (event) => {
             const currentY = Math.max(event.contentOffset.y, 0);
             const diff = currentY - scrollY.value;
-            const movingDown = diff > 3;
-            const movingUp = diff < -3;
-            const dynamicBarAtTop = (dynamicBarOffsetY.value - currentY) <= insets.top;
+            const movingDown = diff > 6;
+            const movingUp = diff < -6;
 
             if (currentY <= 4) {
                 if (isHeaderHidden.value) {
                     isHeaderHidden.value = false;
-                    headerTranslateY.value = withTiming(0, { duration: 150 });
+                    headerTranslateY.value = withTiming(0, { duration: 180 });
                 }
                 scrollY.value = currentY;
                 return;
             }
 
-            if (!dynamicBarAtTop) {
+            if (currentY < HEADER_SHOW_TRIGGER) {
                 if (headerTranslateY.value !== 0 || isHeaderHidden.value) {
                     isHeaderHidden.value = false;
-                    headerTranslateY.value = withTiming(0, { duration: 150 });
+                    headerTranslateY.value = withTiming(0, { duration: 180 });
                 }
                 scrollY.value = currentY;
                 return;
             }
 
-            if (movingDown) {
-                headerTranslateY.value = Math.max(-(HEADER_HEIGHT + 12), headerTranslateY.value - diff);
-                isHeaderHidden.value = headerTranslateY.value <= -(HEADER_HEIGHT + 8);
-            } else if (movingUp) {
+            if (movingDown && currentY > HEADER_HIDE_TRIGGER) {
+                isHeaderHidden.value = true;
+                headerTranslateY.value = withTiming(-HEADER_TRAVEL, { duration: 190 });
+            } else if (movingUp || currentY <= HEADER_SHOW_TRIGGER) {
                 isHeaderHidden.value = false;
-                headerTranslateY.value = withTiming(0, { duration: 150 });
+                headerTranslateY.value = withTiming(0, { duration: 180 });
             }
 
             scrollY.value = currentY;
@@ -276,16 +277,6 @@ export default function Home() {
 
     const headerAnimatedStyle = useAnimatedStyle(() => ({
         transform: [{ translateY: headerTranslateY.value }], zIndex: 10, position: 'absolute', top: 0, left: 0, right: 0,
-    }));
-
-    const headerBackdropAnimatedStyle = useAnimatedStyle(() => ({
-        opacity: 1 - Math.min(Math.abs(headerTranslateY.value) / (HEADER_HEIGHT + 12), 1),
-        transform: [{ translateY: headerTranslateY.value * 0.35 }],
-        zIndex: 9,
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
     }));
 
     const latestRecord = todaysRecords.length > 0 ? todaysRecords[0] : null;
@@ -432,16 +423,7 @@ export default function Home() {
 
                 let periodMins = 0;
                 periodRecords.forEach(r => {
-                    if (r.clock_in && r.clock_out) {
-                        const s = new Date(r.clock_in).getTime();
-                        const e = new Date(r.clock_out).getTime();
-                        let grossMs = Math.max(0, e - s);
-                        if (r.remarks && r.remarks.includes('BreakMs:')) {
-                            const match = r.remarks.match(/BreakMs:(\d+)/);
-                            if (match) grossMs -= parseInt(match[1], 10);
-                        }
-                        periodMins += Math.max(0, grossMs / (1000 * 60));
-                    }
+                    periodMins += getAttendanceMinutes(r, { breakSchedule: parsedJob.break_schedule });
                 });
                 setPeriodWorkedMinutes(periodMins);
 
@@ -679,18 +661,13 @@ export default function Home() {
             let totalMs = 0;
             
             todaysRecords.forEach((record) => {
-                const start = new Date(record.clock_in).getTime();
-                const end = record.clock_out ? new Date(record.clock_out).getTime() : now.getTime();
-                let recordMs = Math.max(0, end - start);
-
-                if (record.remarks && record.remarks.includes('BreakMs:')) {
-                    const match = record.remarks.match(/BreakMs:(\d+)/);
-                    if (match) recordMs -= parseInt(match[1], 10);
-                }
-
+                let recordMs = getAttendanceMinutes(
+                    { ...record, clock_out: record.clock_out || now.toISOString() },
+                    { breakSchedule: jobSettings?.break_schedule },
+                ) * 60 * 1000;
                 if (latestRecord && record.id === latestRecord.id) {
-                    recordMs -= accumulatedBreakMs;
-                    if (isBreakMode && breakStartTimestamp) recordMs -= (now.getTime() - breakStartTimestamp);
+                    const liveBreakMs = accumulatedBreakMs + (isBreakMode && breakStartTimestamp ? (now.getTime() - breakStartTimestamp) : 0);
+                    recordMs -= liveBreakMs;
                 }
                 totalMs += Math.max(0, recordMs);
             });
@@ -817,22 +794,8 @@ export default function Home() {
                 </Svg>
             </View>
             
-            <Animated.View pointerEvents="none" style={[styles.headerBlurBackdrop, { height: HEADER_HEIGHT + 20 }, headerBackdropAnimatedStyle]}>
-                <BlurView intensity={theme.dark ? 42 : 58} tint={theme.dark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
-                <ExpoLinearGradient
-                    colors={
-                        theme.dark
-                            ? ['rgba(7, 12, 20, 0.18)', 'rgba(7, 12, 20, 0.08)', 'rgba(7, 12, 20, 0)']
-                            : ['rgba(248, 250, 252, 0.28)', 'rgba(248, 250, 252, 0.12)', 'rgba(248, 250, 252, 0)']
-                    }
-                    start={{ x: 0.5, y: 0 }}
-                    end={{ x: 0.5, y: 1 }}
-                    style={StyleSheet.absoluteFill}
-                />
-            </Animated.View>
-
             <Animated.View style={headerAnimatedStyle}>
-                 <DynamicHeader selectedDate={selectedDate} onSelectDate={(date) => setSelectedDate(date)} isClockedIn={isClockedIn} isOvertime={isSessionOvertime} workedMinutes={workedMinutes} dailyGoal={dailyGoal} isLoading={isInitialLoading} />
+                 <DynamicHeader selectedDate={selectedDate} onSelectDate={(date) => setSelectedDate(date)} isClockedIn={isClockedIn} isOvertime={isSessionOvertime} workedMinutes={workedMinutes} dailyGoal={dailyGoal} />
             </Animated.View>
 
             <Animated.ScrollView 
@@ -849,7 +812,7 @@ export default function Home() {
                 ) : (
                     <>
                         <View style={{ alignItems: 'center', marginBottom: 40 }}>
-                            <View style={{ width: '100%' }} onLayout={(event) => { dynamicBarOffsetY.value = event.nativeEvent.layout.y; }}>
+                            <View style={{ width: '100%' }}>
                                 <DynamicBar nameToDisplay={displayName} alertVisible={alertVisible} alertMessage={alertMessage} alertType={alertType} onHideAlert={handleHideAlert} customGreeting={isBreakMode ? "You are on break" : (isBreak ? "Happy Break Time" : null)} shiftStartTime={jobSettings?.work_schedule?.start || null} />
                             </View>
                             <View style={{ opacity: isBreakMode ? 0.5 : 1 }} pointerEvents={isBreakMode ? 'none' : 'auto'}>
@@ -917,7 +880,6 @@ const styles = StyleSheet.create({
     skeletonContainer: { flex: 1, paddingHorizontal: 0 },
     skeletonDynamicBar: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 14, borderRadius: 28, borderWidth: 1, width: '100%', maxWidth: 392, minHeight: 104, overflow: 'hidden' },
     skeletonDynamicBarTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-    headerBlurBackdrop: { position: 'absolute', top: 0, left: 0, right: 0 },
     skeletonCard: { borderRadius: 24, borderWidth: 1.5, justifyContent: 'space-between', overflow: 'hidden' },
     sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },

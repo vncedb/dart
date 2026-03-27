@@ -44,8 +44,9 @@ import TimePickerModal from '../../components/TimePicker';
 import { JOBS_LIST } from '../../constants/Jobs';
 import { useAppTheme } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
-import { generateUUID, queueSyncItem, saveJobLocal } from '../../lib/database';
+import { generateUUID, saveJobLocal, saveProfileLocal } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
+import { requireOnlineFeature } from '../../lib/offline-access';
 import { supabase } from '../../lib/supabase';
 
 // --- HELPERS ---
@@ -388,11 +389,18 @@ export default function JobForm() {
         return isValid;
     };
 
+    const normalizeValue = (value: string) => value.trim().toLowerCase();
+
     const handleSave = async () => {
         if (!validate()) return;
+
+        const canProceed = await requireOnlineFeature('job_editor', setAlertConfig);
+        if (!canProceed) return;
+
         setSaving(true);
         try {
             if (!user) throw new Error('No user found');
+
             const formatDBTime = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
             const salaryValue = parseCurrency(salaryDisplay);
             const finalJobId = jobId || generateUUID();
@@ -402,6 +410,24 @@ export default function JobForm() {
             const h = parseInt(targetHours || '0', 10);
             const m = parseInt(targetMinutes || '0', 10);
             if (h > 0 || m > 0) { periodTargetMins = (h * 60) + m; }
+
+            const db = await getDB();
+            const localJobs: any[] = await db.getAllAsync(
+                'SELECT id, title, company FROM job_positions WHERE user_id = ? AND deleted_at IS NULL AND id != ?',
+                [user.id, finalJobId]
+            );
+            const remoteJobsRes = await supabase.from('job_positions').select('id,title,company').eq('user_id', user.id);
+            if (remoteJobsRes.error) throw remoteJobsRes.error;
+
+            const duplicateExists = [...localJobs, ...(remoteJobsRes.data || [])].some((job: any) => (
+                job.id !== finalJobId &&
+                normalizeValue(job.title || '') === normalizeValue(position) &&
+                normalizeValue(job.company || '') === normalizeValue(company)
+            ));
+
+            if (duplicateExists) {
+                throw new Error('This exact job title and company combination already exists. Use a different title or company.');
+            }
 
             const payload = {
                 id: finalJobId,
@@ -422,30 +448,24 @@ export default function JobForm() {
             };
 
             if (!jobId) (payload as any).created_at = now;
-            
-            // 1. Save Locally
-            await saveJobLocal(payload);
-            
-            // Manual fallback force-update. 
-            try {
-                const db = await getDB();
-                await db.runAsync('UPDATE job_positions SET period_target = ? WHERE id = ?', [periodTargetMins, finalJobId]);
-            } catch (err) {
-                console.log("Local fallback update for period_target failed:", err);
-            }
-            
-            // 2. Queue for Sync
-            await queueSyncItem('job_positions', finalJobId, jobId ? 'UPDATE' : 'INSERT', payload);
-            
-            // 3. Set Active if New Job (Locally only)
+
+            const { error: saveError } = await supabase.from('job_positions').upsert(payload);
+            if (saveError) throw saveError;
+
+            await saveJobLocal(payload, { queueSync: false, synced: true });
+
             if (!jobId) {
-                const db = await getDB();
                 await db.runAsync('UPDATE profiles SET current_job_id = ? WHERE id = ?', [finalJobId, user.id]);
-                await queueSyncItem('profiles', user.id, 'UPDATE', { current_job_id: finalJobId });
+                const { error: profileError } = await supabase
+                    .from('profiles')
+                    .update({ current_job_id: finalJobId, updated_at: now })
+                    .eq('id', user.id);
+                if (profileError) throw profileError;
+
+                const localProfile: any = await db.getFirstAsync('SELECT * FROM profiles WHERE id = ?', [user.id]);
+                await saveProfileLocal({ ...(localProfile || { id: user.id }), current_job_id: finalJobId, updated_at: now }, { queueSync: false, synced: true });
             }
-            
-            // REMOVED RAW SUPABASE UPSERTS HERE! Let the Sync Engine do the heavy lifting.
-            
+
             setIsDirty(false);
             setSaving(false);
             router.back();

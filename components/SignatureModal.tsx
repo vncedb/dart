@@ -118,7 +118,7 @@ export default function SignatureModal({
                                     webStyle={webStyle}
                                     backgroundColor="rgba(255,255,255,0)"
                                     imageType="image/png"
-                                    penColor={theme.dark ? "#FFFFFF" : "#000000"}
+                                    penColor="#000000"
                                     style={{ width: canvasSize.width, height: canvasSize.height }}
                                 />
                             )}

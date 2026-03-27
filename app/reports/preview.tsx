@@ -1,30 +1,35 @@
 // filepath: app/reports/preview.tsx
 import {
   DocumentValidationIcon,
-  Download01Icon,
   File02Icon,
   FloppyDiskIcon,
   Share08Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { differenceInMinutes, format } from "date-fns";
+import { format } from "date-fns";
 import * as FileSystem from "expo-file-system/legacy";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import Animated, { Easing, useAnimatedStyle, useSharedValue, withDelay, withRepeat, withTiming } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import Button from "../../components/Button";
 import Footer from "../../components/Footer";
 import Header from "../../components/Header";
+import LoadingScreen from "../../components/LoadingScreen";
 import ModernAlert from "../../components/ModernAlert";
 import { useAppTheme } from "../../constants/theme";
-import { useSync } from "../../context/SyncContext";
-import { generateUUID, queueSyncItem, saveReportLocal } from "../../lib/database";
-import { getDB } from "../../lib/db-client";
+import { generateUUID, saveReportLocal } from "../../lib/database";
+import {
+  buildProcessedReportData,
+  buildReportDisplayTitle,
+  buildReportStorageFileName,
+  buildSavedReportRecord,
+  formatReportPeriod,
+} from "../../lib/reporting";
+import { getSafeFileInfo, saveReportFileOffline } from "../../lib/report-storage";
 import { supabase } from "../../lib/supabase";
 import { ReportService } from "../../services/ReportService";
 import { exportToExcel } from "../../utils/csvExporter";
@@ -89,50 +94,54 @@ export default function PreviewReportScreen() {
   const router = useRouter();
   const theme = useAppTheme();
   const { startDate, endDate, date, config } = useLocalSearchParams();
-  const { triggerSync } = useSync();
 
   const [fileUri, setFileUri] = useState<string | null>(null);
   const [fileSize, setFileSize] = useState<number>(0);
+  const [reportSummary, setReportSummary] = useState({ totalDays: 0, totalMinutes: 0, totalHoursText: "0h" });
   const [loading, setLoading] = useState(true);
   const [loadingMsg, setLoadingMsg] = useState("Generating Report...");
+  const [loadingProgress, setLoadingProgress] = useState(0);
   const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+  const [generatedMetadata, setGeneratedMetadata] = useState<any>({});
   
-  const [reportTimestamp] = useState(() => Date.now().toString());
+  const [reportId] = useState(() => generateUUID());
+  const [generatedAt] = useState(() => new Date());
 
   const viewOptions = useMemo(() => config ? JSON.parse(config as string) : {}, [config]);
 
   const formattedPeriod = useMemo(() => {
-      if (date) return format(new Date(date as string), "MMM dd, yyyy"); 
-      
-      if (startDate && endDate) {
-          const s = new Date(startDate as string);
-          const e = new Date(endDate as string);
-          
-          const isSameYear = s.getFullYear() === e.getFullYear();
-          const isSameMonth = s.getMonth() === e.getMonth() && isSameYear;
-          const isFirstDay = s.getDate() === 1;
-          const isLastDay = e.getDate() === new Date(e.getFullYear(), e.getMonth() + 1, 0).getDate();
-
-          if (isSameMonth && isFirstDay && isLastDay) return format(s, "MMMM");
-          if (isSameMonth) return `${format(s, "MMM dd")} - ${format(e, "dd, yyyy")}`;
-          if (isSameYear) return `${format(s, "MMM dd")} - ${format(e, "MMM dd, yyyy")}`;
-          
-          return `${format(s, "MMM dd, yyyy")} - ${format(e, "MMM dd, yyyy")}`;
-      }
-      return viewOptions.meta?.period || 'Report';
+      return formatReportPeriod({
+        date: typeof date === "string" ? date : null,
+        startDate: typeof startDate === "string" ? startDate : null,
+        endDate: typeof endDate === "string" ? endDate : null,
+        fallback: viewOptions.meta?.period || "Report",
+      });
   }, [startDate, endDate, date, viewOptions]);
 
-  const finalReportName = `ACCOMPLISHMENT_REPORT_${reportTimestamp}`;
-  const displayFileName = `${finalReportName}.${viewOptions.format === 'pdf' ? 'pdf' : 'xlsx'}`;
+  const finalReportTitle = useMemo(
+    () => buildReportDisplayTitle({ generatedAt }),
+    [generatedAt],
+  );
+  const storageFileName = useMemo(() => {
+    return buildReportStorageFileName({
+      generatedAt,
+      format: viewOptions.format || "pdf",
+    });
+  }, [generatedAt, viewOptions.format]);
 
   const generateFile = useCallback(async () => {
     setLoading(true);
     setLoadingMsg("Generating Report...");
+    setLoadingProgress(5);
     try {
+      setLoadingMsg("Loading account...");
+      setLoadingProgress(10);
       const { data: { session } } = await supabase.auth.getSession();
       const user = session?.user;
       if (!user) return;
 
+      setLoadingMsg("Loading report data...");
+      setLoadingProgress(20);
       const job: any = await ReportService.getActiveJob(user.id);
       let items: any = { attendance: [], tasks: [] };
 
@@ -140,63 +149,39 @@ export default function PreviewReportScreen() {
         items = await ReportService.getReportRange(user.id, job?.id || null, startDate as string, endDate as string);
       } else if (date) {
         const res = await ReportService.getDailyReport(user.id, date as string);
-        items = { attendance: res.attendance ? [res.attendance] : [], tasks: res.tasks };
+        items = { attendance: res.attendance || [], tasks: res.tasks };
       }
 
-      const dates = new Set([
-        ...(items.attendance || []).map((a: any) => a.date),
-        ...(items.tasks || []).map((t: any) => t.date),
-      ]);
+      setLoadingMsg("Preparing entries...");
+      setLoadingProgress(35);
+      const {
+        processedData,
+        includedDates,
+        totalDays,
+        totalMinutes,
+        totalHoursText,
+        totalEntries,
+        totalImages,
+      } = buildProcessedReportData({
+        attendance: items.attendance || [],
+        tasks: items.tasks || [],
+        job,
+        selectedDates: (viewOptions.selectedDates || []) as string[],
+        includeDocs: viewOptions.includeDocs,
+        includeRemarks: viewOptions.columns?.remarks !== false,
+        includeDay: viewOptions.includeDay !== false,
+        dateFormat: viewOptions.dateFormat || "MM/dd/yyyy",
+        timeFormat: viewOptions.timeFormat || "exact_hm",
+      });
 
-      const processedData = Array.from(dates)
-        .sort()
-        .map((d) => {
-          const att = (items.attendance || []).find((a: any) => a.date === d);
-          const dayTasks = (items.tasks || []).filter((t: any) => t.date === d).map((t: any) => {
-              let images: string[] = [];
-              if (viewOptions.includeDocs && t.image_url) {
-                try {
-                  const raw = t.image_url.trim();
-                  if (raw.startsWith("[")) {
-                    const parsed = JSON.parse(raw);
-                    images = Array.isArray(parsed) ? parsed : [raw];
-                  } else images = [raw];
-                } catch { images = [t.image_url]; }
-              }
-              return { ...t, images };
-            });
-
-          let durationTxt = "--";
-          if (att?.clock_in && att?.clock_out) {
-            const start = new Date(att.clock_in);
-            const end = new Date(att.clock_out);
-            let diff = differenceInMinutes(end, start);
-            
-            if (viewOptions.timeFormat === "round_15") diff = Math.round(diff / 15) * 15;
-            else if (viewOptions.timeFormat === "round_30") diff = Math.round(diff / 30) * 30;
-            else if (viewOptions.timeFormat === "round_60") diff = Math.round(diff / 60) * 60;
-
-            if (viewOptions.timeFormat === "decimal") durationTxt = (diff / 60).toFixed(2) + "h";
-            else {
-              const h = Math.floor(diff / 60);
-              const m = diff % 60;
-              durationTxt = `${h}h ${m > 0 ? `${m}m` : ""}`;
-            }
-          }
-
-          const dateObj = new Date(d as string);
-          let formattedDate = d;
-          try {
-            formattedDate = format(dateObj, viewOptions.dateFormat || "MM/dd/yyyy");
-            if (viewOptions.includeDay) formattedDate += `\n${format(dateObj, "EEEE")}`;
-          } catch { formattedDate = d as string; }
-
-          return {
-            date: formattedDate, clockIn: att?.clock_in ? format(new Date(att.clock_in), "h:mm a") : "--:--",
-            clockOut: att?.clock_out ? format(new Date(att.clock_out), "h:mm a") : "--:--",
-            duration: durationTxt, status: att?.status, remarks: att?.remarks, summary: dayTasks,
-          };
-        });
+      if (processedData.length === 0) {
+        throw new Error("No report content found for the selected dates.");
+      }
+      setReportSummary({
+        totalDays,
+        totalMinutes,
+        totalHoursText,
+      });
 
       const meta = {
         userName: viewOptions.meta?.name, userTitle: viewOptions.meta?.title, company: viewOptions.meta?.company,
@@ -205,59 +190,83 @@ export default function PreviewReportScreen() {
         secondaryName: viewOptions.meta?.secondaryName, secondaryTitle: viewOptions.meta?.secondaryTitle,
         secondarySignatureUri: viewOptions.meta?.secondarySignature, style: viewOptions.style,
         paperSize: viewOptions.paperSize, columns: viewOptions.columns, dateFormat: viewOptions.dateFormat,
+        totals: { totalDays, totalHours: totalHoursText },
       };
 
       let uri = "";
-      if (viewOptions.format === "pdf") uri = await generateReport({ ...meta, data: processedData });
-      else uri = await exportToExcel({ ...meta, data: processedData, fileName: finalReportName });
+      if (viewOptions.format === "pdf") {
+        uri = await generateReport({
+          ...meta,
+          data: processedData,
+          onProgress: (progress, message) => {
+            if (message) setLoadingMsg(message);
+            setLoadingProgress(Math.max(35, progress));
+          },
+        });
+      }
+      else uri = await exportToExcel({ ...meta, data: processedData, fileName: storageFileName });
 
+      setLoadingMsg("Finishing up...");
+      setLoadingProgress(95);
       setFileUri(uri);
       const info = await FileSystem.getInfoAsync(uri);
       if (info.exists) setFileSize(info.size);
+      setLoadingProgress(100);
 
-    } catch (error) { console.error("Preview Generation Error:", error); } finally { setLoading(false); }
-  }, [date, endDate, startDate, viewOptions, finalReportName]);
+      const nextMeta = {
+        reportDate: formattedPeriod,
+        startDate: typeof startDate === "string" ? new Date(startDate).toISOString() : (typeof date === "string" ? new Date(date).toISOString() : null),
+        endDate: typeof endDate === "string" ? new Date(endDate).toISOString() : (typeof date === "string" ? new Date(date).toISOString() : null),
+        periodLabel: viewOptions.meta?.period || formattedPeriod,
+        format: viewOptions.format || "pdf",
+        fileName: storageFileName,
+        generatedAt: generatedAt.toISOString(),
+        totalDays,
+        totalMinutes,
+        totalHours: totalHoursText,
+        totalEntries,
+        totalImages,
+        includedDates,
+        style: viewOptions.style || null,
+        paperSize: viewOptions.paperSize || null,
+        company: viewOptions.meta?.company || null,
+        department: viewOptions.meta?.department || null,
+        generatedBy: viewOptions.meta?.name || null,
+      };
+      setGeneratedMetadata(nextMeta);
+
+    } catch (error: any) {
+      console.error("Preview Generation Error:", error);
+      setAlertConfig({
+        visible: true,
+        type: "error",
+        title: "Generation Failed",
+        message: error?.message || "Could not build the report for the selected dates.",
+        confirmText: "Back",
+        onConfirm: () => {
+          setAlertConfig((prev: any) => ({ ...prev, visible: false }));
+          router.back();
+        },
+      });
+    } finally { setLoading(false); }
+  }, [date, endDate, formattedPeriod, generatedAt, router, startDate, storageFileName, viewOptions]);
 
   useEffect(() => { generateFile(); }, [generateFile]);
 
   const handleShare = async () => {
     if (fileUri) {
       await Sharing.shareAsync(fileUri, {
-        mimeType: viewOptions.format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        mimeType:
+          viewOptions.format === "pdf"
+            ? "application/pdf"
+            : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         dialogTitle: "Share Report",
       });
     }
   };
 
   const handleSavePress = async () => {
-      if (!fileUri) return;
-      setLoading(true);
-      setLoadingMsg("Saving Report...");
-      
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const user = session?.user;
-        if (!user) return;
-
-        const db = await getDB();
-        const existing: any = await db.getFirstAsync(
-            "SELECT id FROM saved_reports WHERE user_id = ? AND title = ? AND file_type = ?",
-            [user.id, finalReportName, viewOptions.format]
-        );
-
-        if (existing) {
-            setAlertConfig({
-                visible: true, type: "warning", title: "File Already Exists",
-                message: `A ${viewOptions.format.toUpperCase()} report named "${finalReportName}" already exists. Do you want to replace it?`,
-                confirmText: "Replace", cancelText: "Cancel",
-                onConfirm: () => { setAlertConfig((prev: any) => ({ ...prev, visible: false })); executeSave(existing.id); },
-                onCancel: () => { setAlertConfig((prev: any) => ({ ...prev, visible: false })); setLoading(false); }
-            });
-        } else executeSave(); 
-      } catch (error) { console.error("Duplicate Check Error:", error); setLoading(false); }
-  };
-
-  const executeSave = async (overwriteId?: string) => {
+    if (!fileUri) return;
     try {
       setLoading(true);
       setLoadingMsg("Saving Report...");
@@ -266,73 +275,39 @@ export default function PreviewReportScreen() {
       const user = session?.user;
       if (!user) return;
 
-      const ext = viewOptions.format === "pdf" ? "pdf" : "xlsx";
-      const mimeType = viewOptions.format === "pdf" ? "application/pdf" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-      let destPath = "";
+      const savedFile = await saveReportFileOffline({
+        sourceUri: fileUri,
+        fileName: storageFileName,
+        fileType: viewOptions.format,
+      });
+      const finalInfo = await getSafeFileInfo(savedFile.filePath);
 
-      // Safely move file to configured Android SAF Directory
-      if (Platform.OS === 'android') {
-          const safUri = await AsyncStorage.getItem('reports_directory_uri');
-          if (safUri) {
-              try {
-                  const base64Data = await FileSystem.readAsStringAsync(fileUri!, { encoding: 'base64' });
-                  const newUri = await FileSystem.StorageAccessFramework.createFileAsync(safUri, finalReportName, mimeType);
-                  await FileSystem.writeAsStringAsync(newUri, base64Data, { encoding: 'base64' });
-                  destPath = newUri;
-              } catch (e) {
-                  console.error("SAF Save Error, falling back to internal space.", e);
-              }
-          }
-      }
-
-      // Fallback if iOS or if Android SAF fails
-      if (!destPath) {
-          const reportsDir = `${FileSystem.documentDirectory}DART/Reports/`;
-          const dirInfo = await FileSystem.getInfoAsync(reportsDir);
-          if (!dirInfo.exists) {
-              await FileSystem.makeDirectoryAsync(reportsDir, { intermediates: true });
-          }
-          destPath = `${reportsDir}${finalReportName}.${ext}`;
-          if (overwriteId) { try { await FileSystem.deleteAsync(destPath, { idempotent: true }); } catch {} }
-          await FileSystem.copyAsync({ from: fileUri!, to: destPath });
-      }
-
-      // Re-verify actual file size at the final destination
-      let finalFileSize = 0;
-      try {
-          const finalInfo = await FileSystem.getInfoAsync(destPath);
-          if (finalInfo.exists) finalFileSize = finalInfo.size;
-      } catch (e) { console.log(e); }
-
-      const reportMeta = {
-          reportDate: formattedPeriod,
-          startDate: startDate ? new Date(startDate as string).toISOString() : (date ? new Date(date as string).toISOString() : new Date().toISOString()),
-          endDate: endDate ? new Date(endDate as string).toISOString() : (date ? new Date(date as string).toISOString() : new Date().toISOString())
+      const savedMetadata = {
+        ...generatedMetadata,
+        fileName: savedFile.fileName,
+        format: viewOptions.format || "pdf",
+        reportDate: formattedPeriod,
+        generatedAt: generatedAt.toISOString(),
       };
 
-      const reportId = overwriteId || generateUUID();
-      const reportData = {
-        id: reportId, user_id: user.id, title: finalReportName, file_path: destPath,
-        file_type: viewOptions.format, file_size: finalFileSize,
-        created_at: new Date().toISOString(), remote_url: null, file_url: null,
-        period_key: formattedPeriod, 
-        metadata: JSON.stringify(reportMeta),
-        is_synced: 0 // Specifically mark as 0 so background worker picks it up
-      };
+      const reportData = buildSavedReportRecord({
+        reportId,
+        userId: user.id,
+        title: finalReportTitle,
+        filePath: savedFile.filePath,
+        fileSize: finalInfo.size,
+        format: viewOptions.format || "pdf",
+        createdAt: generatedAt,
+        periodKey: formattedPeriod,
+        metadata: savedMetadata,
+        isSynced: false,
+      });
 
-      // 1. Instant local SQLite Save
-      await saveReportLocal(reportData);
-      
-      // 2. Queue for background cloud upload
-      await queueSyncItem("saved_reports", reportId, overwriteId ? "UPDATE" : "INSERT", reportData);
-      
-      // 3. Fire and forget the sync system
-      triggerSync();
+      await saveReportLocal(reportData, { queueSync: true, synced: false });
 
-      // 4. Immediately notify user and proceed to next screen without waiting for the internet!
       setAlertConfig({
-        visible: true, type: "success", title: overwriteId ? "Report Replaced" : "Report Saved",
-        message: "Your report has been saved to your device. Cloud backup will process seamlessly in the background.", 
+        visible: true, type: "success", title: "Report Saved",
+        message: "Your report has been saved to this device and queued for cloud backup when sync is available.", 
         cancelText: "View", confirmText: "Done",
         onCancel: () => {
           setAlertConfig((prev: any) => ({ ...prev, visible: false }));
@@ -344,7 +319,7 @@ export default function PreviewReportScreen() {
     } catch (error) {
       console.error("Save Error:", error);
       setAlertConfig({
-        visible: true, type: "error", title: "Save Failed", message: "Could not save the report. Please try again.", confirmText: "OK",
+        visible: true, type: "error", title: "Save Failed", message: "Could not save the report to Documents/DART/Reports. Please try again.", confirmText: "OK",
         onConfirm: () => setAlertConfig((prev: any) => ({ ...prev, visible: false })),
       });
     } finally { setLoading(false); }
@@ -364,10 +339,7 @@ export default function PreviewReportScreen() {
 
       <View style={styles.content}>
         {loading ? (
-          <View style={styles.center}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-            <Text style={{ marginTop: 16, color: theme.colors.textSecondary, fontFamily: 'Nunito_600SemiBold' }}>{loadingMsg}</Text>
-          </View>
+          <LoadingScreen message={`${loadingMsg} ${loadingProgress}%`} />
         ) : (
           <View style={styles.successContainer}>
               <View style={[styles.iconGlow, { backgroundColor: theme.colors.success + '15' }]}>
@@ -377,23 +349,25 @@ export default function PreviewReportScreen() {
               </View>
 
               <Text style={[styles.mainTitle, { color: theme.colors.text }]}>Your Report is Ready!</Text>
-              <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Your accomplishment document has been successfully compiled and is ready to be saved.</Text>
+              <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>Your report is ready to save as a device file named `DART Report - Date - Time`, and it will be queued for backup after saving.</Text>
 
               <View style={[styles.summaryCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                   <View style={styles.cardHeader}>
-                      <HugeiconsIcon icon={viewOptions.format === 'pdf' ? File02Icon : Download01Icon} size={20} color={theme.colors.primary} />
+                      <HugeiconsIcon icon={File02Icon} size={20} color={theme.colors.primary} />
                       <Text style={[styles.cardTitle, { color: theme.colors.text }]}>Document Details</Text>
                   </View>
                   <View style={[styles.divider, { backgroundColor: theme.colors.border }]} />
 
                   <View style={styles.detailRow}>
                       <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>File Name</Text>
-                      <MarqueeText text={displayFileName} style={[styles.detailValue, { color: theme.colors.text }]} />
+                      <MarqueeText text={storageFileName} style={[styles.detailValue, { color: theme.colors.text }]} />
                   </View>
                   <View style={styles.detailRow}>
                       <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>File Type</Text>
                       <View style={[styles.badge, { backgroundColor: theme.colors.primary + '15' }]}>
-                          <Text style={[styles.badgeText, { color: theme.colors.primary }]}>{viewOptions.format === 'pdf' ? 'PDF Document' : 'Excel Spreadsheet'}</Text>
+                          <Text style={[styles.badgeText, { color: theme.colors.primary }]}>
+                            {viewOptions.format === 'pdf' ? 'PDF Document' : 'Excel Spreadsheet'}
+                          </Text>
                       </View>
                   </View>
                   <View style={styles.detailRow}>
@@ -401,8 +375,16 @@ export default function PreviewReportScreen() {
                       <Text style={[styles.detailValue, { color: theme.colors.text }]}>{formattedPeriod}</Text>
                   </View>
                   <View style={styles.detailRow}>
+                      <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Included Days</Text>
+                      <Text style={[styles.detailValue, { color: theme.colors.text }]}>{reportSummary.totalDays}</Text>
+                  </View>
+                  <View style={styles.detailRow}>
+                      <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Total Hours</Text>
+                      <Text style={[styles.detailValue, { color: theme.colors.text }]}>{reportSummary.totalHoursText}</Text>
+                  </View>
+                  <View style={styles.detailRow}>
                       <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Generated On</Text>
-                      <Text style={[styles.detailValue, { color: theme.colors.text }]}>{format(new Date(), "MMM d, yyyy \u2022 h:mm a")}</Text>
+                      <Text style={[styles.detailValue, { color: theme.colors.text }]}>{format(generatedAt, "MMM d, yyyy \u2022 h:mm a")}</Text>
                   </View>
                   <View style={[styles.detailRow, { marginBottom: 0 }]}>
                       <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>File Size</Text>
@@ -425,7 +407,6 @@ export default function PreviewReportScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { flex: 1, padding: 24, justifyContent: 'center' },
-  center: { flex: 1, alignItems: "center", justifyContent: "center" },
   successContainer: { alignItems: 'center', paddingBottom: 20 },
   iconGlow: { width: 100, height: 100, borderRadius: 50, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
   iconCircle: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center', elevation: 5 },

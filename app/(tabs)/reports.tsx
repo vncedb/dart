@@ -1,6 +1,7 @@
 // filepath: app/(tabs)/reports.tsx
 import {
   AiMagicIcon,
+  DashboardSquare03Icon,
   File02Icon,
   FileVerifiedIcon,
   Search01Icon,
@@ -35,10 +36,38 @@ import TabHeader from "../../components/TabHeader";
 import { useAppTheme } from "../../constants/theme";
 import { useSync } from "../../context/SyncContext";
 import { getDB } from "../../lib/db-client";
+import { parseSavedReportMetadata, reconcileStoredReportFiles } from "../../lib/reporting";
 import { supabase } from "../../lib/supabase";
 import { ReportService } from "../../services/ReportService";
 
 type ExtendedDateRange = DateRange & { type?: "period" | "custom" | "day" };
+
+const createDefaultReportRange = (): ExtendedDateRange => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const day = now.getDate();
+
+  if (day <= 15) {
+    const start = new Date(year, month, 1);
+    const end = new Date(year, month, 15);
+    return {
+      start: format(start, "yyyy-MM-dd"),
+      end: format(end, "yyyy-MM-dd"),
+      label: `${format(start, "MMM 1")} - ${format(end, "15, yyyy")}`,
+      type: "period",
+    };
+  }
+
+  const start = new Date(year, month, 16);
+  const end = endOfMonth(now);
+  return {
+    start: format(start, "yyyy-MM-dd"),
+    end: format(end, "yyyy-MM-dd"),
+    label: `${format(start, "MMM 16")} - ${format(end, "d, yyyy")}`,
+    type: "period",
+  };
+};
 
 const OfflineIndicator = ({ isOffline, theme }: { isOffline: boolean; theme: any; }) => {
   if (!isOffline) return null;
@@ -55,7 +84,7 @@ const OfflineIndicator = ({ isOffline, theme }: { isOffline: boolean; theme: any
 export default function ReportsScreen() {
   const router = useRouter();
   const theme = useAppTheme();
-  const { lastSyncedAt } = useSync();
+  const { lastSyncedAt, triggerSync } = useSync();
 
   const filterBarRef = useRef<View>(null);
 
@@ -72,7 +101,7 @@ export default function ReportsScreen() {
   const [calendarLoading, setCalendarLoading] = useState(false);
 
   const [modalVisible, setModalVisible] = useState(false);
-  const [currentRange, setCurrentRange] = useState<ExtendedDateRange | null>(null);
+  const [currentRange, setCurrentRange] = useState<ExtendedDateRange>(() => createDefaultReportRange());
   const [actionMenuVisible, setActionMenuVisible] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
 
@@ -118,8 +147,14 @@ export default function ReportsScreen() {
         return;
       }
 
-      const count = await ReportService.getUnreadCount(userId);
-      setUnreadCount(count);
+      const verifiedSavedReports = await reconcileStoredReportFiles(userId);
+
+      const accurateUnreadCount = verifiedSavedReports.filter(
+        (report) =>
+          (!report.is_read || report.is_read === 0) &&
+          (report.isLocal || report.remote_url || report.file_url || report.public_url),
+      ).length;
+      setUnreadCount(accurateUnreadCount);
 
       const job: any = await ReportService.getActiveJob(userId);
       setActiveJob(job); 
@@ -140,6 +175,10 @@ export default function ReportsScreen() {
       const tasks = await db.getAllAsync(
         "SELECT * FROM accomplishments WHERE user_id = ? AND job_id = ? AND deleted_at IS NULL",
         [userId, job.id]
+      );
+      const generatedReports = await db.getAllAsync(
+        "SELECT id, metadata, period_key FROM saved_reports WHERE user_id = ? AND deleted_at IS NULL",
+        [userId],
       );
 
       const allDatesSet = new Set([
@@ -172,39 +211,20 @@ export default function ReportsScreen() {
           status: mappedStatus,
           accomplishments: taskList,
           is_synced: synced ? 1 : 0,
+          generatedReports: (generatedReports as any[]).filter((report) => {
+            const meta = parseSavedReportMetadata(report.metadata);
+            const start = meta?.startDate ? String(meta.startDate).split('T')[0] : null;
+            const end = meta?.endDate ? String(meta.endDate).split('T')[0] : null;
+            if (start && end) return dateStr >= start && dateStr <= end;
+            return false;
+          }).length,
         };
       });
 
       const grouped = ReportService.groupReportsByPayout(merged, payoutType) as any;
       const sectionsArray = Object.values(grouped) as any[];
       setAllSections(sectionsArray);
-
-      if (!currentRange) {
-        const now = new Date();
-        const year = now.getFullYear();
-        const month = now.getMonth();
-        const day = now.getDate();
-        
-        let start: Date;
-        let end: Date;
-        let label: string;
-        
-        if (day <= 15) {
-          start = new Date(year, month, 1);
-          end = new Date(year, month, 15);
-          label = `${format(start, "MMM 1")} - ${format(end, "15, yyyy")}`;
-        } else {
-          start = new Date(year, month, 16);
-          end = endOfMonth(now);
-          label = `${format(start, "MMM 16")} - ${format(end, "d, yyyy")}`;
-        }
-        
-        const defaultRange = { start: format(start, "yyyy-MM-dd"), end: format(end, "yyyy-MM-dd"), label, type: "period" } as ExtendedDateRange;
-        setCurrentRange(defaultRange);
-        applyFilter(defaultRange, sectionsArray);
-      } else {
-        applyFilter(currentRange, sectionsArray);
-      }
+      applyFilter(currentRange, sectionsArray);
     } catch (error) { 
       const err = error as any;
       console.log("Fetch Error", err);
@@ -219,6 +239,14 @@ export default function ReportsScreen() {
   useEffect(() => {
     if (lastSyncedAt) fetchReports();
   }, [lastSyncedAt, fetchReports]);
+
+  useEffect(() => {
+    if (!allSections.length) {
+      setFilteredSections([]);
+      return;
+    }
+    applyFilter(currentRange, allSections);
+  }, [allSections, currentRange, applyFilter]);
 
   const handleExactDateSelect = (date: Date) => {
     if (date) {
@@ -307,6 +335,22 @@ export default function ReportsScreen() {
               } 
           },
           {
+              label: "View Analytics",
+              icon: DashboardSquare03Icon,
+              color: theme.colors.primary,
+              onPress: () => {
+                  setActionMenuVisible(false);
+                  router.push({
+                      pathname: "/reports/analytics",
+                      params: {
+                          startDate: currentRange?.start || "",
+                          endDate: currentRange?.end || "",
+                          periodLabel: currentRange?.label || "",
+                      },
+                  });
+              },
+          },
+          {
               label: "Summarize Report",
               icon: AiMagicIcon,
               onPress: () => {
@@ -382,7 +426,7 @@ export default function ReportsScreen() {
             contentContainerStyle={{ paddingBottom: 120, paddingTop: 4 }}
             showsVerticalScrollIndicator={false}
             stickySectionHeadersEnabled={true}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); fetchReports(); }} tintColor={theme.colors.primary} />}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); if (!isOffline) await triggerSync(); await fetchReports(); }} tintColor={theme.colors.primary} />}
             ListEmptyComponent={
               <View style={styles.emptyContainer}>
                   <View style={[styles.emptyIconContainer, { backgroundColor: theme.dark ? '#1F2937' : '#F3F4F6' }]}>

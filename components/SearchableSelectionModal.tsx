@@ -24,7 +24,6 @@ import Animated, {
     Easing,
     FadeIn,
     FadeOut,
-    runOnJS,
     useAnimatedStyle,
     useSharedValue,
     withTiming
@@ -67,37 +66,35 @@ export default function SearchableSelectionModal({
     const [search, setSearch] = useState('');
     const [showModal, setShowModal] = useState(visible);
     const translateY = useSharedValue(HIDDEN_TRANSLATE_Y);
-    const sheetScale = useSharedValue(0.98);
-
-    const selectedOption = useMemo(
-        () => options.find((option) => option.value === currentValue || option.label === currentValue) || null,
-        [currentValue, options]
-    );
 
     const filteredOptions = useMemo(() => {
         const lowerSearch = search.trim().toLowerCase();
-        let results = options.filter((opt) => opt.label.toLowerCase().includes(lowerSearch));
+        const noneOptions: Option[] = [];
+        const regularOptions: Option[] = [];
 
-        if (currentValue && lowerSearch.length === 0) {
-            results = results.sort((a, b) => {
-                const isA = a.value === currentValue || a.label === currentValue;
-                const isB = b.value === currentValue || b.label === currentValue;
-                if (isA && !isB) return -1;
-                if (!isA && isB) return 1;
-                return a.label.localeCompare(b.label);
-            });
-        }
+        options.forEach((option) => {
+            if (!option.label.toLowerCase().includes(lowerSearch)) return;
 
-        return results;
-    }, [currentValue, options, search]);
+            if (option.label.trim().toLowerCase() === 'none') {
+                noneOptions.push(option);
+            } else {
+                regularOptions.push(option);
+            }
+        });
+
+        regularOptions.sort((a, b) => a.label.localeCompare(b.label));
+        return [...noneOptions, ...regularOptions];
+    }, [options, search]);
 
     const close = () => {
         Keyboard.dismiss();
         translateY.value = withTiming(HIDDEN_TRANSLATE_Y, { duration: 220, easing: Easing.in(Easing.cubic) });
-        sheetScale.value = withTiming(0.98, { duration: 220, easing: Easing.in(Easing.cubic) }, (finished) => {
-            if (finished) runOnJS(setShowModal)(false);
-            if (finished) runOnJS(onClose)();
-        });
+        if (showModal) {
+            setTimeout(() => {
+                setShowModal(false);
+                onClose();
+            }, 220);
+        }
     };
 
     useEffect(() => {
@@ -111,9 +108,7 @@ export default function SearchableSelectionModal({
         setShowModal(true);
         setSearch('');
         translateY.value = HIDDEN_TRANSLATE_Y;
-        sheetScale.value = 0.98;
         translateY.value = withTiming(0, { duration: 300, easing: Easing.out(Easing.quad) });
-        sheetScale.value = withTiming(1, { duration: 300, easing: Easing.out(Easing.quad) });
 
         const timer = setTimeout(() => {
             inputRef.current?.focus();
@@ -124,7 +119,7 @@ export default function SearchableSelectionModal({
     }, [visible]);
 
     const animatedContainerStyle = useAnimatedStyle(() => ({
-        transform: [{ translateY: translateY.value }, { scale: sheetScale.value }],
+        transform: [{ translateY: translateY.value }],
     }));
 
     if (!showModal) return null;
@@ -149,14 +144,17 @@ export default function SearchableSelectionModal({
                         style={[
                             styles.modalContainer,
                             {
-                                backgroundColor: theme.colors.background,
-                                borderColor: theme.colors.border,
+                                backgroundColor: theme.colors.card,
                                 height: SHEET_HEIGHT,
                                 paddingBottom: Math.max(insets.bottom, 18),
                             },
                             animatedContainerStyle,
                         ]}
                     >
+                        <View style={styles.handleContainer}>
+                            <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
+                        </View>
+
                         <ModalHeader
                             title={title}
                             subtitle={`${filteredOptions.length} ${filteredOptions.length === 1 ? 'option' : 'options'}`}
@@ -198,14 +196,6 @@ export default function SearchableSelectionModal({
                                 )}
                             </View>
 
-                            {selectedOption ? (
-                                <View style={[styles.selectedPill, { backgroundColor: theme.colors.primary + '12', borderColor: theme.colors.primary + '24' }]}> 
-                                    <Text style={[styles.selectedPillLabel, { color: theme.colors.primary }]}>Current</Text>
-                                    <Text style={[styles.selectedPillText, { color: theme.colors.text }]} numberOfLines={1}>
-                                        {selectedOption.label}
-                                    </Text>
-                                </View>
-                            ) : null}
                         </View>
 
                         <FlatList
@@ -271,7 +261,7 @@ export default function SearchableSelectionModal({
                             }}
                         />
 
-                        <View style={[styles.footer, { borderTopColor: theme.colors.border, backgroundColor: theme.colors.background }]}> 
+                        <View style={[styles.footer, { borderTopColor: theme.colors.border, backgroundColor: theme.colors.card }]}> 
                             <Button title="Cancel" variant="neutral" onPress={close} style={{ width: '100%' }} />
                         </View>
                     </Animated.View>
@@ -297,7 +287,6 @@ const styles = StyleSheet.create({
         width: '100%',
         borderTopLeftRadius: 30,
         borderTopRightRadius: 30,
-        borderWidth: 1,
         overflow: 'hidden',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: -10 },
@@ -307,6 +296,8 @@ const styles = StyleSheet.create({
         position: 'absolute',
         bottom: 0,
     },
+    handleContainer: { width: '100%', alignItems: 'center', paddingTop: 12, paddingBottom: 4 },
+    handle: { width: 36, height: 4, borderRadius: 2, opacity: 0.4 },
     searchSection: {
         paddingHorizontal: 20,
         paddingTop: 14,
@@ -335,26 +326,6 @@ const styles = StyleSheet.create({
         borderRadius: 14,
         alignItems: 'center',
         justifyContent: 'center',
-    },
-    selectedPill: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-        borderRadius: 16,
-        borderWidth: 1,
-        paddingHorizontal: 14,
-        paddingVertical: 10,
-    },
-    selectedPillLabel: {
-        fontSize: 11,
-        fontFamily: 'Nunito_800ExtraBold',
-        textTransform: 'uppercase',
-        letterSpacing: 0.8,
-    },
-    selectedPillText: {
-        flex: 1,
-        fontSize: 14,
-        fontFamily: 'Nunito_700Bold',
     },
     listContent: {
         paddingHorizontal: 20,

@@ -55,6 +55,40 @@ const SNAP_TOP = 0;
 const SNAP_MID = MAX_HEIGHT - INITIAL_HEIGHT;
 const SNAP_CLOSE = MAX_HEIGHT;
 
+const createCurrentSemiMonthlyRange = (): DateRange => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const day = now.getDate();
+
+    if (day <= 15) {
+        const start = new Date(year, month, 1);
+        const end = new Date(year, month, 15);
+        return {
+            start: format(start, 'yyyy-MM-dd'),
+            end: format(end, 'yyyy-MM-dd'),
+            label: `${format(start, 'MMM 1')} - ${format(end, '15, yyyy')}`,
+            type: 'period',
+        };
+    }
+
+    const start = new Date(year, month, 16);
+    const end = endOfMonth(now);
+    return {
+        start: format(start, 'yyyy-MM-dd'),
+        end: format(end, 'yyyy-MM-dd'),
+        label: `${format(start, 'MMM 16')} - ${format(end, 'd, yyyy')}`,
+        type: 'period',
+    };
+};
+
+const isSameRange = (left?: DateRange | null, right?: DateRange | null) =>
+    !!left &&
+    !!right &&
+    left.type === right.type &&
+    left.start === right.start &&
+    left.end === right.end;
+
 export default function ReportFilterModal({ 
     visible, 
     onClose, 
@@ -91,11 +125,6 @@ export default function ReportFilterModal({
     useEffect(() => {
         setIsLoading(true);
         setTimeout(() => {
-            if (!availableDates.length) {
-                setGroups([]);
-                setIsLoading(false);
-                return;
-            }
             const sorted = [...availableDates].sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
             const uniqueRanges = new Map<string, DateRange>();
 
@@ -140,10 +169,23 @@ export default function ReportFilterModal({
                     uniqueRanges.set(key, { start: startStr, end: endStr, label, type: activeTab });
                 }
             });
-            setGroups(Array.from(uniqueRanges.values()));
+
+            const nextGroups = Array.from(uniqueRanges.values());
+            if (activeTab === 'period') {
+                const preferredRange =
+                    currentRange?.type === 'period'
+                        ? currentRange
+                        : createCurrentSemiMonthlyRange();
+
+                if (!nextGroups.some((item) => isSameRange(item, preferredRange))) {
+                    nextGroups.unshift(preferredRange);
+                }
+            }
+
+            setGroups(nextGroups);
             setIsLoading(false);
         }, 10);
-    }, [activeTab, availableDates]);
+    }, [activeTab, availableDates, currentRange]);
 
     const close = () => {
         translateY.value = withTiming(SNAP_CLOSE, { duration: 250 }, () => {
@@ -231,7 +273,7 @@ export default function ReportFilterModal({
                                     keyExtractor={item => item.label}
                                     showsVerticalScrollIndicator={false}
                                     renderItem={({ item, index }) => {
-                                        const isSelected = currentRange?.label === item.label && currentRange?.type === item.type;
+                                        const isSelected = isSameRange(currentRange, item);
 
                                         return (
                                             <Animated.View 

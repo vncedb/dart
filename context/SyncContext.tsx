@@ -79,6 +79,21 @@ export const SyncProvider = ({ children }: { children: React.ReactNode }) => {
     return () => clearInterval(interval);
   }, [updatePendingCount, loadSettings]);
 
+  useEffect(() => {
+    if (!user) {
+      setLastSyncedAt(null);
+      setPendingCount(0);
+      setFailedCount(0);
+      setConflictCount(0);
+      setSyncStatus('idle');
+      setSyncProgress(0);
+      return;
+    }
+
+    loadSettings();
+    updatePendingCount();
+  }, [user, loadSettings, updatePendingCount]);
+
   const triggerSync = useCallback(async (): Promise<boolean> => {
     if (!user || isSyncing.current) return false;
 

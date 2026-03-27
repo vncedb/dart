@@ -16,6 +16,10 @@ import Animated, {
     FadeIn,
     FadeOut,
     LinearTransition,
+    useAnimatedStyle,
+    useSharedValue,
+    withSequence,
+    withTiming,
     ZoomIn,
     ZoomOut,
 } from 'react-native-reanimated';
@@ -70,6 +74,27 @@ const hashString = (value: string) => {
     return Math.abs(hash);
 };
 
+const withAlpha = (color: string, alpha: number) => {
+    if (color.startsWith('#')) {
+        const normalized = color.replace('#', '');
+        const hex = normalized.length === 3
+            ? normalized.split('').map((char) => char + char).join('')
+            : normalized;
+
+        const r = parseInt(hex.slice(0, 2), 16);
+        const g = parseInt(hex.slice(2, 4), 16);
+        const b = parseInt(hex.slice(4, 6), 16);
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+    const rgbaMatch = color.match(/rgba?\(([^)]+)\)/i);
+    if (!rgbaMatch) return color;
+
+    const values = rgbaMatch[1].split(',').map((value) => value.trim());
+    const [r = '0', g = '0', b = '0'] = values;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
 export default function DynamicBar({
     nameToDisplay,
     alertVisible = false,
@@ -83,6 +108,8 @@ export default function DynamicBar({
 
     const [mode, setMode] = useState<'greeting' | 'quote'>('greeting');
     const [now, setNow] = useState(() => new Date());
+    const pressScale = useSharedValue(1);
+    const glowProgress = useSharedValue(0);
 
     useEffect(() => {
         const timer = setInterval(() => setNow(new Date()), 60000);
@@ -180,8 +207,33 @@ export default function DynamicBar({
     const data = getDisplayData();
     const contentKey = `${data.key}-${data.key === 'quote' ? currentQuote.text : data.subtitle}`;
 
+    const barAnimatedStyle = useAnimatedStyle(() => ({
+        transform: [{ scale: pressScale.value }],
+    }));
+
+    const glowAnimatedStyle = useAnimatedStyle(() => ({
+        opacity: glowProgress.value,
+        transform: [
+            { scaleX: 0.94 + (glowProgress.value * 0.08) },
+            { scaleY: 0.88 + (glowProgress.value * 0.14) },
+        ],
+    }));
+
+    const handlePressIn = () => {
+        pressScale.value = withTiming(0.988, { duration: 120 });
+        glowProgress.value = withTiming(0.45, { duration: 140 });
+    };
+
+    const handlePressOut = () => {
+        pressScale.value = withTiming(1, { duration: 160 });
+    };
+
     const handlePress = () => {
         Haptics.selectionAsync();
+        glowProgress.value = withSequence(
+            withTiming(0.82, { duration: 110 }),
+            withTiming(0, { duration: 280 }),
+        );
 
         if (alertVisible && onHideAlert) {
             onHideAlert();
@@ -193,11 +245,10 @@ export default function DynamicBar({
 
     return (
         <Animated.View style={styles.container} layout={LinearTransition.duration(300)}>
-            <TouchableOpacity
-                activeOpacity={0.9}
-                onPress={handlePress}
+            <Animated.View
                 style={[
                     styles.bar,
+                    barAnimatedStyle,
                     {
                         backgroundColor: theme.colors.card,
                         borderColor: data.borderColor,
@@ -205,51 +256,67 @@ export default function DynamicBar({
                     },
                 ]}
             >
-                <View style={[styles.surfaceGlow, { backgroundColor: theme.dark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.82)' }]} />
-
                 <Animated.View
+                    pointerEvents="none"
                     style={[
-                        styles.iconWrapper,
+                        styles.pressGlow,
+                        glowAnimatedStyle,
                         {
-                            backgroundColor: data.bg,
-                            borderColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.75)',
+                            backgroundColor: withAlpha(data.color, theme.dark ? 0.2 : 0.12),
                         },
                     ]}
-                    layout={LinearTransition.duration(300)}
+                />
+                <TouchableOpacity
+                    activeOpacity={1}
+                    onPress={handlePress}
+                    onPressIn={handlePressIn}
+                    onPressOut={handlePressOut}
+                    style={styles.touchArea}
                 >
-                    <Animated.View key={contentKey} entering={ZoomIn.duration(300)} exiting={ZoomOut.duration(300)}>
-                        <HugeiconsIcon icon={data.icon as any} size={20} color={data.color} />
-                    </Animated.View>
-                </Animated.View>
-
-                <View style={styles.textWrapper}>
                     <Animated.View
-                        key={contentKey}
-                        entering={FadeIn.duration(400).delay(100)}
-                        exiting={FadeOut.duration(300)}
-                        style={styles.textContainer}
+                        style={[
+                            styles.iconWrapper,
+                            {
+                                backgroundColor: data.bg,
+                                borderColor: theme.dark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.75)',
+                            },
+                        ]}
+                        layout={LinearTransition.duration(300)}
                     >
-                        {data.key === 'quote' ? (
-                            <View style={styles.quoteWrapper}>
-                                <Text style={[styles.quoteText, { color: theme.colors.text }]} numberOfLines={2}>
-                                    <Text style={[styles.quoteMark, { color: theme.colors.primary }]}>{'"'}</Text>
-                                    {data.subtitle}
-                                    <Text style={[styles.quoteMark, { color: theme.colors.primary }]}>{'" '}</Text>
-                                </Text>
-                            </View>
-                        ) : (
-                            <View style={styles.contentWrapper}>
-                                <Text style={[styles.label, { color: alertVisible ? data.color : theme.colors.textSecondary, textAlign: 'left' }]}>
-                                    {data.title}
-                                </Text>
-                                <Text style={[styles.mainText, { color: theme.colors.text, textAlign: 'left' }]} numberOfLines={1}>
-                                    {data.subtitle}
-                                </Text>
-                            </View>
-                        )}
+                        <Animated.View key={contentKey} entering={ZoomIn.duration(300)} exiting={ZoomOut.duration(300)}>
+                            <HugeiconsIcon icon={data.icon as any} size={20} color={data.color} />
+                        </Animated.View>
                     </Animated.View>
-                </View>
-            </TouchableOpacity>
+
+                    <View style={styles.textWrapper}>
+                        <Animated.View
+                            key={contentKey}
+                            entering={FadeIn.duration(400).delay(100)}
+                            exiting={FadeOut.duration(300)}
+                            style={styles.textContainer}
+                        >
+                            {data.key === 'quote' ? (
+                                <View style={styles.quoteWrapper}>
+                                    <Text style={[styles.quoteText, { color: theme.colors.text }]} numberOfLines={2}>
+                                        <Text style={[styles.quoteMark, { color: theme.colors.primary }]}>{'"'}</Text>
+                                        {data.subtitle}
+                                        <Text style={[styles.quoteMark, { color: theme.colors.primary }]}>{'" '}</Text>
+                                    </Text>
+                                </View>
+                            ) : (
+                                <View style={styles.contentWrapper}>
+                                    <Text style={[styles.label, { color: alertVisible ? data.color : theme.colors.textSecondary, textAlign: 'left' }]}>
+                                        {data.title}
+                                    </Text>
+                                    <Text style={[styles.mainText, { color: theme.colors.text, textAlign: 'left' }]} numberOfLines={1}>
+                                        {data.subtitle}
+                                    </Text>
+                                </View>
+                            )}
+                        </Animated.View>
+                    </View>
+                </TouchableOpacity>
+            </Animated.View>
         </Animated.View>
     );
 }
@@ -257,10 +324,6 @@ export default function DynamicBar({
 const styles = StyleSheet.create({
     container: { width: '100%', alignItems: 'center', marginBottom: 32, paddingHorizontal: 24 },
     bar: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 6,
-        paddingRight: 16,
         borderRadius: 30,
         width: '100%',
         maxWidth: 380,
@@ -272,13 +335,16 @@ const styles = StyleSheet.create({
         elevation: 5,
         overflow: 'hidden',
     },
-    surfaceGlow: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 20,
-        opacity: 0.55,
+    touchArea: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 6,
+        paddingRight: 16,
+        flex: 1,
+    },
+    pressGlow: {
+        ...StyleSheet.absoluteFillObject,
+        borderRadius: 30,
     },
     iconWrapper: {
         width: 48,

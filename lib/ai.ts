@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { createPartFromBase64, createPartFromText, GoogleGenAI } from "@google/genai";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { format } from "date-fns";
 import { getDB } from "./db-client";
@@ -48,6 +48,37 @@ interface GeneratedSummary {
   insights: string;
   provider: AIProvider;
 }
+
+interface EntryDescriptionInput {
+  date: string;
+  activityTime?: string;
+  currentDescription?: string;
+  remarks?: string;
+  jobTitle?: string;
+  company?: string;
+  timeIn?: string;
+  timeOut?: string;
+}
+
+export type EntryRewriteMode = "shorter" | "more_professional" | "highlight_result";
+
+export interface AIImageInput {
+  data: string;
+  mimeType: string;
+}
+
+interface PhotoDescriptionInput extends EntryDescriptionInput {
+  images: AIImageInput[];
+}
+
+interface EntryRewriteInput extends EntryDescriptionInput {
+  draft: string;
+  mode: EntryRewriteMode;
+}
+
+type AIPromptPart =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
 
 const normalizeProviderPreference = (value: string | null): AIProviderPreference => {
   if (value === "openai" || value === "gemini" || value === "auto") return value;
@@ -228,14 +259,110 @@ Focus on:
 
 ${context}`;
 
-const callGemini = async (prompt: string): Promise<string> => {
+const buildEntryDescriptionPrompt = (input: EntryDescriptionInput) => `You are helping a worker write one polished daily accomplishment entry for a work report.
+
+Write exactly one concise task description sentence based on the context below.
+
+Rules:
+- Return plain text only.
+- Do not use markdown, bullets, numbering, quotes, labels, or intro phrases.
+- Keep it specific, professional, and natural.
+- Keep it between 8 and 22 words.
+- Focus on what was accomplished, not future plans.
+- If there is already a rough description, refine it instead of changing the meaning.
+- Use the remarks and activity context to make the wording clearer.
+
+Context:
+- Date: ${input.date}
+- Activity Time: ${input.activityTime || "Not provided"}
+- Job Title: ${input.jobTitle || "Not provided"}
+- Company: ${input.company || "Not provided"}
+- Attendance Window: ${input.timeIn && input.timeOut ? `${input.timeIn} to ${input.timeOut}` : "Not provided"}
+- Current Description Draft: ${input.currentDescription?.trim() || "None"}
+- Additional Remarks / Notes: ${input.remarks?.trim() || "None"}
+`;
+
+const buildPhotoDescriptionPrompt = (input: EntryDescriptionInput) => `You are helping a worker turn multiple job-site photos into one polished accomplishment entry for a daily work report.
+
+Analyze all attached images together and write exactly one concise task description sentence.
+
+Rules:
+- Return plain text only.
+- Do not use markdown, bullets, numbering, quotes, labels, or intro phrases.
+- Keep it between 8 and 24 words.
+- Focus on the finished work, visible progress, or documented result.
+- If the photos show multiple related steps, summarize the overall completed outcome.
+- Use the draft or remarks only as supporting context, not as the main source if the photos are clearer.
+- Do not invent tools, materials, or outcomes that are not reasonably supported by the images or notes.
+
+Context:
+- Date: ${input.date}
+- Activity Time: ${input.activityTime || "Not provided"}
+- Job Title: ${input.jobTitle || "Not provided"}
+- Company: ${input.company || "Not provided"}
+- Attendance Window: ${input.timeIn && input.timeOut ? `${input.timeIn} to ${input.timeOut}` : "Not provided"}
+- Current Description Draft: ${input.currentDescription?.trim() || "None"}
+- Additional Remarks / Notes: ${input.remarks?.trim() || "None"}
+`;
+
+const buildEntryRewritePrompt = (input: EntryRewriteInput) => {
+  const modeInstruction =
+    input.mode === "shorter"
+      ? "Rewrite it to be shorter and tighter while keeping the original meaning."
+      : input.mode === "more_professional"
+        ? "Rewrite it to sound more polished, professional, and report-ready."
+        : "Rewrite it to emphasize the completed result, outcome, or impact more clearly.";
+
+  return `You are helping a worker refine a daily accomplishment entry for a work report.
+
+${modeInstruction}
+
+Rules:
+- Return plain text only.
+- Do not use markdown, bullets, numbering, quotes, labels, or intro phrases.
+- Keep it to exactly one sentence.
+- Keep the meaning grounded in the original draft.
+- Keep it between 6 and 24 words.
+- Do not add claims that are not supported by the original draft or notes.
+
+Context:
+- Date: ${input.date}
+- Activity Time: ${input.activityTime || "Not provided"}
+- Job Title: ${input.jobTitle || "Not provided"}
+- Company: ${input.company || "Not provided"}
+- Attendance Window: ${input.timeIn && input.timeOut ? `${input.timeIn} to ${input.timeOut}` : "Not provided"}
+- Original Task Description: ${input.draft.trim()}
+- Additional Remarks / Notes: ${input.remarks?.trim() || "None"}
+`;
+};
+
+const normalizePromptInput = (input: string | AIPromptPart[]): AIPromptPart[] => {
+  if (typeof input === "string") {
+    return [{ type: "text", text: input }];
+  }
+
+  return input;
+};
+
+const sanitizePlainTextResult = (value: string) =>
+  value
+    .replace(/\s+/g, " ")
+    .replace(/^["“”']+|["“”']+$/g, "")
+    .trim();
+
+const callGemini = async (input: string | AIPromptPart[]): Promise<string> => {
   const apiKey = await AsyncStorage.getItem(GEMINI_KEY_STORAGE);
   if (!apiKey) throw new Error("Gemini API key is missing.");
 
   const client = new GoogleGenAI({ apiKey });
+  const parts = normalizePromptInput(input).map((part) =>
+    part.type === "text"
+      ? createPartFromText(part.text)
+      : createPartFromBase64(part.data, part.mimeType)
+  );
   const response = await client.models.generateContent({
     model: "gemini-2.0-flash",
-    contents: prompt,
+    contents: parts,
   });
 
   const text = (response.text || "").trim();
@@ -243,9 +370,22 @@ const callGemini = async (prompt: string): Promise<string> => {
   return text;
 };
 
-const callOpenAI = async (prompt: string): Promise<string> => {
+const callOpenAI = async (input: string | AIPromptPart[]): Promise<string> => {
   const apiKey = await AsyncStorage.getItem(OPENAI_KEY_STORAGE);
   if (!apiKey) throw new Error("OpenAI API key is missing.");
+  const parts = normalizePromptInput(input);
+  const hasImages = parts.some((part) => part.type === "image");
+  const content = parts.map((part) =>
+    part.type === "text"
+      ? { type: "text", text: part.text }
+      : {
+          type: "image_url",
+          image_url: {
+            url: `data:${part.mimeType};base64,${part.data}`,
+            detail: "low",
+          },
+        }
+  );
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -254,16 +394,16 @@ const callOpenAI = async (prompt: string): Promise<string> => {
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model: hasImages ? "gpt-4.1-mini" : "gpt-4o-mini",
       temperature: 0.4,
       messages: [
         {
           role: "system",
-          content: "You are a concise, professional workplace analytics assistant. Return markdown output only.",
+          content: "You are a concise, professional workplace assistant. Follow the user's formatting rules exactly.",
         },
         {
           role: "user",
-          content: prompt,
+          content,
         },
       ],
     }),
@@ -282,9 +422,12 @@ const callOpenAI = async (prompt: string): Promise<string> => {
   return message;
 };
 
-const generateFromProvider = async (provider: AIProvider, prompt: string): Promise<string> => {
-  if (provider === "openai") return callOpenAI(prompt);
-  return callGemini(prompt);
+const generateFromProvider = async (
+  provider: AIProvider,
+  input: string | AIPromptPart[]
+): Promise<string> => {
+  if (provider === "openai") return callOpenAI(input);
+  return callGemini(input);
 };
 
 const resolveProviderOrder = async (
@@ -312,7 +455,7 @@ const resolveProviderOrder = async (
 };
 
 const generateWithBestProvider = async (
-  prompt: string,
+  input: string | AIPromptPart[],
   forceProvider?: AIProvider
 ): Promise<{ text: string; provider: AIProvider }> => {
   const { order, preference } = await resolveProviderOrder(forceProvider);
@@ -333,7 +476,7 @@ const generateWithBestProvider = async (
 
   for (const provider of order) {
     try {
-      const text = await generateFromProvider(provider, prompt);
+      const text = await generateFromProvider(provider, input);
       return { text, provider };
     } catch (error) {
       lastError = error;
@@ -365,6 +508,53 @@ export const generateAnalyticsInsights = async (
   const prompt = buildInsightsPrompt(context);
   const result = await generateWithBestProvider(prompt, forceProvider);
   return result.text;
+};
+
+export const generateEntryDescriptionSuggestion = async (
+  input: EntryDescriptionInput,
+  forceProvider?: AIProvider
+): Promise<{ text: string; provider: AIProvider }> => {
+  const prompt = buildEntryDescriptionPrompt(input);
+  const result = await generateWithBestProvider(prompt, forceProvider);
+
+  return {
+    text: sanitizePlainTextResult(result.text),
+    provider: result.provider,
+  };
+};
+
+export const generateEntryDescriptionFromPhotos = async (
+  input: PhotoDescriptionInput,
+  forceProvider?: AIProvider
+): Promise<{ text: string; provider: AIProvider }> => {
+  const promptParts: AIPromptPart[] = [
+    { type: "text", text: buildPhotoDescriptionPrompt(input) },
+    ...input.images.map((image) => ({
+      type: "image" as const,
+      data: image.data,
+      mimeType: image.mimeType,
+    })),
+  ];
+
+  const result = await generateWithBestProvider(promptParts, forceProvider);
+
+  return {
+    text: sanitizePlainTextResult(result.text),
+    provider: result.provider,
+  };
+};
+
+export const rewriteEntryDescriptionSuggestion = async (
+  input: EntryRewriteInput,
+  forceProvider?: AIProvider
+): Promise<{ text: string; provider: AIProvider }> => {
+  const prompt = buildEntryRewritePrompt(input);
+  const result = await generateWithBestProvider(prompt, forceProvider);
+
+  return {
+    text: sanitizePlainTextResult(result.text),
+    provider: result.provider,
+  };
 };
 
 export const generateAISummaryBundle = async (

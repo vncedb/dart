@@ -35,7 +35,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import Button from "../../components/Button";
 import Header from "../../components/Header";
-import { SkeletonBlock } from "../../components/Skeleton";
+import LoadingScreen from "../../components/LoadingScreen";
+import ModernAlert from "../../components/ModernAlert";
 import { useAppTheme } from "../../constants/theme";
 import { useAuth } from "../../context/AuthContext";
 import { useActiveJob } from "../../hooks/useActiveJob";
@@ -45,6 +46,7 @@ import {
     isAIAvailable,
     type AIProvider,
 } from "../../lib/ai";
+import { requireOnlineFeature } from "../../lib/offline-access";
 
 export default function AISummaryScreen() {
     const router = useRouter();
@@ -64,6 +66,7 @@ export default function AISummaryScreen() {
     const [insightsContent, setInsightsContent] = useState<string | null>(null);
     const [providerUsed, setProviderUsed] = useState<AIProvider | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
 
     const pulseValue = useSharedValue(1);
     const glowOpacity = useSharedValue(0.3);
@@ -136,6 +139,12 @@ export default function AISummaryScreen() {
     const handleGenerate = async () => {
         if (!user || !activeJobId) {
             setError("Please log in and select an active job before generating.");
+            return;
+        }
+
+        const canProceed = await requireOnlineFeature("ai_summary", setAlertConfig);
+        if (!canProceed) {
+            setError("You're offline. Reconnect to generate AI summaries.");
             return;
         }
 
@@ -250,10 +259,9 @@ export default function AISummaryScreen() {
     if (hasKey === null) {
         return (
             <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={["top"]}>
+                <ModernAlert {...alertConfig} />
                 <Header title="Report Summary" />
-                <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-                    <ActivityIndicator size="large" color={theme.colors.primary} />
-                </View>
+                <LoadingScreen message="Checking AI settings..." />
             </SafeAreaView>
         );
     }
@@ -293,6 +301,7 @@ export default function AISummaryScreen() {
     return (
         <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={["top"]}>
             <StatusBar barStyle={theme.dark ? "light-content" : "dark-content"} />
+            <ModernAlert {...alertConfig} />
 
             <Header
                 title="Report Summary"
@@ -386,32 +395,40 @@ export default function AISummaryScreen() {
                     <Animated.View entering={FadeIn} exiting={FadeOut} style={styles.loadingContainer}>
                         <View style={styles.loadingInner}>
                             {[0, 1].map((section) => (
-                                <View key={section}>
+                                <View
+                                    key={section}
+                                    style={[
+                                        styles.loadingCard,
+                                        {
+                                            backgroundColor: theme.colors.card,
+                                            borderColor: theme.colors.border,
+                                        },
+                                    ]}
+                                >
                                     <View style={styles.loadingSectionHeader}>
-                                        <SkeletonBlock style={{ width: 32, height: 32, borderRadius: 10 }} />
-                                        <SkeletonBlock
-                                            style={{
-                                                width: section === 0 ? 170 : 140,
-                                                height: 18,
-                                                borderRadius: 9,
-                                            }}
-                                        />
+                                        <View style={[styles.loadingIconBox, { backgroundColor: theme.colors.primary + "12" }]}>
+                                            <HugeiconsIcon
+                                                icon={section === 0 ? Activity01Icon : SparklesIcon}
+                                                size={18}
+                                                color={theme.colors.primary}
+                                            />
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <Text style={[styles.loadingTitle, { color: theme.colors.text }]}>
+                                                {section === 0 ? "Reviewing activity records" : "Generating insight summary"}
+                                            </Text>
+                                            <Text style={[styles.loadingSubtitle, { color: theme.colors.textSecondary }]}>
+                                                {section === 0
+                                                    ? "Attendance, tasks, and work patterns are being analyzed."
+                                                    : "Your AI summary is being composed and refined."}
+                                            </Text>
+                                        </View>
                                     </View>
-
-                                    <View
-                                        style={[
-                                            styles.contentCard,
-                                            {
-                                                backgroundColor: theme.colors.card,
-                                                borderColor: theme.colors.border,
-                                            },
-                                        ]}
-                                    >
-                                        <SkeletonBlock style={{ width: '78%', height: 14, borderRadius: 7, marginBottom: 12 }} />
-                                        <SkeletonBlock style={{ width: '100%', height: 14, borderRadius: 7, marginBottom: 12 }} />
-                                        <SkeletonBlock style={{ width: '92%', height: 14, borderRadius: 7, marginBottom: 12 }} />
-                                        <SkeletonBlock style={{ width: '68%', height: 14, borderRadius: 7, marginBottom: 20 }} />
-                                        <SkeletonBlock style={{ width: '54%', height: 14, borderRadius: 7 }} />
+                                    <View style={[styles.loadingMessageRow, { backgroundColor: theme.colors.background }]}>
+                                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                                        <Text style={[styles.loadingMessageText, { color: theme.colors.textSecondary }]}>
+                                            {section === 0 ? "Collecting relevant report context..." : "Writing a concise analysis..."}
+                                        </Text>
                                     </View>
                                 </View>
                             ))}
@@ -570,6 +587,49 @@ const styles = StyleSheet.create({
     loadingContainer: { paddingVertical: 24 },
     loadingInner: { width: "100%", gap: 24 },
     loadingSectionHeader: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 },
+    loadingCard: {
+        borderWidth: 1,
+        borderRadius: 24,
+        padding: 20,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.03,
+        shadowRadius: 16,
+        elevation: 2,
+    },
+    loadingIconBox: {
+        width: 36,
+        height: 36,
+        borderRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    loadingTitle: {
+        fontSize: 16,
+        fontFamily: "Nunito_800ExtraBold",
+        letterSpacing: -0.2,
+    },
+    loadingSubtitle: {
+        marginTop: 4,
+        fontSize: 13,
+        lineHeight: 20,
+        fontFamily: "Nunito_600SemiBold",
+    },
+    loadingMessageRow: {
+        minHeight: 48,
+        borderRadius: 16,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 10,
+        paddingHorizontal: 14,
+        paddingVertical: 12,
+    },
+    loadingMessageText: {
+        flex: 1,
+        fontSize: 13,
+        fontFamily: "Nunito_700Bold",
+        lineHeight: 20,
+    },
 
     sectionHeader: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 },
     sectionIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },

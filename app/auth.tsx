@@ -34,6 +34,7 @@ import { ModernToast } from '../components/ModernUI';
 import OtpVerificationModal from '../components/OtpVerificationModal';
 import { queueSyncItem, saveProfileLocal } from '../lib/database';
 import { getDB } from '../lib/db-client';
+import { requireOnlineFeature } from '../lib/offline-access';
 import { supabase } from '../lib/supabase';
 import { syncPull } from '../lib/sync';
 
@@ -205,6 +206,9 @@ setLoadingMessage("Success!");
     setErrors({});
     setVisibleTooltip(null);
     if (!handleValidation()) return;
+
+    const canProceed = await requireOnlineFeature(authMode === 'login' ? 'login' : 'signup', setAlertConfig);
+    if (!canProceed) return;
 
     setLoading(true);
 

@@ -7,11 +7,8 @@ import {
   CheckListIcon,
   Clock01Icon,
   CustomizeIcon,
-  Delete02Icon,
   Image01Icon,
-  PencilEdit02Icon,
   PrinterIcon,
-  SignatureIcon,
   Tick01Icon,
   UserCircleIcon,
   UserGroupIcon,
@@ -19,11 +16,9 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { format } from "date-fns";
-import * as FileSystem from 'expo-file-system/legacy';
 import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -42,14 +37,14 @@ import Footer from "../../components/Footer";
 import Header from "../../components/Header";
 import ImageViewer from "../../components/ImageViewer";
 import LoadingOverlay from "../../components/LoadingOverlay";
+import LoadingScreen from "../../components/LoadingScreen";
 import { ModernAlert } from "../../components/ModernUI";
 import SelectDropdown from "../../components/SelectDropdown";
-import SignatureModal from "../../components/SignatureModal";
 import { useAppTheme } from "../../constants/theme";
 import { getDB } from "../../lib/db-client";
+import { summarizeAttendances } from "../../lib/report-helpers";
 import { supabase } from "../../lib/supabase";
 import { ReportService } from "../../services/ReportService";
-import { ensureDartReportsDirectory } from '../../lib/saf-directory';
 
 const SETTINGS_KEY = "report_generation_settings";
 
@@ -69,6 +64,8 @@ export default function GenerateReportScreen() {
   const [generating, setGenerating] = useState(false);
   const [availableDates, setAvailableDates] = useState<string[]>([]);
   const [selectedDates, setSelectedDates] = useState<Set<string>>(new Set());
+  const [attendanceRecords, setAttendanceRecords] = useState<any[]>([]);
+  const [activeJob, setActiveJob] = useState<any>(null);
   const [periodLabel, setPeriodLabel] = useState("");
   const [previewImages, setPreviewImages] = useState<{ uri: string; date: string }[]>([]);
 
@@ -81,7 +78,7 @@ export default function GenerateReportScreen() {
 
   const [includeDocs, setIncludeDocs] = useState(true);
   const [includeSecondarySignee, setIncludeSecondarySignee] = useState(false);
-  const [includeActivities, setIncludeActivities] = useState(true);
+  const [includeRemarks, setIncludeRemarks] = useState(true);
 
   // --- Meta State ---
   const [customName, setCustomName] = useState("");
@@ -89,14 +86,8 @@ export default function GenerateReportScreen() {
   const [companyName, setCompanyName] = useState("");
   const [department, setDepartment] = useState("");
   
-  // Signatures
-  const [signature, setSignature] = useState<string | null>(null);
   const [secondaryName, setSecondaryName] = useState("");
   const [secondaryTitle, setSecondaryTitle] = useState("");
-  const [secondarySignature, setSecondarySignature] = useState<string | null>(null);
-
-  const [sigModalVisible, setSigModalVisible] = useState(false);
-  const [activeSigner, setActiveSigner] = useState<"primary" | "secondary">("primary");
 
   const [initialSettings, setInitialSettings] = useState<string>("");
   const [shouldSaveSettings, setShouldSaveSettings] = useState(false);
@@ -120,8 +111,8 @@ export default function GenerateReportScreen() {
 
       const currentSettings = JSON.stringify({
         formatType, paperSize, reportStyle, dateFormat, timeFormat,
-        includeDocs, includeSecondarySignee, includeActivities, signature,
-        customName, customTitle, companyName, department, secondaryName, secondaryTitle, secondarySignature
+        includeDocs, includeSecondarySignee, includeRemarks,
+        customName, customTitle, companyName, department, secondaryName, secondaryTitle
       });
 
       if (loading || currentSettings === initialSettings) return;
@@ -142,8 +133,8 @@ export default function GenerateReportScreen() {
     return unsubscribe;
   }, [
     navigation, loading, initialSettings, formatType, paperSize, reportStyle,
-    dateFormat, timeFormat, includeDocs, includeSecondarySignee, includeActivities,
-    signature, customName, customTitle, companyName, department, secondaryName, secondaryTitle, secondarySignature
+    dateFormat, timeFormat, includeDocs, includeSecondarySignee, includeRemarks,
+    customName, customTitle, companyName, department, secondaryName, secondaryTitle
   ]);
 
   useEffect(() => {
@@ -166,6 +157,7 @@ export default function GenerateReportScreen() {
         if (!isMounted) return;
         const profile: any = profileRes;
         const job: any = jobRes;
+        setActiveJob(job);
 
         let currentName = profile?.full_name || "";
         let currentTitle = job?.title || profile?.title || "";
@@ -174,20 +166,20 @@ export default function GenerateReportScreen() {
 
         let sName = "";
         let sTitle = "";
-        let sSig = null;
         let sInc = false;
 
         if (settingsRes) {
           const loaded = JSON.parse(settingsRes);
-          if (loaded.formatType) setFormatType(loaded.formatType);
+          if (loaded.formatType === "pdf" || loaded.formatType === "xlsx") {
+            setFormatType(loaded.formatType);
+          }
           if (loaded.paperSize) setPaperSize(loaded.paperSize);
           if (loaded.reportStyle) setReportStyle(loaded.reportStyle);
           if (loaded.dateFormat) setDateFormat(loaded.dateFormat);
           if (loaded.timeFormat) setTimeFormat(loaded.timeFormat);
           if (loaded.includeDocs !== undefined) setIncludeDocs(loaded.includeDocs);
-          if (loaded.includeActivities !== undefined) setIncludeActivities(loaded.includeActivities);
-          if (loaded.signature) setSignature(loaded.signature);
-
+          if (loaded.includeRemarks !== undefined) setIncludeRemarks(loaded.includeRemarks);
+          else if (loaded.includeActivities !== undefined) setIncludeRemarks(loaded.includeActivities);
           if (loaded.customName) currentName = loaded.customName;
           if (loaded.customTitle) currentTitle = loaded.customTitle;
           if (loaded.companyName) currentCompany = loaded.companyName;
@@ -196,7 +188,6 @@ export default function GenerateReportScreen() {
           if (loaded.includeSecondarySignee !== undefined) sInc = loaded.includeSecondarySignee;
           if (loaded.secondaryName) sName = loaded.secondaryName;
           if (loaded.secondaryTitle) sTitle = loaded.secondaryTitle;
-          if (loaded.secondarySignature) sSig = loaded.secondarySignature;
         }
 
         setCustomName(currentName);
@@ -206,7 +197,6 @@ export default function GenerateReportScreen() {
         setIncludeSecondarySignee(sInc);
         setSecondaryName(sName);
         setSecondaryTitle(sTitle);
-        setSecondarySignature(sSig);
 
         setInitialSettings(
           JSON.stringify({
@@ -216,11 +206,18 @@ export default function GenerateReportScreen() {
             dateFormat: settingsRes ? JSON.parse(settingsRes).dateFormat : "MM/dd/yyyy",
             timeFormat: settingsRes ? JSON.parse(settingsRes).timeFormat : "exact_hm",
             includeDocs: settingsRes ? JSON.parse(settingsRes).includeDocs : true,
-            includeActivities: settingsRes ? JSON.parse(settingsRes).includeActivities : true,
+            includeRemarks:
+              settingsRes
+                ? (() => {
+                    const parsed = JSON.parse(settingsRes);
+                    if (parsed.includeRemarks !== undefined) return parsed.includeRemarks;
+                    if (parsed.includeActivities !== undefined) return parsed.includeActivities;
+                    return true;
+                  })()
+                : true,
             includeSecondarySignee: sInc,
-            signature: settingsRes ? JSON.parse(settingsRes).signature : null,
             customName: currentName, customTitle: currentTitle, companyName: currentCompany, department: currentDept,
-            secondaryName: sName, secondaryTitle: sTitle, secondarySignature: sSig
+            secondaryName: sName, secondaryTitle: sTitle
           })
         );
 
@@ -232,8 +229,10 @@ export default function GenerateReportScreen() {
         } else if (date) {
           setPeriodLabel(format(new Date(date as string), "MMM dd, yyyy"));
           const res = await ReportService.getDailyReport(userId, date as string);
-          items = { attendance: res.attendance ? [res.attendance] : [], tasks: res.tasks };
+          items = { attendance: res.attendance || [], tasks: res.tasks };
         }
+
+        setAttendanceRecords(items.attendance || []);
 
         const datesFound = new Set<string>();
         (items.attendance || []).forEach((a: any) => datesFound.add(a.date));
@@ -272,10 +271,15 @@ export default function GenerateReportScreen() {
   const hasSettingsChanged = () => {
     return JSON.stringify({
       formatType, paperSize, reportStyle, dateFormat, timeFormat,
-      includeDocs, includeSecondarySignee, includeActivities, signature,
-      customName, customTitle, companyName, department, secondaryName, secondaryTitle, secondarySignature
+      includeDocs, includeSecondarySignee, includeRemarks,
+      customName, customTitle, companyName, department, secondaryName, secondaryTitle
     }) !== initialSettings;
   };
+
+  const selectedAttendanceSummary = useMemo(() => {
+    const filteredAttendance = attendanceRecords.filter((attendance) => selectedDates.has(attendance.date));
+    return summarizeAttendances(filteredAttendance, timeFormat as any, { breakSchedule: activeJob?.break_schedule });
+  }, [activeJob?.break_schedule, attendanceRecords, selectedDates, timeFormat]);
 
   const handleProceed = async () => {
     if (selectedDates.size === 0) {
@@ -288,28 +292,30 @@ export default function GenerateReportScreen() {
       return;
     }
 
-    if (Platform.OS === 'android') {
-        const safUri = await AsyncStorage.getItem('reports_directory_uri');
-        if (!safUri) {
-            try {
-                const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-                if (permissions.granted) {
-                    const finalUri = await ensureDartReportsDirectory(permissions.directoryUri);
-                    await AsyncStorage.setItem('reports_directory_uri', finalUri);
-                } else {
-                    setAlertConfig({
-                        visible: true, type: "error", title: "Storage Access Required",
-                        message: "Please grant storage access so we can save reports to your device.", confirmText: "OK",
-                        onConfirm: () => setAlertConfig({ visible: false }),
-                        onDismiss: () => setAlertConfig({ visible: false }),
-                    });
-                    return;
-                }
-            } catch (err) {
-                console.error("SAF Error", err);
-                return;
-            }
-        }
+    if (!customName.trim() || !customTitle.trim()) {
+      setAlertConfig({
+        visible: true,
+        type: "warning",
+        title: "Missing Report Identity",
+        message: "Enter your printed name and job title before generating the report.",
+        confirmText: "OK",
+        onConfirm: () => setAlertConfig({ visible: false }),
+        onDismiss: () => setAlertConfig({ visible: false }),
+      });
+      return;
+    }
+
+    if (includeSecondarySignee && (!secondaryName.trim() || !secondaryTitle.trim())) {
+      setAlertConfig({
+        visible: true,
+        type: "warning",
+        title: "Approver Details Required",
+        message: "Provide both the approver name and title, or turn off the secondary signee option.",
+        confirmText: "OK",
+        onConfirm: () => setAlertConfig({ visible: false }),
+        onDismiss: () => setAlertConfig({ visible: false }),
+      });
+      return;
     }
 
     setGenerating(true);
@@ -319,8 +325,8 @@ export default function GenerateReportScreen() {
           try {
             const settingsToSave = {
               formatType, paperSize, reportStyle, dateFormat, timeFormat,
-              includeDocs, includeSecondarySignee, includeActivities, signature,
-              customName, customTitle, companyName, department, secondaryName, secondaryTitle, secondarySignature
+              includeDocs, includeSecondarySignee, includeRemarks,
+              customName, customTitle, companyName, department, secondaryName, secondaryTitle
             };
             await AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify(settingsToSave));
             setInitialSettings(JSON.stringify(settingsToSave));
@@ -336,13 +342,12 @@ export default function GenerateReportScreen() {
             config: JSON.stringify({
               format: formatType, paperSize, style: reportStyle, includeDocs, includeDay: true,
               includeDept: true, dateFormat, timeFormat, 
-              columns: { time: true, duration: true, activities: includeActivities }, 
+              columns: { time: true, duration: true, remarks: includeRemarks }, 
               selectedDates: Array.from(selectedDates),
               meta: {
-                name: customName, title: customTitle, company: companyName, department: department, period: periodLabel, signature,
+                name: customName, title: customTitle, company: companyName, department: department, period: periodLabel,
                 secondaryName: includeSecondarySignee ? secondaryName : undefined,
                 secondaryTitle: includeSecondarySignee ? secondaryTitle : undefined,
-                secondarySignature: includeSecondarySignee ? secondarySignature : undefined,
               },
             }),
           },
@@ -350,20 +355,14 @@ export default function GenerateReportScreen() {
     }, 50);
   };
 
-  const handleSignatureSave = (sig: string) => {
-      if (activeSigner === "primary") setSignature(sig);
-      else setSecondarySignature(sig);
-  };
-
   if (loading) return (
-      <View style={[styles.container, { backgroundColor: theme.colors.background, justifyContent: "center", alignItems: "center" }]}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
-      </View>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={["top", "bottom"]}>
+        <LoadingScreen variant="reports" message="Loading report setup..." />
+      </SafeAreaView>
   );
 
   const pdfColor = "#D91519";
   const excelColor = "#74E16C";
-
   const renderInputRow = (label: string, icon: any, value: string, setValue: (val: string) => void, placeholder: string) => (
     <View style={styles.inputGroup}>
       <Text style={[styles.inputLabel, { color: theme.colors.textSecondary }]}>{label}</Text>
@@ -404,13 +403,6 @@ export default function GenerateReportScreen() {
       <Header title="Generate Report" />
       <ModernAlert {...alertConfig} />
       <LoadingOverlay visible={generating} message="Generating Report..." />
-      
-      <SignatureModal 
-        visible={sigModalVisible} 
-        onClose={() => setSigModalVisible(false)} 
-        onOK={handleSignatureSave} 
-        title={activeSigner === "primary" ? "Your Signature" : "Approver Signature"}
-      />
 
       <ImageViewer visible={viewerVisible} imageUri={activeImage?.uri || null} onClose={() => setViewerVisible(false)} context={{ reportDate: activeImage?.date || date || startDate || null }} />
 
@@ -420,22 +412,21 @@ export default function GenerateReportScreen() {
             
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>REPORT SUMMARY</Text>
-              <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 16 }]}>
-                <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-                    <View style={[styles.iconBox, { backgroundColor: theme.colors.primary + "15" }]}>
-                      <HugeiconsIcon icon={Calendar03Icon} size={20} color={theme.colors.primary} />
-                    </View>
-                    <View>
-                      <Text style={{ fontSize: 11, color: theme.colors.textSecondary, fontWeight: "700", textTransform: "uppercase" }}>Selected Period</Text>
-                      <Text style={{ fontSize: 16, color: theme.colors.text, fontFamily: 'Nunito_800ExtraBold', marginTop: 2 }}>{periodLabel || "Loading..."}</Text>
-                    </View>
+              <View style={[styles.summaryCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                <View style={styles.summaryTopRow}>
+                  <View style={styles.summaryField}>
+                    <Text style={[styles.summaryEyebrow, { color: theme.colors.textSecondary }]}>Selected Period</Text>
+                    <Text style={[styles.summaryPeriod, { color: theme.colors.text }]}>{periodLabel || "Loading..."}</Text>
                   </View>
-                  <View style={[styles.badge, { backgroundColor: theme.colors.success + "15" }]}>
-                    <Text style={{ fontSize: 13, color: theme.colors.success, fontFamily: 'Nunito_800ExtraBold' }}>{selectedDates.size} {selectedDates.size === 1 ? "Day" : "Days"}</Text>
+
+                  <View style={[styles.summaryField, styles.summaryFieldRight]}>
+                    <Text style={[styles.summaryHoursLabel, { color: theme.colors.textSecondary }]}>Total Hours</Text>
+                    <Text style={[styles.summaryHoursValue, { color: theme.colors.text }]}>{selectedAttendanceSummary.durationText}</Text>
                   </View>
                 </View>
-                <View style={[styles.divider, { backgroundColor: theme.colors.border, marginVertical: 14 }]} />
+
+                <View style={[styles.summaryDivider, { backgroundColor: theme.colors.border }]} />
+
                 <SelectDropdown
                   label="Customize Inclusion"
                   multiple
@@ -458,18 +449,14 @@ export default function GenerateReportScreen() {
                       </View>
 
                       <View style={{ flex: 1 }}>
-                        <Text style={[styles.customizeTriggerTitle, { color: theme.colors.text }]}>Customize Included Dates</Text>
-                        <Text style={[styles.customizeTriggerMeta, { color: theme.colors.textSecondary }]}> 
-                          {availableDates.length === 0
-                            ? 'No report dates available.'
-                            : selectedDates.size === availableDates.length
-                              ? `All ${availableDates.length} report days are included.`
-                              : `${selectedDates.size} of ${availableDates.length} report days selected.`}
+                        <Text style={[styles.customizeTriggerTitle, { color: theme.colors.text }]}>Customize Inclusion</Text>
+                        <Text style={[styles.customizeTriggerMeta, { color: theme.colors.textSecondary }]}>
+                          Choose which logged dates to include in this report.
                         </Text>
                       </View>
 
-                      <View style={[styles.customizeTriggerCount, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}> 
-                        <Text style={[styles.customizeTriggerCountText, { color: theme.colors.text }]}> 
+                      <View style={styles.customizeTriggerRight}>
+                        <Text style={[styles.customizeTriggerCountText, { color: theme.colors.text }]}>
                           {selectedDates.size}/{availableDates.length || 0}
                         </Text>
                         <HugeiconsIcon icon={ArrowRight01Icon} size={16} color={theme.colors.textSecondary} />
@@ -529,7 +516,7 @@ export default function GenerateReportScreen() {
               <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>REPORT CONTENT</Text>
               <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
                 
-                {renderToggleRow("Include Activities", CheckListIcon, includeActivities, setIncludeActivities, formatType !== 'pdf')}
+                {renderToggleRow("Include Remarks", CheckListIcon, includeRemarks, setIncludeRemarks, formatType !== 'pdf')}
                 
                 {formatType === "pdf" && (
                   <>
@@ -587,42 +574,6 @@ export default function GenerateReportScreen() {
                 <Text style={[styles.subSectionTitle, { color: theme.colors.text }]}>Your Information</Text>
                 {renderInputRow("Printed Name", UserCircleIcon, customName, setCustomName, "Enter your Name")}
                 {renderInputRow("Job Title", Briefcase02Icon, customTitle, setCustomTitle, "Enter your Position")}
-
-                {formatType === "pdf" && (
-                  <View style={{ marginTop: 16 }}>
-                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                      <Text style={[styles.inputLabel, { color: theme.colors.textSecondary, marginBottom: 0 }]}>Digital Signature</Text>
-                      {signature && (
-                        <View style={{ flexDirection: "row", gap: 12 }}>
-                          <TouchableOpacity onPress={() => { setActiveSigner("primary"); setSigModalVisible(true); }}>
-                            <HugeiconsIcon icon={PencilEdit02Icon} size={20} color={theme.colors.primary} />
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => setSignature(null)}>
-                            <HugeiconsIcon icon={Delete02Icon} size={20} color={theme.colors.danger} />
-                          </TouchableOpacity>
-                        </View>
-                      )}
-                    </View>
-
-                    {signature ? (
-                        <View style={styles.pdfSignaturePreview}>
-                            <Image source={{ uri: signature }} style={styles.pdfSigImage} resizeMode="contain" />
-                            <View style={styles.pdfSigLine} />
-                            <Text style={styles.pdfSigName}>{customName || 'YOUR NAME'}</Text>
-                            <Text style={styles.pdfSigTitle}>{customTitle || 'Your Title'}</Text>
-                        </View>
-                    ) : (
-                        <TouchableOpacity activeOpacity={0.8} onPress={() => { setActiveSigner("primary"); setSigModalVisible(true); }} style={[styles.sigBtn, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
-                            <View style={{ alignItems: "center", gap: 8 }}>
-                                <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.primary + '15', alignItems: 'center', justifyContent: 'center' }}>
-                                    <HugeiconsIcon icon={SignatureIcon} size={22} color={theme.colors.primary} />
-                                </View>
-                                <Text style={{ color: theme.colors.textSecondary, fontFamily: "Nunito_600SemiBold", fontSize: 13 }}>Tap here to draw signature</Text>
-                            </View>
-                        </TouchableOpacity>
-                    )}
-                  </View>
-                )}
               </View>
 
               <View style={[styles.card, { backgroundColor: theme.colors.card, borderColor: theme.colors.border, padding: 20 }]}>
@@ -651,42 +602,6 @@ export default function GenerateReportScreen() {
                      <>
                         {renderInputRow("Approver Name", UserCircleIcon, secondaryName, setSecondaryName, "Enter Approver's Name")}
                         {renderInputRow("Approver Title", Briefcase02Icon, secondaryTitle, setSecondaryTitle, "Enter Approver's Title")}
-                        
-                        {formatType === "pdf" && (
-                            <View style={{ marginTop: 16 }}>
-                                <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                                    <Text style={[styles.inputLabel, { color: theme.colors.textSecondary, marginBottom: 0 }]}>Approver Signature</Text>
-                                    {secondarySignature && (
-                                        <View style={{ flexDirection: "row", gap: 12 }}>
-                                            <TouchableOpacity onPress={() => { setActiveSigner("secondary"); setSigModalVisible(true); }}>
-                                                <HugeiconsIcon icon={PencilEdit02Icon} size={20} color={theme.colors.primary} />
-                                            </TouchableOpacity>
-                                            <TouchableOpacity onPress={() => setSecondarySignature(null)}>
-                                                <HugeiconsIcon icon={Delete02Icon} size={20} color={theme.colors.danger} />
-                                            </TouchableOpacity>
-                                        </View>
-                                    )}
-                                </View>
-
-                                {secondarySignature ? (
-                                    <View style={styles.pdfSignaturePreview}>
-                                        <Image source={{ uri: secondarySignature }} style={styles.pdfSigImage} resizeMode="contain" />
-                                        <View style={styles.pdfSigLine} />
-                                        <Text style={styles.pdfSigName}>{secondaryName || 'APPROVER NAME'}</Text>
-                                        <Text style={styles.pdfSigTitle}>{secondaryTitle || 'Approver Title'}</Text>
-                                    </View>
-                                ) : (
-                                    <TouchableOpacity activeOpacity={0.8} onPress={() => { setActiveSigner("secondary"); setSigModalVisible(true); }} style={[styles.sigBtn, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
-                                        <View style={{ alignItems: "center", gap: 8 }}>
-                                            <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.primary + '15', alignItems: 'center', justifyContent: 'center' }}>
-                                                <HugeiconsIcon icon={SignatureIcon} size={22} color={theme.colors.primary} />
-                                            </View>
-                                            <Text style={{ color: theme.colors.textSecondary, fontFamily: "Nunito_600SemiBold", fontSize: 13 }}>Tap to add approver signature</Text>
-                                        </View>
-                                    </TouchableOpacity>
-                                )}
-                            </View>
-                        )}
                      </>
                  )}
               </View>
@@ -713,57 +628,123 @@ export default function GenerateReportScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 20, paddingBottom: 40 },
-  section: { marginBottom: 32 },
-  sectionTitle: { fontSize: 11, fontFamily: "Nunito_800ExtraBold", letterSpacing: 1.2, marginBottom: 12, marginLeft: 4, opacity: 0.6 },
+  content: { padding: 20, paddingBottom: 44 },
+  section: { marginBottom: 28 },
+  sectionTitle: { fontSize: 11, fontFamily: "Nunito_800ExtraBold", letterSpacing: 1.2, marginBottom: 12, marginLeft: 4, opacity: 0.56 },
   subSectionTitle: { fontSize: 15, fontFamily: "Nunito_800ExtraBold", marginBottom: 16, letterSpacing: -0.3 },
   row: { flexDirection: "row", gap: 12 },
-  optionCard: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20, borderRadius: 16, borderWidth: 1.5, gap: 12 },
-  optionText: { fontFamily: "Nunito_800ExtraBold", fontSize: 15 },
-  card: { borderRadius: 20, borderWidth: 1, overflow: "hidden" },
-  iconBox: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
-  badge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
-  customizeTrigger: {
-    minHeight: 78,
-    borderRadius: 18,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    flexDirection: "row",
+  optionCard: {
+    flex: 1,
     alignItems: "center",
+    justifyContent: "center",
+    padding: 20,
+    borderRadius: 20,
+    borderWidth: 1.5,
     gap: 12,
   },
+  optionText: { fontFamily: "Nunito_800ExtraBold", fontSize: 15 },
+  card: {
+    borderRadius: 22,
+    borderWidth: 1,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.03,
+    shadowRadius: 18,
+    elevation: 1,
+  },
+  iconBox: { width: 44, height: 44, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  badge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10 },
+  summaryCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    padding: 18,
+    gap: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.04,
+    shadowRadius: 20,
+    elevation: 2,
+  },
+  summaryTopRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 14,
+  },
+  summaryField: {
+    flex: 1,
+    minWidth: 0,
+  },
+  summaryFieldRight: {
+    alignItems: "flex-end",
+  },
+  summaryHoursLabel: {
+    fontSize: 10,
+    fontFamily: "Nunito_800ExtraBold",
+    textTransform: "uppercase",
+    letterSpacing: 0.9,
+    opacity: 0.68,
+  },
+  summaryHoursValue: {
+    fontSize: 20,
+    fontFamily: "Nunito_800ExtraBold",
+    letterSpacing: -0.55,
+    marginTop: 6,
+    lineHeight: 25,
+  },
+  summaryEyebrow: {
+    fontSize: 11,
+    fontFamily: "Nunito_800ExtraBold",
+    textTransform: "uppercase",
+    letterSpacing: 1.2,
+    opacity: 0.72,
+  },
+  summaryPeriod: {
+    fontSize: 20,
+    fontFamily: "Nunito_800ExtraBold",
+    letterSpacing: -0.55,
+    marginTop: 6,
+    lineHeight: 25,
+  },
+  summaryDivider: { height: 1, width: "100%", opacity: 0.7 },
+  customizeTrigger: {
+    minHeight: 60,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
   customizeTriggerIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
   customizeTriggerTitle: {
     fontSize: 14,
     fontFamily: "Nunito_800ExtraBold",
-    marginBottom: 3,
     letterSpacing: -0.2,
   },
   customizeTriggerMeta: {
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 11.5,
+    lineHeight: 16,
     fontFamily: "Nunito_600SemiBold",
+    marginTop: 1,
   },
-  customizeTriggerCount: {
-    minWidth: 72,
-    height: 40,
-    borderRadius: 14,
-    borderWidth: 1,
-    paddingHorizontal: 12,
+  customizeTriggerRight: {
+    minWidth: 54,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 4,
   },
   customizeTriggerCountText: {
-    fontSize: 13,
+    fontSize: 12,
     fontFamily: "Nunito_800ExtraBold",
   },
   checkRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16, paddingVertical: 14 },
@@ -772,24 +753,8 @@ const styles = StyleSheet.create({
   divider: { height: 1, width: "100%", opacity: 0.5 },
   inputGroup: { marginBottom: 16 },
   inputLabel: { fontSize: 11, fontFamily: "Nunito_800ExtraBold", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 },
-  inputWrapper: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 14, paddingHorizontal: 14, height: 52 },
+  inputWrapper: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, height: 54 },
   inputElement: { flex: 1, fontSize: 15, fontFamily: 'Nunito_600SemiBold', marginLeft: 10, height: '100%' },
-  sigBtn: { height: 120, borderRadius: 16, borderWidth: 1.5, borderStyle: 'dashed', alignItems: "center", justifyContent: "center", overflow: "hidden" },
-  
-  pdfSignaturePreview: {
-      backgroundColor: '#F8FAFC',
-      padding: 20,
-      borderRadius: 16,
-      borderWidth: 1,
-      borderColor: '#E2E8F0',
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginTop: 8,
-  },
-  pdfSigImage: { width: 180, height: 75, marginBottom: -12, zIndex: 10 },
-  pdfSigLine: { width: '85%', height: 1, backgroundColor: '#1e293b', marginBottom: 8 },
-  pdfSigName: { fontSize: 14, fontFamily: 'Nunito_800ExtraBold', color: '#1e293b', textTransform: 'uppercase', letterSpacing: 0.5, textAlign: 'center' },
-  pdfSigTitle: { fontSize: 12, fontFamily: 'Nunito_600SemiBold', color: '#64748b', textAlign: 'center' },
 
   saveSettingsRow: { flexDirection: "row", alignItems: "center", padding: 18, borderRadius: 16, borderWidth: 1, marginBottom: 20, gap: 14 },
   checkbox: { width: 24, height: 24, borderRadius: 8, borderWidth: 2, alignItems: "center", justifyContent: "center" },

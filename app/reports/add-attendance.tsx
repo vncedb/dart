@@ -9,7 +9,6 @@ import { format } from 'date-fns';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
     KeyboardAvoidingView,
     Platform,
     ScrollView,
@@ -26,6 +25,7 @@ import DatePicker from '../../components/DatePicker';
 import Footer from '../../components/Footer';
 import Header from '../../components/Header';
 import LoadingOverlay from '../../components/LoadingOverlay';
+import LoadingScreen from '../../components/LoadingScreen';
 import ModernAlert from '../../components/ModernAlert';
 import TimePicker from '../../components/TimePicker';
 import { useAppTheme } from '../../constants/theme';
@@ -196,7 +196,7 @@ export default function AddAttendanceScreen() {
             <Header title="Log Attendance" />
 
             {initialLoading ? (
-                <View style={styles.center}><ActivityIndicator size="large" color={theme.colors.primary} /></View>
+                <LoadingScreen message="Preparing attendance form..." />
             ) : (
                 <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
                     <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">

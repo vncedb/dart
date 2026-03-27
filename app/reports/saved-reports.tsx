@@ -1,51 +1,31 @@
 // filepath: app/reports/saved-reports.tsx
-import { ArrowDown01Icon, ArrowUp01Icon, Calendar02Icon, CloudDownloadIcon, Delete02Icon, File01Icon, File02Icon, Files01Icon, FilterHorizontalIcon, Folder01Icon, MoreVerticalIcon, Pdf01Icon, Search01Icon, Share08Icon, SortByDown01Icon, SortByUp01Icon, TextIcon, ViewIcon, Xls01Icon } from '@hugeicons/core-free-icons';
+import { ArrowDown01Icon, ArrowUp01Icon, Calendar02Icon, CloudDownloadIcon, Delete02Icon, Download04Icon, File01Icon, File02Icon, Files01Icon, FilterHorizontalIcon, MoreVerticalIcon, Pdf01Icon, Search01Icon, Share08Icon, SortByDown01Icon, SortByUp01Icon, TextIcon, TypeCursorIcon, Xls01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import NetInfo from '@react-native-community/netinfo';
 import { format } from 'date-fns';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { useFocusEffect } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Platform, StatusBar, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, FlatList, Image, Platform, StatusBar, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import ActionMenu from '../../components/ActionMenu';
-import Button from '../../components/Button';
 import FilePropertiesModal from '../../components/FilePropertiesModal';
 import Header from '../../components/Header';
+import InputModal from '../../components/InputModal';
+import LoadingScreen from '../../components/LoadingScreen';
 import ModernAlert from '../../components/ModernAlert';
 import { useAppTheme } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
-import { queueSyncItem } from '../../lib/database';
+import { useSync } from '../../context/SyncContext';
+import { deleteReportLocal, markReportReadLocal, queueSyncItem, renameReportLocal } from '../../lib/database';
 import { getDB } from '../../lib/db-client';
-import { supabase } from '../../lib/supabase';
-import { ensureDartReportsDirectory } from '../../lib/saf-directory';
+import { deleteReportFile, exportReportFileToDevice, getReportFileExtension, getReportMimeType, getSafeFileInfo, renameReportFileOffline, saveReportFileOffline } from '../../lib/report-storage';
+import { normalizeReportFormat, parseSavedReportMetadata, reconcileStoredReportFiles, serializeSavedReportMetadata } from '../../lib/reporting';
 
 const iconPdf = require('../../assets/icons/custom-icons/pdf.png');
 const iconXlsx = require('../../assets/icons/custom-icons/xlsx.png');
-
-const REPORTS_DIR = `${FileSystem.documentDirectory}DART/Reports/`;
-
-const ensureReportsDirExists = async () => {
-    const dirInfo = await FileSystem.getInfoAsync(REPORTS_DIR);
-    if (!dirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(REPORTS_DIR, { intermediates: true });
-    }
-};
-
-// Safe File Checker: Prevents crashing when Android SAF throws an IOException on deleted files
-const getSafeFileInfo = async (uri: string | null) => {
-    if (!uri) return { exists: false, size: 0 };
-    try {
-        const info = await FileSystem.getInfoAsync(uri);
-        return { exists: info.exists, size: info.exists ? info.size : 0 };
-    } catch {
-        return { exists: false, size: 0 };
-    }
-};
 
 const formatBytes = (bytes: number, decimals = 2) => {
     if (!+bytes) return '0 Bytes';
@@ -59,12 +39,15 @@ const formatBytes = (bytes: number, decimals = 2) => {
 export default function SavedReportsScreen() {
     const theme = useAppTheme();
     const { user } = useAuth();
+    const { triggerSync } = useSync();
     
-    const [hasStoragePermission, setHasStoragePermission] = useState(Platform.OS === 'ios');
     const [reports, setReports] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [downloadingId, setDownloadingId] = useState<string | null>(null);
+    const [backupingId, setBackupingId] = useState<string | null>(null);
+    const [backupProgress, setBackupProgress] = useState<Record<string, number>>({});
     const [alertConfig, setAlertConfig] = useState<any>({ visible: false });
+    const [searchQuery, setSearchQuery] = useState('');
 
     const [sortBy, setSortBy] = useState<'name' | 'date' | 'size'>('date');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
@@ -81,129 +64,52 @@ export default function SavedReportsScreen() {
     const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
     const [selectedReport, setSelectedReport] = useState<any>(null);
     const [propertiesModalVisible, setPropertiesModalVisible] = useState(false);
-
-    useEffect(() => {
-        if (Platform.OS === 'android') {
-            AsyncStorage.getItem('reports_directory_uri').then(uri => {
-                if (uri) setHasStoragePermission(true);
-            });
-        }
-    }, []);
-
-    const requestPermission = async () => {
-        try {
-            const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-            if (permissions.granted) {
-                const finalUri = await ensureDartReportsDirectory(permissions.directoryUri);
-                await AsyncStorage.setItem('reports_directory_uri', finalUri);
-                setHasStoragePermission(true);
-                fetchReports();
-            }
-        } catch (error) {
-            console.error(error);
-        }
-    };
-
-    const syncReportsToCloud = useCallback(async () => {
-        if (!user) return;
-        const state = await NetInfo.fetch();
-        if (!state.isConnected) return;
-
-        try {
-            const db = await getDB();
-            const pendingReports: any[] = await db.getAllAsync('SELECT * FROM saved_reports WHERE user_id = ? AND is_synced = 0 AND deleted_at IS NULL AND file_path IS NOT NULL', [user.id]);
-            
-            for (const report of pendingReports) {
-                if (report.file_url) {
-                    await db.runAsync('UPDATE saved_reports SET is_synced = 1 WHERE id = ?', [report.id]);
-                    continue;
-                }
-
-                const fileInfo = await getSafeFileInfo(report.file_path);
-                if (fileInfo.exists) {
-                    let uploadUri = report.file_path;
-                    let isTemp = false;
-
-                    if (uploadUri.startsWith('content://')) {
-                        const tempUri = `${FileSystem.cacheDirectory}upload_temp_${Date.now()}.pdf`;
-                        const b64 = await FileSystem.readAsStringAsync(uploadUri, { encoding: 'base64' });
-                        await FileSystem.writeAsStringAsync(tempUri, b64, { encoding: 'base64' });
-                        uploadUri = tempUri;
-                        isTemp = true;
-                    }
-
-                    const response = await fetch(uploadUri);
-                    const arrayBuffer = await response.arrayBuffer();
-                    
-                    const fileExt = report.file_type === 'pdf' || report.file_type === 'application/pdf' ? 'pdf' : 'xlsx';
-                    const match = report.file_path.match(/ACCOMPLISHMENT_REPORT_(\d{13})/);
-                    const cleanName = match ? match[0] : `${report.id}_${Date.now()}`;
-                    const fileName = `${user.id}/${cleanName}.${fileExt}`;
-                    
-                    const { error: uploadError } = await supabase.storage.from('generated_reports').upload(fileName, arrayBuffer, { contentType: `application/${fileExt}`, upsert: true });
-                    
-                    if (isTemp) {
-                        await FileSystem.deleteAsync(uploadUri, { idempotent: true });
-                    }
-
-                    if (!uploadError) {
-                        const { data } = supabase.storage.from('generated_reports').getPublicUrl(fileName);
-                        const newUrl = data.publicUrl;
-                        
-                        try {
-                            await db.runAsync('UPDATE saved_reports SET file_url = ?, remote_url = ?, is_synced = 1 WHERE id = ?', [newUrl, newUrl, report.id]);
-                        } catch (dbError: any) {
-                            if (dbError?.message?.includes('no such column: file_url')) {
-                                await db.runAsync('UPDATE saved_reports SET remote_url = ?, is_synced = 1 WHERE id = ?', [newUrl, report.id]);
-                            } else {
-                                throw dbError;
-                            }
-                        }
-                        await queueSyncItem('saved_reports', report.id, 'UPDATE', { file_url: newUrl, remote_url: newUrl, is_synced: 1 });
-                        
-                        setReports(prev => prev.map(r => r.id === report.id ? { ...r, file_url: newUrl, remote_url: newUrl, is_synced: 1 } : r));
-                    }
-                }
-            }
-        } catch (error) {
-            console.error("Cloud Sync Error:", error);
-        }
-    }, [user]);
+    const [renameModalVisible, setRenameModalVisible] = useState(false);
 
     const fetchReports = useCallback(async () => {
         if (!user) return;
         try {
-            await ensureReportsDirExists();
-            const db = await getDB();
-            const data: any[] = await db.getAllAsync('SELECT * FROM saved_reports WHERE user_id = ? AND deleted_at IS NULL ORDER BY created_at DESC', [user.id]);
-            
-            const verifiedData = await Promise.all(data.map(async (report) => {
-                let isLocal = false;
-                const fileInfo = await getSafeFileInfo(report.file_path);
-                if (fileInfo.exists) {
-                    isLocal = true;
-                }
-                return { ...report, isLocal, localPath: report.file_path };
-            }));
-
-            setReports(verifiedData);
-            syncReportsToCloud();
+            setLoading(true);
+            const verifiedData = await reconcileStoredReportFiles(user.id);
+            setReports(verifiedData.filter((report) => report.isLocal || report.remote_url || report.file_url || report.public_url));
 
         } catch (error) {
             console.error('Failed to fetch saved reports', error);
         } finally {
             setLoading(false);
         }
-    }, [user, syncReportsToCloud]);
+    }, [user]);
 
-    useFocusEffect(useCallback(() => { if(hasStoragePermission) fetchReports(); }, [fetchReports, hasStoragePermission]));
+    useFocusEffect(useCallback(() => { fetchReports(); }, [fetchReports]));
 
     const filteredReports = useMemo(() => {
-        if (fileFilter === 'all') return reports;
-        if (fileFilter === 'pdf') return reports.filter(r => r.file_type === 'pdf' || r.file_type === 'application/pdf');
-        if (fileFilter === 'xlsx') return reports.filter(r => r.file_type === 'xlsx' || r.file_type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        return reports;
-    }, [reports, fileFilter]);
+        const base = reports.filter((report) => {
+            const normalizedType = normalizeReportFormat(report.file_type);
+            if (fileFilter === 'pdf') return normalizedType === 'pdf';
+            if (fileFilter === 'xlsx') return normalizedType === 'xlsx';
+            return true;
+        });
+
+        const needle = searchQuery.trim().toLowerCase();
+        if (!needle) return base;
+
+        return base.filter((report) => {
+            const meta = parseSavedReportMetadata(report.metadata);
+            const haystack = [
+                report.title,
+                report.period_key,
+                meta.reportDate,
+                meta.periodLabel,
+                meta.company,
+                meta.department,
+                meta.generatedBy,
+            ]
+                .filter(Boolean)
+                .join(' ')
+                .toLowerCase();
+            return haystack.includes(needle);
+        });
+    }, [reports, fileFilter, searchQuery]);
 
     const sortedReports = useMemo(() => {
         const sorted = [...filteredReports].sort((a, b) => {
@@ -248,50 +154,119 @@ export default function SavedReportsScreen() {
         });
     };
 
+    const resolveShareableUri = async (report: any) => {
+        const localPath = report?.localPath;
+        if (!localPath) {
+            throw new Error('MISSING_LOCAL_FILE');
+        }
+
+        const fileInfo = await getSafeFileInfo(localPath);
+        if (!fileInfo.exists || fileInfo.size === 0) {
+            throw new Error('CORRUPTED');
+        }
+
+        if (!localPath.startsWith('content://')) {
+            return localPath;
+        }
+
+        const extension = getReportFileExtension(report.file_type);
+        const shareDir = `${FileSystem.cacheDirectory}shared-reports/`;
+        const shareName = `${(report.title || 'report').replace(/[<>:\"/\\\\|?*\u0000-\u001F]/g, '_')}-${report.id}.${extension}`;
+        const shareUri = `${shareDir}${shareName}`;
+
+        const dirInfo = await FileSystem.getInfoAsync(shareDir);
+        if (!dirInfo.exists) {
+            await FileSystem.makeDirectoryAsync(shareDir, { intermediates: true });
+        }
+
+        await FileSystem.deleteAsync(shareUri, { idempotent: true });
+        const base64Data = await FileSystem.readAsStringAsync(localPath, { encoding: 'base64' });
+        await FileSystem.writeAsStringAsync(shareUri, base64Data, { encoding: 'base64' });
+
+        const sharedInfo = await getSafeFileInfo(shareUri);
+        if (!sharedInfo.exists || sharedInfo.size === 0) {
+            throw new Error('SHARE_COPY_FAILED');
+        }
+
+        return shareUri;
+    };
+
     const executeDelete = async (report: any) => {
         try {
-            const db = await getDB();
-            
-            const fileUrl = report.file_url || report.remote_url || report.public_url;
-            if (fileUrl) {
-                const bucketMatch = fileUrl.match(/\/object\/public\/([^/]+)\/(.+)$/);
-                if (bucketMatch) {
-                    const bucket = bucketMatch[1];
-                    const path = bucketMatch[2].split('?')[0]; 
-                    const { error } = await supabase.storage.from(bucket).remove([path]);
-                    if (error) console.error("Failed to delete from storage:", error);
-                }
-            }
-
             const fileInfo = await getSafeFileInfo(report.localPath);
             if (fileInfo.exists && report.localPath) {
-                await FileSystem.deleteAsync(report.localPath, { idempotent: true });
+                await deleteReportFile(report.localPath);
             }
 
-            await db.runAsync('DELETE FROM saved_reports WHERE id = ?', [report.id]);
-            await queueSyncItem('saved_reports', report.id, 'DELETE');
-            
+            await deleteReportLocal(report.id);
             fetchReports();
         } catch (error) { 
             console.error("Delete error:", error); 
         }
     };
 
+    const cacheRemoteReportLocally = useCallback(async (report: any) => {
+        const fileUrl = report.file_url || report.remote_url || report.public_url;
+        if (!fileUrl) {
+            throw new Error('REMOTE_MISSING');
+        }
+
+        const extension = getReportFileExtension(report.file_type);
+        const tempUri = `${FileSystem.cacheDirectory}temp_download_${Date.now()}.${extension}`;
+        await FileSystem.downloadAsync(fileUrl, tempUri);
+
+        const preferredName =
+            (() => {
+                const meta = parseSavedReportMetadata(report.metadata);
+                if (meta?.fileName) return meta.fileName;
+                const safeTitle = (report.title || `Saved_Report_${Date.now()}`).replace(/[<>:"/\\|?*\u0000-\u001F]/g, '_');
+                return safeTitle.toLowerCase().endsWith(`.${extension}`) ? safeTitle : `${safeTitle}.${extension}`;
+            })();
+
+        const savedFile = await saveReportFileOffline({
+            sourceUri: tempUri,
+            fileName: preferredName,
+            fileType: report.file_type,
+        });
+        await FileSystem.deleteAsync(tempUri, { idempotent: true });
+
+        const db = await getDB();
+        await db.runAsync(
+            'UPDATE saved_reports SET file_path = ?, file_size = ?, metadata = ?, updated_at = ? WHERE id = ?',
+            [
+                savedFile.filePath,
+                savedFile.fileSize || report.file_size || 0,
+                serializeSavedReportMetadata({
+                    ...parseSavedReportMetadata(report.metadata),
+                    fileName: preferredName,
+                }),
+                new Date().toISOString(),
+                report.id,
+            ],
+        );
+
+        const nextReport = { ...report, file_path: savedFile.filePath, file_size: savedFile.fileSize || report.file_size || 0, isLocal: true, localPath: savedFile.filePath };
+        setReports(prev => prev.map(r => r.id === report.id ? nextReport : r));
+        return nextReport;
+    }, []);
+
     const handleOpen = async (report: any) => {
         setMenuVisible(false);
         try {
-            const fileInfo = await getSafeFileInfo(report.localPath);
+            const readyReport = report.isLocal ? report : await cacheRemoteReportLocally(report);
+            const fileInfo = await getSafeFileInfo(readyReport.localPath);
             if (!fileInfo.exists || fileInfo.size === 0) {
                 throw new Error("CORRUPTED");
             }
 
-            const isPdf = report.file_type === 'pdf' || report.file_type === 'application/pdf';
-            const mimeType = isPdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-            const uti = isPdf ? 'com.adobe.pdf' : 'com.microsoft.excel.xls';
+        const extension = getReportFileExtension(readyReport.file_type);
+        const isPdf = extension === 'pdf';
+        const mimeType = getReportMimeType(readyReport.file_type);
+        const uti = isPdf ? 'com.adobe.pdf' : 'com.microsoft.excel.xls';
 
             if (Platform.OS === 'android') {
                 try {
-                    let uriToOpen = report.localPath;
+                    let uriToOpen = readyReport.localPath;
                     if (!uriToOpen.startsWith('content://')) {
                         uriToOpen = await FileSystem.getContentUriAsync(uriToOpen);
                     }
@@ -301,10 +276,10 @@ export default function SavedReportsScreen() {
                         type: mimeType
                     });
                 } catch {
-                    await Sharing.shareAsync(report.localPath, { dialogTitle: 'Open File', mimeType, UTI: uti });
+                    await Sharing.shareAsync(readyReport.localPath, { dialogTitle: 'Open File', mimeType, UTI: uti });
                 }
             } else {
-                await Sharing.shareAsync(report.localPath, { dialogTitle: 'Open File', UTI: uti });
+                await Sharing.shareAsync(readyReport.localPath, { dialogTitle: 'Open File', UTI: uti });
             }
 
         } catch (error: any) { 
@@ -328,18 +303,17 @@ export default function SavedReportsScreen() {
         setMenuVisible(false);
         try {
             const isAvailable = await Sharing.isAvailableAsync();
-            if (isAvailable && report.isLocal && report.localPath) {
-                const fileInfo = await getSafeFileInfo(report.localPath);
-                if (!fileInfo.exists || fileInfo.size === 0) {
-                    throw new Error("CORRUPTED");
-                }
-                const isPdf = report.file_type === 'pdf' || report.file_type === 'application/pdf';
-                const mimeType = isPdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+            const readyReport = report.isLocal ? report : await cacheRemoteReportLocally(report);
+            if (isAvailable && readyReport.localPath) {
+                const extension = getReportFileExtension(readyReport.file_type);
+                const isPdf = extension === 'pdf';
+                const mimeType = getReportMimeType(readyReport.file_type);
                 const uti = isPdf ? 'com.adobe.pdf' : 'com.microsoft.excel.xls';
+                const shareUri = await resolveShareableUri(readyReport);
 
-                await Sharing.shareAsync(report.localPath, { dialogTitle: 'Share File', mimeType, UTI: uti });
+                await Sharing.shareAsync(shareUri, { dialogTitle: 'Share File', mimeType, UTI: uti });
             } else {
-                setAlertConfig({ visible: true, type: 'error', title: 'File Missing', message: 'File must be downloaded to your device before sharing.', confirmText: 'OK', onConfirm: () => setAlertConfig({ visible: false }) });
+                setAlertConfig({ visible: true, type: 'error', title: 'Share Unavailable', message: 'This report could not be prepared for sharing.', confirmText: 'OK', onConfirm: () => setAlertConfig({ visible: false }) });
             }
         } catch (error) { 
             console.error('Share error:', error); 
@@ -359,69 +333,140 @@ export default function SavedReportsScreen() {
     };
 
     const handleDownload = async (report: any) => {
-        const fileUrl = report.file_url || report.remote_url || report.public_url;
-        
-        if (!fileUrl) {
-            setAlertConfig({ 
-                visible: true, 
-                type: 'error', 
-                title: 'File Unavailable', 
-                message: 'This file was deleted from your device storage before it could be backed up to the cloud. It cannot be recovered.\n\nWould you like to remove this entry from your list?', 
-                confirmText: 'Remove Entry', 
-                cancelText: 'Keep',
-                onConfirm: async () => {
-                    setAlertConfig({ visible: false });
-                    setLoading(true);
-                    await executeDelete(report);
-                    setLoading(false);
-                },
-                onCancel: () => setAlertConfig({ visible: false }) 
+        setDownloadingId(report.id);
+        try {
+            return await cacheRemoteReportLocally(report);
+        } catch (error) {
+            console.error(error);
+            setAlertConfig({ visible: true, type: 'error', title: 'Download Failed', message: 'Failed to restore the report to app storage. Please check your connection.', confirmText: 'OK', onConfirm: () => setAlertConfig({ visible: false }) });
+            return null;
+        } finally {
+            setDownloadingId(null);
+        }
+    };
+
+    const handleSaveToDevice = async (report: any) => {
+        setMenuVisible(false);
+        setDownloadingId(report.id);
+        try {
+            const readyReport = report.isLocal ? report : await cacheRemoteReportLocally(report);
+            const meta = parseSavedReportMetadata(readyReport.metadata);
+            await exportReportFileToDevice({
+                sourceUri: readyReport.localPath,
+                fileName: meta.fileName || `${readyReport.title}.${getReportFileExtension(readyReport.file_type)}`,
+                fileType: readyReport.file_type,
+            });
+
+            setAlertConfig({
+                visible: true,
+                type: 'success',
+                title: 'Saved to Device',
+                message: 'A copy of this report was exported to Documents/DART/Reports.',
+                confirmText: 'OK',
+                onConfirm: () => setAlertConfig({ visible: false }),
+            });
+        } catch (error) {
+            console.error('Save to device error:', error);
+            setAlertConfig({
+                visible: true,
+                type: 'error',
+                title: 'Save to Device Failed',
+                message: 'Could not export this report to Documents/DART/Reports.',
+                confirmText: 'OK',
+                onConfirm: () => setAlertConfig({ visible: false }),
+            });
+        } finally {
+            setDownloadingId(null);
+        }
+    };
+
+    const handleBackup = async (report: any) => {
+        setMenuVisible(false);
+
+        if (!report?.isLocal || !report?.localPath) {
+            setAlertConfig({
+                visible: true,
+                type: 'info',
+                title: 'Already Backed Up',
+                message: 'This report already exists online. Download it to this device only if you need a local copy.',
+                confirmText: 'OK',
+                onConfirm: () => setAlertConfig({ visible: false }),
             });
             return;
         }
 
-        setDownloadingId(report.id);
-        try {
-            await ensureReportsDirExists();
-            const extension = report.file_type === 'pdf' || report.file_type === 'application/pdf' ? '.pdf' : '.xlsx';
-            
-            const match = fileUrl.match(/ACCOMPLISHMENT_REPORT_(\d{13})/);
-            const safeTitle = match ? match[0] : `ACCOMPLISHMENT_REPORT_${Date.now()}`;
-            let destPath = `${REPORTS_DIR}${safeTitle}${extension}`;
+        if (report.is_synced === 1 && (report.remote_url || report.file_url || report.public_url)) {
+            setAlertConfig({
+                visible: true,
+                type: 'success',
+                title: 'Already Backed Up',
+                message: 'This report already has an online backup.',
+                confirmText: 'OK',
+                onConfirm: () => setAlertConfig({ visible: false }),
+            });
+            return;
+        }
 
-            const safUri = await AsyncStorage.getItem('reports_directory_uri');
-            if (Platform.OS === 'android' && safUri) {
-                const mimeType = report.file_type === 'pdf' || report.file_type === 'application/pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-                const newUri = await FileSystem.StorageAccessFramework.createFileAsync(safUri, safeTitle, mimeType);
-                
-                const tempUri = `${FileSystem.cacheDirectory}temp_download_${Date.now()}${extension}`;
-                await FileSystem.downloadAsync(fileUrl, tempUri);
-                const b64 = await FileSystem.readAsStringAsync(tempUri, { encoding: 'base64' });
-                await FileSystem.writeAsStringAsync(newUri, b64, { encoding: 'base64' });
-                destPath = newUri;
-            } else {
-                const { uri } = await FileSystem.downloadAsync(fileUrl, destPath);
-                destPath = uri;
-            }
+        try {
+            setBackupingId(report.id);
+            setBackupProgress((prev) => ({ ...prev, [report.id]: 15 }));
 
             const db = await getDB();
-            await db.runAsync('UPDATE saved_reports SET file_path = ? WHERE id = ?', [destPath, report.id]);
+            const currentReport: any = await db.getFirstAsync('SELECT * FROM saved_reports WHERE id = ?', [report.id]);
+            if (!currentReport) {
+                throw new Error('REPORT_NOT_FOUND');
+            }
 
-            setReports(prev => prev.map(r => r.id === report.id ? { ...r, file_path: destPath, isLocal: true, localPath: destPath } : r));
-            
+            setBackupProgress((prev) => ({ ...prev, [report.id]: 40 }));
+            await queueSyncItem('saved_reports', report.id, 'UPSERT', currentReport);
+
+            setBackupProgress((prev) => ({ ...prev, [report.id]: 65 }));
+            const synced = await triggerSync();
+
+            setBackupProgress((prev) => ({ ...prev, [report.id]: synced ? 100 : 0 }));
+            await fetchReports();
+
+            if (!synced) {
+                throw new Error('BACKUP_FAILED');
+            }
+
+            setAlertConfig({
+                visible: true,
+                type: 'success',
+                title: 'Backup Complete',
+                message: 'This report was uploaded to online backup storage.',
+                confirmText: 'OK',
+                onConfirm: () => setAlertConfig({ visible: false }),
+            });
         } catch (error) {
-            console.error(error);
-            setAlertConfig({ visible: true, type: 'error', title: 'Download Failed', message: 'Failed to download the file from the cloud. Please check your connection.', confirmText: 'OK', onConfirm: () => setAlertConfig({ visible: false }) });
+            console.error('Backup error:', error);
+            setAlertConfig({
+                visible: true,
+                type: 'error',
+                title: 'Backup Failed',
+                message: 'Could not back up this report right now. Please check your connection and try again.',
+                confirmText: 'OK',
+                onConfirm: () => setAlertConfig({ visible: false }),
+            });
         } finally {
-            setDownloadingId(null);
+            const reportId = report?.id;
+            setBackupingId(null);
+            if (reportId) {
+                setTimeout(() => {
+                    setBackupProgress((prev) => {
+                        const next = { ...prev };
+                        delete next[reportId];
+                        return next;
+                    });
+                }, 1200);
+            }
         }
     };
 
     const handleCardPress = async (report: any) => {
         if (!report.is_read || report.is_read === 0) {
             try {
-                const db = await getDB();
-                await db.runAsync('UPDATE saved_reports SET is_read = 1 WHERE id = ?', [report.id]);
+                await markReportReadLocal(report.id);
                 setReports(prev => prev.map(r => r.id === report.id ? { ...r, is_read: 1 } : r));
             } catch (e) {
                 console.error("Failed marking read", e);
@@ -431,14 +476,17 @@ export default function SavedReportsScreen() {
         if (report.isLocal) {
             handleOpen(report);
         } else {
-            handleDownload(report);
+            const restored = await handleDownload(report);
+            if (restored) {
+                await handleOpen(restored);
+            }
         }
     };
 
     const handleDelete = (report: any) => {
         setMenuVisible(false);
         setAlertConfig({
-            visible: true, type: 'warning', title: 'Delete File', message: 'Are you sure you want to permanently delete this file from your device and cloud storage?',
+            visible: true, type: 'warning', title: 'Delete File', message: 'Are you sure you want to permanently delete this report from app storage and remove it from Saved Reports?',
             confirmText: 'Delete', cancelText: 'Cancel',
             onConfirm: async () => {
                 setAlertConfig({ visible: false });
@@ -450,39 +498,100 @@ export default function SavedReportsScreen() {
         });
     };
 
-    if (!hasStoragePermission) {
-        return (
-            <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
-                <Header title="Saved Reports" />
-                <View style={styles.permissionContainer}>
-                    <View style={[styles.permissionIconBox, { backgroundColor: theme.colors.primary + '15', borderColor: theme.colors.primary + '30' }]}>
-                        <HugeiconsIcon icon={Folder01Icon} size={48} color={theme.colors.primary} />
-                    </View>
-                    <Text style={[styles.permissionTitle, { color: theme.colors.text }]}>Storage Access Required</Text>
-                    <Text style={[styles.permissionDesc, { color: theme.colors.textSecondary }]}>
-                        To save reports directly to your device and make them accessible in your &quot;Documents&quot; folder, please grant directory access.
-                    </Text>
-                    <Button title="Choose Folder" onPress={requestPermission} style={{ width: '80%', marginTop: 24 }} />
-                </View>
-            </SafeAreaView>
-        );
-    }
+    const handleRenameRequest = (report: any) => {
+        setMenuVisible(false);
+        if (!report?.isLocal || !report?.localPath) {
+            setAlertConfig({
+                visible: true,
+                type: 'warning',
+                title: 'Rename Unavailable',
+                message: 'Download the file to your device first before renaming it.',
+                confirmText: 'OK',
+                onConfirm: () => setAlertConfig({ visible: false }),
+            });
+            return;
+        }
+        setSelectedReport(report);
+        setRenameModalVisible(true);
+    };
+
+    const handleRenameConfirm = async (value: string) => {
+        if (!selectedReport) return;
+        const nextName = value.trim();
+        if (!nextName) {
+            setAlertConfig({
+                visible: true,
+                type: 'warning',
+                title: 'Missing File Name',
+                message: 'Please enter a file name.',
+                confirmText: 'OK',
+                onConfirm: () => setAlertConfig({ visible: false }),
+            });
+            return;
+        }
+
+        try {
+            setLoading(true);
+            const renamed = await renameReportFileOffline({
+                currentUri: selectedReport.localPath,
+                nextFileName: nextName,
+                fileType: selectedReport.file_type,
+            });
+
+            const nextTitle = renamed.fileName.replace(/\.[^.]+$/, '').replace(/_/g, ' ').trim();
+            await renameReportLocal(selectedReport.id, nextTitle || selectedReport.title, {
+                newPath: renamed.filePath,
+                fileSize: renamed.fileSize || selectedReport.file_size || 0,
+                metadata: serializeSavedReportMetadata({
+                    ...parseSavedReportMetadata(selectedReport.metadata),
+                    fileName: renamed.fileName,
+                }),
+            });
+
+            setRenameModalVisible(false);
+            await fetchReports();
+        } catch (error) {
+            console.error('Rename error:', error);
+            setAlertConfig({
+                visible: true,
+                type: 'error',
+                title: 'Rename Failed',
+                message: 'The file could not be renamed. Please try again.',
+                confirmText: 'OK',
+                onConfirm: () => setAlertConfig({ visible: false }),
+            });
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const renderItem = ({ item }: { item: any }) => {
-        const isPdf = item.file_type === 'pdf' || item.file_type === 'application/pdf';
+        const extension = getReportFileExtension(item.file_type);
+        const isPdf = extension === 'pdf';
         const fileIcon = isPdf ? iconPdf : iconXlsx;
         const iconBg = isPdf ? theme.colors.danger + '12' : theme.colors.success + '12';
         
         const isUnread = !item.is_read || item.is_read === 0;
         const isDownloading = downloadingId === item.id;
 
-        const metaStr = item.metadata || '{}';
-        let meta: any = {};
-        try { meta = JSON.parse(metaStr); } catch { }
+        const meta = parseSavedReportMetadata(item.metadata);
         
         const reportDateStr = meta.reportDate || item.period_key || format(new Date(item.created_at), 'MMM dd, yyyy');
+        const activeBackupProgress = backupProgress[item.id];
+        const statusLabel =
+            typeof activeBackupProgress === 'number'
+                ? `Backing Up ${activeBackupProgress}%`
+                : item.isLocal
+                    ? (item.is_synced ? 'Saved & Backed Up' : 'Saved To Device')
+                    : 'Backed Up';
+        const statusColor =
+            typeof activeBackupProgress === 'number'
+                ? theme.colors.primary
+                : item.isLocal
+                    ? (item.is_synced ? theme.colors.success : theme.colors.warning)
+                    : theme.colors.primary;
         
-        const ext = isPdf ? '.pdf' : '.xlsx';
+        const ext = extension === 'pdf' ? '.pdf' : '.xlsx';
         const displayTitle = (item.title || '').toLowerCase().endsWith(ext) ? item.title : `${item.title}${ext}`;
 
         return (
@@ -501,7 +610,7 @@ export default function SavedReportsScreen() {
                             styles.fileName, 
                             { color: isUnread ? theme.colors.text : theme.colors.textSecondary }
                         ]} 
-                        numberOfLines={1} 
+                        numberOfLines={2} 
                         ellipsizeMode="tail"
                     >
                         {displayTitle}
@@ -516,10 +625,13 @@ export default function SavedReportsScreen() {
                             {formatBytes(item.file_size)}
                         </Text>
                     </View>
+                    <View style={[styles.statusPill, { backgroundColor: statusColor + '15' }]}>
+                        <Text style={[styles.statusPillText, { color: statusColor }]}>{statusLabel}</Text>
+                    </View>
                 </View>
 
                 <View style={styles.actionZone}>
-                    {isDownloading ? (
+                    {isDownloading || backupingId === item.id ? (
                         <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginRight: 12 }} />
                     ) : !item.isLocal ? (
                         <View style={styles.cloudBadge}>
@@ -549,6 +661,16 @@ export default function SavedReportsScreen() {
                     report={selectedReport}
                 />
             )}
+
+            <InputModal
+                visible={renameModalVisible}
+                onClose={() => setRenameModalVisible(false)}
+                onConfirm={handleRenameConfirm}
+                title="Rename File"
+                initialValue={selectedReport?.title || ''}
+                placeholder="Enter new file name"
+                confirmLabel="Rename"
+            />
             
             <Header 
                 title="Saved Reports" 
@@ -566,10 +688,12 @@ export default function SavedReportsScreen() {
                 onClose={() => setMenuVisible(false)}
                 anchor={menuAnchor}
                 actions={[
-                    { label: 'Properties', icon: File02Icon, color: theme.colors.text, onPress: () => { setMenuVisible(false); setTimeout(() => setPropertiesModalVisible(true), 150); } },
-                    { label: 'Open File', icon: ViewIcon, color: selectedReport?.isLocal ? theme.colors.text : theme.colors.textSecondary, onPress: () => handleOpen(selectedReport) },
-                    { label: 'Share File', icon: Share08Icon, color: selectedReport?.isLocal ? theme.colors.text : theme.colors.textSecondary, onPress: () => handleShare(selectedReport) },
-                    { label: 'Delete File', icon: Delete02Icon, color: theme.colors.danger, destructive: true, onPress: () => handleDelete(selectedReport) }
+                    { label: 'View Details', icon: File02Icon, color: theme.colors.textSecondary, onPress: () => { setMenuVisible(false); setTimeout(() => setPropertiesModalVisible(true), 150); } },
+                    { label: 'Back Up Online', icon: CloudDownloadIcon, color: selectedReport?.isLocal && selectedReport?.is_synced !== 1 ? theme.colors.success : theme.colors.textSecondary, onPress: () => handleBackup(selectedReport) },
+                    { label: 'Rename', icon: TypeCursorIcon, color: selectedReport?.isLocal ? theme.colors.warning : theme.colors.textSecondary, onPress: () => handleRenameRequest(selectedReport) },
+                    { label: 'Share', icon: Share08Icon, color: selectedReport?.isLocal ? theme.colors.primary : theme.colors.textSecondary, onPress: () => handleShare(selectedReport) },
+                    { label: 'Export to Device', icon: Download04Icon, color: theme.colors.primary, onPress: () => handleSaveToDevice(selectedReport) },
+                    { label: 'Delete Report', icon: Delete02Icon, color: theme.colors.danger, destructive: true, onPress: () => handleDelete(selectedReport) }
                 ]}
             />
 
@@ -599,9 +723,7 @@ export default function SavedReportsScreen() {
             />
 
             {loading ? (
-                <View style={styles.center}>
-                    <ActivityIndicator size="large" color={theme.colors.primary} />
-                </View>
+                <LoadingScreen variant="reports" message="Loading saved reports..." />
             ) : (
                 <FlatList
                     data={sortedReports}
@@ -611,18 +733,30 @@ export default function SavedReportsScreen() {
                     showsVerticalScrollIndicator={false}
                     ListHeaderComponent={
                         reports.length > 0 ? (
-                            <View style={styles.listHeader}>
-                                <View ref={filterIconRef} collapsable={false}>
-                                    <TouchableOpacity onPress={openFilterMenu} style={styles.filterBtn}>
-                                        <Text style={[styles.listHeaderTitle, { color: theme.colors.textSecondary }]}>
-                                            {fileFilter === 'all' ? 'ALL FILES' : fileFilter === 'pdf' ? 'PDF FILES' : 'EXCEL FILES'}
-                                        </Text>
-                                        <HugeiconsIcon icon={filterMenuVisible ? ArrowUp01Icon : ArrowDown01Icon} size={16} color={theme.colors.textSecondary} />
-                                    </TouchableOpacity>
+                            <View>
+                                <View style={[styles.searchBar, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }]}>
+                                    <HugeiconsIcon icon={Search01Icon} size={18} color={theme.colors.textSecondary} />
+                                    <TextInput
+                                        value={searchQuery}
+                                        onChangeText={setSearchQuery}
+                                        placeholder="Search reports or date..."
+                                        placeholderTextColor={theme.colors.textSecondary}
+                                        style={[styles.searchInput, { color: theme.colors.text }]}
+                                    />
                                 </View>
-                                <Text style={[styles.listHeaderCount, { color: theme.colors.textSecondary }]}>
-                                    {sortedReports.length} {sortedReports.length === 1 ? 'item' : 'items'}
-                                </Text>
+                                <View style={styles.listHeader}>
+                                    <View ref={filterIconRef} collapsable={false}>
+                                        <TouchableOpacity onPress={openFilterMenu} style={styles.filterBtn}>
+                                            <Text style={[styles.listHeaderTitle, { color: theme.colors.textSecondary }]}>
+                                                {fileFilter === 'all' ? 'ALL FILES' : fileFilter === 'pdf' ? 'PDF FILES' : 'EXCEL FILES'}
+                                            </Text>
+                                            <HugeiconsIcon icon={filterMenuVisible ? ArrowUp01Icon : ArrowDown01Icon} size={16} color={theme.colors.textSecondary} />
+                                        </TouchableOpacity>
+                                    </View>
+                                    <Text style={[styles.listHeaderCount, { color: theme.colors.textSecondary }]}>
+                                        {sortedReports.length} {sortedReports.length === 1 ? 'item' : 'items'}
+                                    </Text>
+                                </View>
                             </View>
                         ) : null
                     }
@@ -643,34 +777,33 @@ export default function SavedReportsScreen() {
 
 const styles = StyleSheet.create({
     center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-    
-    permissionContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40, marginTop: -40 },
-    permissionIconBox: { width: 100, height: 100, borderRadius: 30, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
-    permissionTitle: { fontSize: 22, fontFamily: 'Nunito_800ExtraBold', marginBottom: 12, textAlign: 'center', letterSpacing: -0.3 },
-    permissionDesc: { fontSize: 15, fontFamily: 'Nunito_500Medium', textAlign: 'center', lineHeight: 24 },
 
     listContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 100 },
+    searchBar: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: 16, paddingHorizontal: 14, height: 50, marginBottom: 16 },
+    searchInput: { flex: 1, fontSize: 14, fontFamily: 'Nunito_600SemiBold' },
     
     listHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, paddingHorizontal: 4 },
     filterBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     listHeaderTitle: { fontSize: 13, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 0.5 },
     listHeaderCount: { fontSize: 13, fontFamily: 'Nunito_700Bold' },
 
-    fileCard: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, marginBottom: 12, borderRadius: 16, borderWidth: 1, height: 70 },
-    iconContainer: { width: 48, height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 14 },
+    fileCard: { flexDirection: 'row', alignItems: 'flex-start', paddingHorizontal: 12, paddingVertical: 12, marginBottom: 12, borderRadius: 18, borderWidth: 1, minHeight: 96 },
+    iconContainer: { width: 48, height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 14, marginTop: 2 },
     fileIcon: { width: 24, height: 24 },
     
-    fileDetails: { flex: 1, justifyContent: 'center', paddingRight: 8 },
-    fileName: { fontSize: 15, fontFamily: 'Nunito_700Bold', letterSpacing: -0.2, marginBottom: 8 },
+    fileDetails: { flex: 1, justifyContent: 'center', paddingRight: 10, minWidth: 0 },
+    fileName: { fontSize: 15, fontFamily: 'Nunito_700Bold', letterSpacing: -0.2, marginBottom: 8, lineHeight: 21 },
     
-    fileMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    fileMetaText: { fontSize: 12, fontFamily: 'Nunito_700Bold' },
+    fileMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+    fileMetaText: { fontSize: 12, fontFamily: 'Nunito_700Bold', lineHeight: 16, flexShrink: 1 },
     metaDot: { width: 3, height: 3, borderRadius: 1.5, opacity: 0.5 },
+    statusPill: { alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999 },
+    statusPillText: { fontSize: 10, fontFamily: 'Nunito_800ExtraBold', letterSpacing: 0.4, textTransform: 'uppercase' },
     
-    actionZone: { flexDirection: 'row', alignItems: 'center', paddingLeft: 4 },
-    cloudBadge: { marginRight: 12, opacity: 0.8 },
-    unreadDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
-    moreBtn: { padding: 4 },
+    actionZone: { flexDirection: 'row', alignItems: 'flex-start', paddingLeft: 4, paddingTop: 4, alignSelf: 'stretch' },
+    cloudBadge: { marginRight: 10, opacity: 0.8, marginTop: 8 },
+    unreadDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8, marginTop: 12 },
+    moreBtn: { padding: 4, marginTop: 4 },
 
     emptyContainer: { alignItems: 'center', marginTop: 100, paddingHorizontal: 30 },
     emptyIconContainer: { width: 72, height: 72, borderRadius: 24, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },

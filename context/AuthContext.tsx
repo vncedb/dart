@@ -3,7 +3,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { Session, User } from '@supabase/supabase-js';
 import * as Notifications from 'expo-notifications';
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { clearLocalUserData } from '../lib/database';
 import { supabase } from '../lib/supabase';
 import { clearAttendanceNotification } from '../utils/NotificationService';
 
@@ -37,6 +38,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isOnboarded, setIsOnboarded] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const lastUserIdRef = useRef<string | null>(null);
 
   // Strictly checks if THIS specific device has seen the onboarding
   const checkOnboardingStatus = useCallback(async (): Promise<boolean> => {
@@ -93,6 +95,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         console.warn('Failed to update app settings during sign out:', settingsErr);
       }
 
+      await clearLocalUserData();
       await supabase.auth.signOut();
     } catch (error) {
       console.error("Sign out error:", error);
@@ -118,6 +121,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         const { data: { session: currentSession } } = await supabase.auth.getSession();
         if (listenerTookOver) return;
+        lastUserIdRef.current = currentSession?.user?.id ?? null;
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
 
@@ -135,6 +139,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       listenerTookOver = true;
+      const nextUserId = newSession?.user?.id ?? null;
+
+      if (lastUserIdRef.current && lastUserIdRef.current !== nextUserId) {
+        await clearLocalUserData();
+      }
+      lastUserIdRef.current = nextUserId;
 
       setSession(newSession);
       setUser(newSession?.user ?? null);

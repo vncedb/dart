@@ -8,10 +8,12 @@ import { HugeiconsIcon } from '@hugeicons/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { format, parseISO } from 'date-fns';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Dimensions,
+    ImageLoadEventData,
     Modal,
     Platform,
     Share,
@@ -38,6 +40,8 @@ import { ensureDartDocumentationsDirectory } from '../lib/saf-directory';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const DOCUMENTATIONS_URI_KEY = 'documentations_directory_uri';
+const IMAGE_FRAME_WIDTH = SCREEN_WIDTH;
+const IMAGE_FRAME_HEIGHT = SCREEN_HEIGHT * 0.7;
 
 type ViewerContext = {
     reportDate?: string | Date | null;
@@ -81,6 +85,73 @@ const ensureDocumentationsUri = async () => {
     return finalUri;
 };
 
+const resolveShareableImageUri = async (imageUri: string) => {
+    const { extension } = inferExtension(imageUri);
+    const baseDir = FileSystem.cacheDirectory || FileSystem.documentDirectory || '';
+    const shareDir = `${baseDir}shared-images/`;
+    const shareUri = `${shareDir}documentation-preview-${Date.now()}.${extension}`;
+
+    const dirInfo = await FileSystem.getInfoAsync(shareDir);
+    if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(shareDir, { intermediates: true });
+    }
+
+    await FileSystem.deleteAsync(shareUri, { idempotent: true });
+
+    if (imageUri.startsWith('http')) {
+        await FileSystem.downloadAsync(imageUri, shareUri);
+    } else if (imageUri.startsWith('content://')) {
+        const base64Data = await FileSystem.readAsStringAsync(imageUri, { encoding: 'base64' });
+        await FileSystem.writeAsStringAsync(shareUri, base64Data, { encoding: 'base64' });
+    } else {
+        await FileSystem.copyAsync({ from: imageUri, to: shareUri });
+    }
+
+    const info = await FileSystem.getInfoAsync(shareUri);
+    if (!info.exists || !info.size) {
+        throw new Error('Shareable image file is unavailable.');
+    }
+
+    return shareUri;
+};
+
+const clamp = (value: number, min: number, max: number) => {
+    'worklet';
+    return Math.min(Math.max(value, min), max);
+};
+
+const getContainedImageSize = (sourceWidth: number, sourceHeight: number) => {
+    if (!sourceWidth || !sourceHeight) {
+        return { width: IMAGE_FRAME_WIDTH, height: IMAGE_FRAME_HEIGHT };
+    }
+
+    const scale = Math.min(IMAGE_FRAME_WIDTH / sourceWidth, IMAGE_FRAME_HEIGHT / sourceHeight);
+    return {
+        width: sourceWidth * scale,
+        height: sourceHeight * scale,
+    };
+};
+
+const getPanBounds = (scale: number, baseWidth: number, baseHeight: number) => {
+    'worklet';
+    const scaledWidth = baseWidth * scale;
+    const scaledHeight = baseHeight * scale;
+
+    return {
+        maxX: Math.max(0, (scaledWidth - IMAGE_FRAME_WIDTH) / 2),
+        maxY: Math.max(0, (scaledHeight - IMAGE_FRAME_HEIGHT) / 2),
+    };
+};
+
+const clampTranslation = (x: number, y: number, scale: number, baseWidth: number, baseHeight: number) => {
+    'worklet';
+    const bounds = getPanBounds(scale, baseWidth, baseHeight);
+    return {
+        x: clamp(x, -bounds.maxX, bounds.maxX),
+        y: clamp(y, -bounds.maxY, bounds.maxY),
+    };
+};
+
 export default function ImageViewer({ visible, imageUri, onClose, context }: ImageViewerProps) {
     const insets = useSafeAreaInsets();
     const [loading, setLoading] = useState(false);
@@ -94,6 +165,8 @@ export default function ImageViewer({ visible, imageUri, onClose, context }: Ima
     const savedTranslateX = useSharedValue(0);
     const savedTranslateY = useSharedValue(0);
     const backdropOpacity = useSharedValue(1);
+    const baseImageWidth = useSharedValue(IMAGE_FRAME_WIDTH);
+    const baseImageHeight = useSharedValue(IMAGE_FRAME_HEIGHT);
 
     const resetTransform = useCallback(() => {
         scale.value = withSpring(1, { damping: 18, stiffness: 120 });
@@ -103,6 +176,14 @@ export default function ImageViewer({ visible, imageUri, onClose, context }: Ima
         savedTranslateX.value = 0;
         savedTranslateY.value = 0;
     }, [scale, savedScale, translateX, translateY, savedTranslateX, savedTranslateY]);
+
+    const handleImageLoad = useCallback((event: { nativeEvent: ImageLoadEventData }) => {
+        const source = event.nativeEvent?.source;
+        const contained = getContainedImageSize(source?.width || IMAGE_FRAME_WIDTH, source?.height || IMAGE_FRAME_HEIGHT);
+        baseImageWidth.value = contained.width;
+        baseImageHeight.value = contained.height;
+        resetTransform();
+    }, [baseImageHeight, baseImageWidth, resetTransform]);
 
     useEffect(() => {
         if (visible && imageUri) {
@@ -122,7 +203,7 @@ export default function ImageViewer({ visible, imageUri, onClose, context }: Ima
 
     const pinchGesture = Gesture.Pinch()
         .onUpdate((e) => {
-            scale.value = savedScale.value * e.scale;
+            scale.value = clamp(savedScale.value * e.scale, 1, 4);
         })
         .onEnd(() => {
             if (scale.value < 1) {
@@ -138,13 +219,36 @@ export default function ImageViewer({ visible, imageUri, onClose, context }: Ima
             } else {
                 savedScale.value = scale.value;
             }
+
+            const nextScale = clamp(scale.value, 1, 4);
+            const clamped = clampTranslation(
+                translateX.value,
+                translateY.value,
+                nextScale,
+                baseImageWidth.value,
+                baseImageHeight.value,
+            );
+
+            scale.value = withSpring(nextScale, { damping: 18, stiffness: 120 });
+            savedScale.value = nextScale;
+            translateX.value = withSpring(nextScale === 1 ? 0 : clamped.x);
+            translateY.value = withSpring(nextScale === 1 ? 0 : clamped.y);
+            savedTranslateX.value = nextScale === 1 ? 0 : clamped.x;
+            savedTranslateY.value = nextScale === 1 ? 0 : clamped.y;
         });
 
     const panGesture = Gesture.Pan()
         .onUpdate((e) => {
             if (scale.value > 1) {
-                translateX.value = savedTranslateX.value + e.translationX;
-                translateY.value = savedTranslateY.value + e.translationY;
+                const next = clampTranslation(
+                    savedTranslateX.value + e.translationX,
+                    savedTranslateY.value + e.translationY,
+                    scale.value,
+                    baseImageWidth.value,
+                    baseImageHeight.value,
+                );
+                translateX.value = next.x;
+                translateY.value = next.y;
             } else {
                 translateY.value = e.translationY;
                 backdropOpacity.value = Math.max(0.3, 1 - Math.abs(e.translationY) / 400);
@@ -152,8 +256,17 @@ export default function ImageViewer({ visible, imageUri, onClose, context }: Ima
         })
         .onEnd((e) => {
             if (scale.value > 1) {
-                savedTranslateX.value = translateX.value;
-                savedTranslateY.value = translateY.value;
+                const clamped = clampTranslation(
+                    translateX.value,
+                    translateY.value,
+                    scale.value,
+                    baseImageWidth.value,
+                    baseImageHeight.value,
+                );
+                translateX.value = withSpring(clamped.x, { damping: 20, stiffness: 200 });
+                translateY.value = withSpring(clamped.y, { damping: 20, stiffness: 200 });
+                savedTranslateX.value = clamped.x;
+                savedTranslateY.value = clamped.y;
             } else {
                 if (Math.abs(e.translationY) > 80 || Math.abs(e.velocityY) > 300) {
                     runOnJS(onClose)();
@@ -177,6 +290,10 @@ export default function ImageViewer({ visible, imageUri, onClose, context }: Ima
             } else {
                 scale.value = withSpring(2.5);
                 savedScale.value = 2.5;
+                translateX.value = withSpring(0);
+                translateY.value = withSpring(0);
+                savedTranslateX.value = 0;
+                savedTranslateY.value = 0;
             }
         });
 
@@ -261,9 +378,20 @@ export default function ImageViewer({ visible, imageUri, onClose, context }: Ima
     const handleShare = async () => {
         if (!imageUri) return;
         try {
-            await Share.share({ url: imageUri });
+            const shareableUri = await resolveShareableImageUri(imageUri);
+            const { mimeType } = inferExtension(shareableUri);
+
+            if (await Sharing.isAvailableAsync()) {
+                await Sharing.shareAsync(shareableUri, {
+                    dialogTitle: 'Share Image',
+                    mimeType,
+                });
+                return;
+            }
+
+            await Share.share({ url: shareableUri });
         } catch {
-            /* ignore */
+            setToast({ message: 'Failed to share image', type: 'error' });
         }
     };
 
@@ -331,11 +459,14 @@ export default function ImageViewer({ visible, imageUri, onClose, context }: Ima
 
                     <GestureDetector gesture={composedGesture}>
                         <View style={styles.imageContainer}>
-                            <Animated.Image
-                                source={{ uri: imageUri }}
-                                style={[styles.image, animatedImageStyle]}
-                                resizeMode="contain"
-                            />
+                            <View style={styles.imageViewport}>
+                                <Animated.Image
+                                    source={{ uri: imageUri }}
+                                    style={[styles.image, animatedImageStyle]}
+                                    resizeMode="contain"
+                                    onLoad={handleImageLoad}
+                                />
+                            </View>
                         </View>
                     </GestureDetector>
 
@@ -345,7 +476,7 @@ export default function ImageViewer({ visible, imageUri, onClose, context }: Ima
                             exiting={FadeOut.duration(150)}
                             style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 24) }]}
                         >
-                            <Text style={styles.footerHint}>Pinch to zoom • Double-tap to zoom • Swipe down to close</Text>
+                            <Text style={styles.footerHint}>Pinch to zoom â€¢ Double-tap to zoom â€¢ Swipe down to close</Text>
                         </Animated.View>
                     )}
                 </Animated.View>
@@ -385,9 +516,16 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
+    imageViewport: {
+        width: IMAGE_FRAME_WIDTH,
+        height: IMAGE_FRAME_HEIGHT,
+        justifyContent: 'center',
+        alignItems: 'center',
+        overflow: 'hidden',
+    },
     image: {
-        width: SCREEN_WIDTH,
-        height: SCREEN_HEIGHT * 0.7,
+        width: IMAGE_FRAME_WIDTH,
+        height: IMAGE_FRAME_HEIGHT,
     },
     toast: {
         position: 'absolute',

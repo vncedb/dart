@@ -1,43 +1,113 @@
 import * as SQLite from 'expo-sqlite';
 import { type SQLiteDatabase } from 'expo-sqlite';
 
-let dbInstance: SQLiteDatabase | null = null;
-let dbPromise: Promise<SQLiteDatabase> | null = null;
+const DB_NAME = 'dart_local.db';
 
-export const getDB = async (): Promise<SQLiteDatabase> => {
-  if (dbInstance) {
+let rawDbInstance: SQLiteDatabase | null = null;
+let rawDbPromise: Promise<SQLiteDatabase> | null = null;
+let dbProxy: SQLiteDatabase | null = null;
+
+const isRecoverableDbError = (error: unknown) => {
+  const message = String((error as any)?.message || error || '').toLowerCase();
+  return (
+    message.includes('nativedatabase.prepareasync') ||
+    message.includes('nullpointerexception') ||
+    message.includes('access to closed resource') ||
+    message.includes('database is closed')
+  );
+};
+
+const resetRawDb = async () => {
+  if (rawDbInstance) {
     try {
-      await dbInstance.getFirstAsync('SELECT 1');
-      return dbInstance;
+      await rawDbInstance.closeAsync();
     } catch {
-      dbInstance = null;
-      dbPromise = null;
+      // ignore close errors while recovering
     }
   }
 
-  if (dbPromise) {
-    return dbPromise;
+  rawDbInstance = null;
+  rawDbPromise = null;
+};
+
+const openRawDb = async (): Promise<SQLiteDatabase> => {
+  if (rawDbInstance) {
+    return rawDbInstance;
   }
 
-  dbPromise = (async () => {
+  if (rawDbPromise) {
+    return rawDbPromise;
+  }
+
+  rawDbPromise = (async () => {
     try {
-      const db = await SQLite.openDatabaseAsync('dart_local.db');
-      dbInstance = db;
+      const db = await SQLite.openDatabaseAsync(DB_NAME);
+      rawDbInstance = db;
       return db;
     } catch (error) {
-      console.error("Critical DB Init Error:", error);
-      dbPromise = null;
+      rawDbPromise = null;
+      console.error('Critical DB Init Error:', error);
       throw error;
     }
   })();
 
-  return dbPromise;
+  return rawDbPromise;
+};
+
+const executeWithRecovery = async (methodName: PropertyKey, args: unknown[]) => {
+  const run = async () => {
+    const db = await openRawDb();
+    const method = (db as any)[methodName];
+
+    if (typeof method !== 'function') {
+      return method;
+    }
+
+    return method.apply(db, args);
+  };
+
+  try {
+    return await run();
+  } catch (error) {
+    if (!isRecoverableDbError(error)) {
+      throw error;
+    }
+
+    console.warn(`[DB] Recovering from SQLite handle error on ${String(methodName)}...`);
+    await resetRawDb();
+    return run();
+  }
+};
+
+const createDbProxy = () =>
+  new Proxy(
+    {},
+    {
+      get(_target, prop) {
+        if (prop === 'then' || prop === 'catch' || prop === 'finally' || typeof prop === 'symbol') {
+          return undefined;
+        }
+
+        if (prop === 'closeAsync') {
+          return async () => {
+            await resetRawDb();
+          };
+        }
+
+        return (...args: unknown[]) => executeWithRecovery(prop, args);
+      },
+    },
+  ) as SQLiteDatabase;
+
+export const getDB = async (): Promise<SQLiteDatabase> => {
+  if (!dbProxy) {
+    dbProxy = createDbProxy();
+  }
+
+  await openRawDb();
+  return dbProxy;
 };
 
 export const closeDB = async () => {
-  if (dbInstance) {
-    try { await dbInstance.closeAsync(); } catch { /* already closed */ }
-  }
-  dbInstance = null;
-  dbPromise = null;
+  await resetRawDb();
 };

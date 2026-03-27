@@ -256,29 +256,37 @@ export const getPendingSyncCount = async () => {
 };
 
 // --- PROFILES & ONBOARDING ---
-export const saveProfileLocal = async (profile: any) => {
+export const saveProfileLocal = async (profile: any, options?: { queueSync?: boolean; synced?: boolean }) => {
   const db = await getDB();
   const now = new Date().toISOString();
+  const shouldQueueSync = options?.queueSync !== false;
+  const syncedValue = options?.synced ? 1 : 0;
   await db.runAsync(
-    `INSERT OR REPLACE INTO profiles (id, email, first_name, last_name, middle_name, title, professional_suffix, current_job_id, full_name, avatar_url, local_avatar_path, is_onboarded, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    `INSERT OR REPLACE INTO profiles (id, email, first_name, last_name, middle_name, title, professional_suffix, current_job_id, full_name, avatar_url, local_avatar_path, is_onboarded, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      profile.id, profile.email || "", profile.first_name || "", profile.last_name || "", profile.middle_name || "", profile.title || "", profile.professional_suffix || "", profile.current_job_id, profile.full_name || "", profile.avatar_url || null, profile.local_avatar_path || null, profile.is_onboarded ? 1 : 0, profile.updated_at || now,
+      profile.id, profile.email || "", profile.first_name || "", profile.last_name || "", profile.middle_name || "", profile.title || "", profile.professional_suffix || "", profile.current_job_id, profile.full_name || "", profile.avatar_url || null, profile.local_avatar_path || null, profile.is_onboarded ? 1 : 0, profile.updated_at || now, syncedValue,
     ]
   );
-  await queueSyncItem("profiles", profile.id, "UPSERT", profile);
+  if (shouldQueueSync) {
+    await queueSyncItem("profiles", profile.id, "UPSERT", profile);
+  }
 };
 
 // --- JOBS ---
-export const saveJobLocal = async (job: any) => {
+export const saveJobLocal = async (job: any, options?: { queueSync?: boolean; synced?: boolean }) => {
   const db = await getDB();
   const now = new Date().toISOString();
+  const shouldQueueSync = options?.queueSync !== false;
+  const syncedValue = options?.synced ? 1 : 0;
   await db.runAsync(
-    `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, payout_type, period_target, work_schedule, break_schedule, created_at, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+    `INSERT OR REPLACE INTO job_positions (id, user_id, title, company, department, employment_status, rate, rate_type, payout_type, period_target, work_schedule, break_schedule, created_at, updated_at, is_synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
-      job.id, job.user_id, job.title, job.company || job.company_name || "", job.department || "", job.employment_status || "Regular", job.rate || 0, job.rate_type || "hourly", job.payout_type || "Semi-Monthly", job.period_target !== undefined ? job.period_target : null, typeof job.work_schedule === "string" ? job.work_schedule : JSON.stringify(job.work_schedule), typeof job.break_schedule === "string" ? job.break_schedule : JSON.stringify(job.break_schedule), job.created_at || now, now,
+      job.id, job.user_id, job.title, job.company || job.company_name || "", job.department || "", job.employment_status || "Regular", job.rate || 0, job.rate_type || "hourly", job.payout_type || "Semi-Monthly", job.period_target !== undefined ? job.period_target : null, typeof job.work_schedule === "string" ? job.work_schedule : JSON.stringify(job.work_schedule), typeof job.break_schedule === "string" ? job.break_schedule : JSON.stringify(job.break_schedule), job.created_at || now, now, syncedValue,
     ]
   );
-  await queueSyncItem("job_positions", job.id, "UPSERT", job);
+  if (shouldQueueSync) {
+    await queueSyncItem("job_positions", job.id, "UPSERT", job);
+  }
 };
 
 // SOFT DELETE
@@ -334,13 +342,18 @@ export const saveAccomplishmentLocal = async (acc: any) => {
 };
 
 // --- REPORTS ---
-export const saveReportLocal = async (report: any) => {
+export const saveReportLocal = async (
+  report: any,
+  options?: { queueSync?: boolean; synced?: boolean },
+) => {
   const db = await getDB();
   const now = new Date().toISOString();
+  const shouldQueueSync = options?.queueSync !== false;
+  const isSynced = options?.synced ? 1 : 0;
 
   try {
     await db.runAsync(
-      `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, file_url, public_url, remote_url, metadata, created_at, updated_at, is_synced, is_read, period_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, file_url, public_url, remote_url, metadata, created_at, updated_at, is_synced, is_read, period_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         report.id,
         report.user_id,
@@ -354,6 +367,7 @@ export const saveReportLocal = async (report: any) => {
         report.metadata || null,
         report.created_at || now,
         now,
+        isSynced,
         report.is_read ? 1 : 0,
         report.period_key || null,
       ],
@@ -365,7 +379,7 @@ export const saveReportLocal = async (report: any) => {
 
     // Backward compatibility for pre-migration local databases.
     await db.runAsync(
-      `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, public_url, remote_url, metadata, created_at, updated_at, is_synced, is_read, period_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+      `INSERT OR REPLACE INTO saved_reports (id, user_id, title, file_path, file_type, file_size, public_url, remote_url, metadata, created_at, updated_at, is_synced, is_read, period_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         report.id,
         report.user_id,
@@ -378,13 +392,19 @@ export const saveReportLocal = async (report: any) => {
         report.metadata || null,
         report.created_at || now,
         now,
+        isSynced,
         report.is_read ? 1 : 0,
         report.period_key || null,
       ],
     );
   }
 
-  await queueSyncItem("saved_reports", report.id, "UPSERT", report);
+  if (shouldQueueSync) {
+    await queueSyncItem("saved_reports", report.id, "UPSERT", {
+      ...report,
+      updated_at: report.updated_at || now,
+    });
+  }
 };
 
 export const markReportReadLocal = async (id: string) => {
@@ -398,19 +418,49 @@ export const markReportReadLocal = async (id: string) => {
 export const deleteReportLocal = async (id: string) => {
   const db = await getDB();
   const now = new Date().toISOString();
+  const existing: any = await db.getFirstAsync(
+    "SELECT remote_url, file_url, public_url FROM saved_reports WHERE id = ?",
+    [id],
+  );
   await db.runAsync("UPDATE saved_reports SET deleted_at = ?, is_synced = 0, updated_at = ? WHERE id = ?", [now, now, id]);
-  await queueSyncItem("saved_reports", id, "UPDATE", { deleted_at: now, updated_at: now });
+  await queueSyncItem("saved_reports", id, "UPDATE", {
+    deleted_at: now,
+    updated_at: now,
+    remote_url: existing?.remote_url || existing?.file_url || existing?.public_url || null,
+  });
 };
 
-export const renameReportLocal = async (id: string, newTitle: string, newPath?: string) => {
+export const renameReportLocal = async (
+  id: string,
+  newTitle: string,
+  options?: {
+    newPath?: string;
+    fileSize?: number;
+    metadata?: string | null;
+  },
+) => {
   const db = await getDB();
   const now = new Date().toISOString();
-  if (newPath) {
-    await db.runAsync("UPDATE saved_reports SET title = ?, file_path = ?, updated_at = ?, is_synced = 0 WHERE id = ?", [newTitle, newPath, now, id]);
-  } else {
-    await db.runAsync("UPDATE saved_reports SET title = ?, updated_at = ?, is_synced = 0 WHERE id = ?", [newTitle, now, id]);
-  }
-  await queueSyncItem("saved_reports", id, "UPDATE", { title: newTitle, file_path: newPath, updated_at: now });
+  const existing: any = await db.getFirstAsync(
+    "SELECT file_path, file_size, metadata, remote_url, file_url, public_url FROM saved_reports WHERE id = ?",
+    [id],
+  );
+  const nextPath = options?.newPath ?? existing?.file_path ?? null;
+  const nextSize = options?.fileSize ?? existing?.file_size ?? 0;
+  const nextMetadata = typeof options?.metadata !== "undefined" ? options.metadata : existing?.metadata ?? null;
+
+  await db.runAsync(
+    "UPDATE saved_reports SET title = ?, file_path = ?, file_size = ?, metadata = ?, updated_at = ?, is_synced = 0 WHERE id = ?",
+    [newTitle, nextPath, nextSize, nextMetadata, now, id],
+  );
+  await queueSyncItem("saved_reports", id, "UPDATE", {
+    title: newTitle,
+    file_path: nextPath,
+    file_size: nextSize,
+    metadata: nextMetadata,
+    remote_url: existing?.remote_url || existing?.file_url || existing?.public_url || null,
+    updated_at: now,
+  });
 };
 
 export const checkReportTitleExists = async (title: string, fileType: string, userId: string) => {
